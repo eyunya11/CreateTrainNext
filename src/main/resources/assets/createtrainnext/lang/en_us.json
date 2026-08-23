@@ -1,0 +1,9 @@
+{
+  "itemGroup.createtrainnext": "Create Train Next",
+  "block.createtrainnext.angled_track_anchor": "Angled Track Anchor",
+
+  "message.createtrainnext.angle": "Angle: %s°",
+  "message.createtrainnext.link_started": "Start anchor selected. Use the stick on a second anchor.",
+  "message.createtrainnext.link_done": "Curve linked.",
+  "message.createtrainnext.link_cleared": "Link cleared."
+}

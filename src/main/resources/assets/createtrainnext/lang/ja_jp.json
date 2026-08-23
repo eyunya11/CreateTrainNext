@@ -1,0 +1,9 @@
+{
+  "itemGroup.createtrainnext": "Create Train Next",
+  "block.createtrainnext.angled_track_anchor": "自由角度レールアンカー",
+
+  "message.createtrainnext.angle": "角度: %s°",
+  "message.createtrainnext.link_started": "始点を選択しました。棒でもう一方のアンカーをクリックしてください。",
+  "message.createtrainnext.link_done": "カーブを接続しました。",
+  "message.createtrainnext.link_cleared": "接続を解除しました。"
+}
