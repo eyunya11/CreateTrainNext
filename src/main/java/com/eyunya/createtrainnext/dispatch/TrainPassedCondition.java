@@ -2,7 +2,6 @@ package com.eyunya.createtrainnext.dispatch;
 
 import java.util.List;
 import java.util.Locale;
-import java.util.Optional;
 
 import com.eyunya.createtrainnext.CreateTrainNext;
 import com.eyunya.createtrainnext.dispatch.TrainBound.Match;
@@ -10,6 +9,7 @@ import com.google.common.collect.ImmutableList;
 import com.simibubi.create.Create;
 import com.simibubi.create.content.trains.entity.Carriage;
 import com.simibubi.create.content.trains.entity.Train;
+import com.simibubi.create.content.trains.entity.TravellingPoint;
 import com.simibubi.create.content.trains.schedule.condition.ScheduleWaitCondition;
 import com.simibubi.create.content.trains.station.GlobalStation;
 import com.simibubi.create.foundation.gui.ModularGuiLineBuilder;
@@ -26,6 +26,7 @@ import net.minecraft.resources.ResourceKey;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.Level;
+import net.minecraft.world.phys.Vec3;
 
 import net.neoforged.api.distmarker.Dist;
 import net.neoforged.api.distmarker.OnlyIn;
@@ -66,9 +67,17 @@ public class TrainPassedCondition extends ScheduleWaitCondition {
 	/** Set on the condition's own context tag once a matching train has been inside the radius. */
 	private static final String CONTEXT_ARRIVED = "Arrived";
 
+	/**
+	 * The radius is one number doing two jobs, which is what makes a large one a poor default
+	 * rather than simply a generous one: it is both how far out a train is first noticed and how
+	 * far it must get before it counts as gone. Widen it and the waiting train notices the express
+	 * sooner, but then also sits at the platform until the express is that far past. So the value
+	 * that works is the size of the conflict — the loop and its approaches — not the furthest the
+	 * express can be seen from.
+	 */
 	private static final int DEFAULT_RADIUS = 32;
 	private static final int MIN_RADIUS = 4;
-	private static final int MAX_RADIUS = 128;
+	private static final int MAX_RADIUS = 256;
 
 	public TrainPassedCondition() {
 		// Written into the data tag rather than only defaulted on read, so that the number the
@@ -134,27 +143,46 @@ public class TrainPassedCondition extends ScheduleWaitCondition {
 	}
 
 	/**
-	 * Whether any train other than {@code waiting} whose name matches sits within the radius.
+	 * Whether any train other than {@code waiting} that passes the filters sits within the radius.
 	 *
-	 * <p>Deliberately not {@code Train#getPositionInDimension}, which reports the first carriage
-	 * that has a position and so speaks for the head of the train alone. A train pulling out of a
-	 * loop is not clear of it until its last carriage is.
+	 * <p>Positions come from the track graph, not from {@code Carriage#getPositionInDimension}.
+	 * That one reads the carriage's entity, which only exists where the chunk is loaded, so a train
+	 * approaching through unloaded terrain would report nothing at all and no radius, however
+	 * large, would find it. Create keeps trains moving through unloaded chunks, so the express this
+	 * condition exists to wait for is very often exactly that train. A travelling point's position
+	 * is derived from the edge it sits on and is available wherever the graph is.
+	 *
+	 * <p>Both ends of every carriage are tested rather than one point for the train, so a train
+	 * longer than the radius still counts as passing until its tail is clear.
 	 */
 	private static boolean isMatchingTrainNear(Train waiting, String filter, Match bound,
 		ResourceKey<Level> dimension, BlockPos stationPos, int radius) {
+		Vec3 centre = Vec3.atCenterOf(stationPos);
+		double radiusSqr = (double) radius * radius;
+
 		for (Train other : Create.RAILWAYS.trains.values()) {
 			if (other.id.equals(waiting.id))
+				continue;
+			if (other.graph == null)
 				continue;
 			if (!matches(other, filter))
 				continue;
 			if (!bound.test(waiting, other))
 				continue;
-			for (Carriage carriage : other.carriages) {
-				Optional<BlockPos> position = carriage.getPositionInDimension(dimension);
-				if (position.isPresent() && position.get()
-					.closerThan(stationPos, radius))
-					return true;
-			}
+
+			for (Carriage carriage : other.carriages)
+				for (TravellingPoint point : List.of(carriage.getLeadingPoint(), carriage.getTrailingPoint())) {
+					if (point.edge == null || point.node1 == null)
+						continue;
+					// The graph spans dimensions through portals, so an edge has to be placed before
+					// its position means anything against a station in this one.
+					if (!dimension.equals(point.node1.getLocation()
+						.getDimension()))
+						continue;
+					if (point.getPosition(other.graph)
+						.distanceToSqr(centre) <= radiusSqr)
+						return true;
+				}
 		}
 		return false;
 	}
