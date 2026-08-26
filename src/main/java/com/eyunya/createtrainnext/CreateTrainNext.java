@@ -3,6 +3,7 @@ package com.eyunya.createtrainnext;
 import org.slf4j.Logger;
 
 import com.eyunya.createtrainnext.client.CreateTrainNextClient;
+import com.eyunya.createtrainnext.dispatch.CTNSchedule;
 import com.eyunya.createtrainnext.speed.CTNEdgePointTypes;
 import com.mojang.logging.LogUtils;
 
@@ -34,6 +35,9 @@ public class CreateTrainNext {
 		// Create's edge point types are a static map with no registry event behind them, so this
 		// has to be poked by hand rather than deferred like the blocks above.
 		CTNEdgePointTypes.register();
+		// Same story for schedule conditions: a public static list, not a registry, and both
+		// sides need the entry or the client drops the condition when it parses a schedule.
+		CTNSchedule.register();
 		CTNCommands.init(modEventBus);
 
 		// The config is registered from the client branch because everything in it is client side.

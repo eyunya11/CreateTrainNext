@@ -5,6 +5,11 @@
   "createtrainnext.speed_limit.limit": "制限速度",
   "createtrainnext.speed_limit.row": "速度",
 
+  "createtrainnext.schedule.condition.train_passed": "列車の通過待ち",
+  "createtrainnext.schedule.condition.train_passed.status.waiting": "%s を待機中",
+  "createtrainnext.schedule.condition.train_passed.status.passing": "%s が通過中",
+  "createtrainnext.schedule.condition.train_passed.radius": "検知半径",
+
   "message.createtrainnext.angle": "角度: %s°",
   "message.createtrainnext.link_started": "ここから経路を開始します。次のアンカーをクリックすると繋がります。",
   "message.createtrainnext.link_done": "接続しました。続けて次のアンカーをクリックすると経路が伸びます。",

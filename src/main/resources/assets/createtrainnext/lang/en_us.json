@@ -5,6 +5,11 @@
   "createtrainnext.speed_limit.limit": "Speed Limit",
   "createtrainnext.speed_limit.row": "Speed",
 
+  "createtrainnext.schedule.condition.train_passed": "Train Passed",
+  "createtrainnext.schedule.condition.train_passed.status.waiting": "Waiting for %s",
+  "createtrainnext.schedule.condition.train_passed.status.passing": "%s is passing",
+  "createtrainnext.schedule.condition.train_passed.radius": "Detection radius",
+
   "message.createtrainnext.angle": "Angle: %s°",
   "message.createtrainnext.link_started": "Route starts here. Click the next anchor to link to it.",
   "message.createtrainnext.link_done": "Linked. Click the next anchor to carry the route on.",
