@@ -29,6 +29,7 @@ import com.simibubi.create.content.trains.track.TrackTargetingBehaviour.Rendered
 import dev.engine_room.flywheel.lib.model.baked.PartialModel;
 import dev.engine_room.flywheel.lib.transform.Affine;
 import dev.engine_room.flywheel.lib.transform.TransformStack;
+import net.createmod.catnip.data.Couple;
 import net.createmod.catnip.math.AngleHelper;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
@@ -243,23 +244,32 @@ public class AngledTrackAnchorBlock extends Block implements EntityBlock, ITrack
 			world.getBlockEntity(pos) instanceof AngledTrackAnchorBlockEntity a ? a : null;
 		BezierConnection span = linear || anchor == null ? null : anchor.buildSpan();
 
-		for (Vec3 axis : getTrackAxes(world, pos, state)) {
-			BiFunction<Double, Boolean, Vec3> offsetFactory = span != null
-				? (d, b) -> d == 1 ? Vec3.atLowerCornerOf(span.bePositions.get(b)) : span.starts.get(b)
-				: (d, b) -> axis.scale(b ? d : -d)
-					.add(center);
-			Function<Boolean, ResourceKey<Level>> dimensionFactory =
-				b -> world instanceof Level l ? l.dimension() : Level.OVERWORLD;
-			Function<Vec3, Integer> yOffsetFactory = v -> getYOffsetAt(world, pos, state, v);
+		Function<Boolean, ResourceKey<Level>> dimensionFactory =
+			b -> world instanceof Level l ? l.dimension() : Level.OVERWORLD;
+		Function<Vec3, Integer> yOffsetFactory = v -> getYOffsetAt(world, pos, state, v);
 
-			// The same two node positions either way — the linear form exists only because
-			// onRailAdded seeds its search with a linear-only query and then dereferences the
-			// start node it expects to have found. Report nothing there and it crashes.
-			ITrackBlock.addToListIfConnected(connectedTo, list, offsetFactory,
+		if (span != null) {
+			// The block's own stretch of route, bending across it to meet a discrete axis at
+			// whichever side is open.
+			ITrackBlock.addToListIfConnected(connectedTo, list,
+				(d, b) -> d == 1 ? Vec3.atLowerCornerOf(span.bePositions.get(b)) : span.starts.get(b),
+				b -> getUpNormal(world, pos, state), dimensionFactory, yOffsetFactory, null, span,
+				(b, v) -> ITrackBlock.getMaterialSimple(world, v, getMaterial()));
+
+		} else if (linear) {
+			// Seeding only. onRailAdded runs a linear-only query and then dereferences the start
+			// node it expects to have found, so reporting nothing here crashes it — including for
+			// an anchor mid-chain, which has no straight stretch of its own left to report.
+			Couple<Vec3> seed = anchor != null ? anchor.seedPair()
+				: Couple.create(center.subtract(axisVector(state).scale(0.5)),
+					center.add(axisVector(state).scale(0.5)));
+
+			ITrackBlock.addToListIfConnected(connectedTo, list, (d, b) -> seed.get(b),
 				b -> getUpNormal(world, pos, state), dimensionFactory, yOffsetFactory,
-				span != null ? null : axis, span,
+				axisVector(state), null,
 				(b, v) -> ITrackBlock.getMaterialSimple(world, v, getMaterial()));
 		}
+		// Otherwise this anchor is mid-chain: its curves meet at the centre and it has no span.
 
 		if (linear || anchor == null)
 			return list;

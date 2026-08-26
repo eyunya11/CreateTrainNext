@@ -254,57 +254,76 @@ public class AngledTrackAnchorBlockEntity extends BlockEntity {
 	}
 
 	/**
-	 * Where this anchor's two nodes sit, relative to the block's bottom centre: the entry is that
-	 * much behind it, the exit that much ahead.
+	 * Half a step along this anchor's axis, pointing the way the route is going. Both of an end
+	 * anchor's nodes are this far either side of the block's centre.
 	 *
-	 * <p>The two are chosen independently, and that is the point. Both must land on the half-block
-	 * lattice, so each is half a step along one of {@link AnchorAxis}'s four directions — but
-	 * nothing says it has to be the <em>same</em> direction for both. Using one axis for both puts
-	 * the line between them on that axis, up to 22.5 degrees off the heading, and the route has to
-	 * swing out and back across every single anchor to reach it. Mixing them lets the line between
-	 * the nodes sit much closer to the heading: at 30 degrees an orthogonal entry with a diagonal
-	 * exit gives 26.57, where either axis alone gives 0 or 45.
+	 * <p>Both offsets deliberately use the same axis, which is what puts the nodes exactly where
+	 * Create's own track puts its own — {@code blockCentre ± axis * 0.5} — so an adjacent piece of
+	 * track reports the same node and the two merge.
+	 *
+	 * <p>An earlier version chose the two independently to bring the line between them closer to
+	 * the heading. That mattered when every anchor had two nodes, but interior anchors collapse to
+	 * a single centre now, so it only ever applied to the ends — where docking matters more than
+	 * the last few degrees. It also broke docking outright at 45: an orthogonal entry paired with
+	 * an orthogonal exit scores exactly as well there as a diagonal pair, and won on iteration
+	 * order, putting the nodes on edge midpoints where Create's diagonals never have any.
 	 */
-	private Couple<Vec3> nodeOffsets() {
-		Vec3 heading = heading();
-
-		Vec3 bestEntry = forward(AnchorAxis.Z_ORTHO, heading);
-		Vec3 bestExit = bestEntry;
-		double bestScore = -Double.MAX_VALUE;
-
-		for (AnchorAxis entryAxis : AnchorAxis.values()) {
-			Vec3 entry = forward(entryAxis, heading);
-			for (AnchorAxis exitAxis : AnchorAxis.values()) {
-				Vec3 exit = forward(exitAxis, heading);
-
-				Vec3 between = entry.add(exit);
-				if (between.lengthSqr() < 1.0E-6)
-					continue;
-
-				double score = between.normalize()
-					.dot(heading);
-				if (score <= bestScore)
-					continue;
-
-				bestScore = score;
-				bestEntry = entry;
-				bestExit = exit;
-			}
-		}
-
-		return Couple.create(bestEntry, bestExit);
+	private Vec3 forwardOffset() {
+		return forward(getBlockState().getValue(AngledTrackAnchorBlock.AXIS), heading());
 	}
 
-	/** The node a curve from {@link #prev} arrives at. */
+	/**
+	 * The node a curve from {@link #prev} arrives at: the block's centre when there is one.
+	 *
+	 * <p>A centre is on the half-block lattice whatever the heading, so putting the node there
+	 * costs nothing and removes the constraint that made routes rough. Where an anchor's nodes may
+	 * sit is quantised; two of them meant the route had to pass through both, and the line between
+	 * them could not follow the heading, so it swung out and back across every anchor. One node,
+	 * and the curves either side simply meet there with opposite tangents.
+	 *
+	 * <p>An open side keeps its boundary node instead, because that is where Create's own track
+	 * puts its nodes and sharing one is what lets the two dock.
+	 */
 	public Vec3 entryNode() {
-		return Vec3.atBottomCenterOf(worldPosition)
-			.subtract(nodeOffsets().getFirst());
+		Vec3 centre = Vec3.atBottomCenterOf(worldPosition);
+		return isInterior() ? centre : centre.subtract(forwardOffset());
 	}
 
-	/** The node the curve to {@link #next} leaves from. */
+	/** The node the curve to {@link #next} leaves from. The block's centre when interior. */
 	public Vec3 exitNode() {
-		return Vec3.atBottomCenterOf(worldPosition)
-			.add(nodeOffsets().getSecond());
+		Vec3 centre = Vec3.atBottomCenterOf(worldPosition);
+		return isInterior() ? centre : centre.add(forwardOffset());
+	}
+
+	/**
+	 * Whether this anchor has a chain running through it, rather than ending at it.
+	 *
+	 * <p>Only an interior anchor collapses to a single centre node. An end keeps both boundary
+	 * nodes, and the reason is Create's track rendering rather than the graph: it cuts a curve
+	 * into {@code (int) (length * 2)} segments and then draws each rail piece 2.2 times the
+	 * segment's length. Half a block of span comes out as one segment with rails drawn well past
+	 * the ends of it, splayed around a normal sampled from almost nothing. A full block behaves.
+	 *
+	 * <p>An end is also where the route is handing over to Create's discrete axes anyway, so the
+	 * small amount of roughness that two boundary nodes reintroduce belongs there if anywhere.
+	 */
+	private boolean isInterior() {
+		return prev != null && next != null;
+	}
+
+	/**
+	 * Two distinct lattice points for {@code TrackPropagator}'s linear-only seeding query, which
+	 * dereferences the start node it expects that to have found. An anchor in the middle of a chain
+	 * has only its centre, so pair it with a boundary the real graph never uses: seeding stops at
+	 * the first location it can make a node of, and reporting the centre first means that is the
+	 * centre.
+	 */
+	public Couple<Vec3> seedPair() {
+		Vec3 entry = entryNode();
+		Vec3 exit = exitNode();
+		if (entry.distanceToSqr(exit) > 1.0E-6)
+			return Couple.create(entry, exit);
+		return Couple.create(entry, entry.add(forwardOffset()));
 	}
 
 	/**
@@ -354,6 +373,13 @@ public class AngledTrackAnchorBlockEntity extends BlockEntity {
 	public BezierConnection buildSpan() {
 		Vec3 entry = entryNode();
 		Vec3 exit = exitNode();
+
+		// Nothing to span in the middle of a chain: both sides use the centre, and the curves
+		// either side of it meet there directly. This is what removes the roughness — there is no
+		// longer a stretch of route pinned between two quantised points.
+		if (entry.distanceToSqr(exit) < 1.0E-6)
+			return null;
+
 		// The line the two nodes actually lie on, which an open end hands to whatever docks there.
 		Vec3 axisForward = exit.subtract(entry)
 			.normalize();
