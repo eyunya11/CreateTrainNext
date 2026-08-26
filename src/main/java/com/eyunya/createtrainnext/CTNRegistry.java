@@ -2,8 +2,12 @@ package com.eyunya.createtrainnext;
 
 import java.util.function.Supplier;
 
+import com.eyunya.createtrainnext.speed.CTNEdgePointTypes;
+import com.eyunya.createtrainnext.speed.SpeedLimitBlock;
+import com.eyunya.createtrainnext.speed.SpeedLimitBlockEntity;
 import com.eyunya.createtrainnext.track.AngledTrackAnchorBlock;
 import com.eyunya.createtrainnext.track.AngledTrackAnchorBlockEntity;
+import com.simibubi.create.content.trains.track.TrackTargetingBlockItem;
 
 import net.minecraft.core.registries.Registries;
 import net.minecraft.network.chat.Component;
@@ -51,12 +55,40 @@ public class CTNRegistry {
 			.of(AngledTrackAnchorBlockEntity::new, ANGLED_TRACK_ANCHOR.get())
 			.build(null));
 
+	public static final DeferredBlock<SpeedLimitBlock> TRACK_SPEED_LIMIT = BLOCKS.registerBlock(
+		"track_speed_limit",
+		SpeedLimitBlock::new,
+		// Matched to Create's own trackside blocks, so a speed limit breaks and sounds like the
+		// signal standing next to it. noOcclusion because the sign is a post, not a full cube.
+		BlockBehaviour.Properties.of()
+			.mapColor(MapColor.PODZOL)
+			.strength(0.8F)
+			.sound(SoundType.NETHERITE_BLOCK)
+			.noOcclusion());
+
+	/**
+	 * Not a plain BlockItem: {@link TrackTargetingBlockItem} is what turns placement into Create's
+	 * two-step "click the track, then click where the block goes", and it is the item rather than
+	 * the block that decides which kind of point gets created.
+	 */
+	public static final DeferredItem<TrackTargetingBlockItem> TRACK_SPEED_LIMIT_ITEM =
+		ITEMS.registerItem("track_speed_limit", properties -> new TrackTargetingBlockItem(TRACK_SPEED_LIMIT.get(),
+			properties, CTNEdgePointTypes.SPEED_LIMIT));
+
+	public static final Supplier<BlockEntityType<SpeedLimitBlockEntity>> TRACK_SPEED_LIMIT_ENTITY =
+		BLOCK_ENTITIES.register("track_speed_limit", () -> BlockEntityType.Builder
+			.of(SpeedLimitBlockEntity::new, TRACK_SPEED_LIMIT.get())
+			.build(null));
+
 	public static final DeferredHolder<CreativeModeTab, CreativeModeTab> TAB =
 		CREATIVE_TABS.register("main", () -> CreativeModeTab.builder()
 			.title(Component.translatable("itemGroup." + CreateTrainNext.ID))
 			.icon(() -> ANGLED_TRACK_ANCHOR_ITEM.get()
 				.getDefaultInstance())
-			.displayItems((params, output) -> output.accept(ANGLED_TRACK_ANCHOR_ITEM.get()))
+			.displayItems((params, output) -> {
+				output.accept(ANGLED_TRACK_ANCHOR_ITEM.get());
+				output.accept(TRACK_SPEED_LIMIT_ITEM.get());
+			})
 			.build());
 
 	public static void register(IEventBus modEventBus) {

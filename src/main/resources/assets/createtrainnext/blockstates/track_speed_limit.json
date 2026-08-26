@@ -1,0 +1,6 @@
+{
+  "__comment": "One variant for every rotation, and it draws nothing. SpeedLimitRenderer draws the sign so its 22.5 degree steps stay a constant in code rather than sixteen variants here; this model carries only the texture that breaking particles come from.",
+  "variants": {
+    "": { "model": "createtrainnext:block/track_speed_limit_particle" }
+  }
+}

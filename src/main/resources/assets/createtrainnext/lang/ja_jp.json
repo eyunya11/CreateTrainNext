@@ -1,6 +1,9 @@
 {
   "itemGroup.createtrainnext": "Create Train Next",
   "block.createtrainnext.angled_track_anchor": "自由角度レールアンカー",
+  "block.createtrainnext.track_speed_limit": "速度制限標識",
+  "createtrainnext.speed_limit.limit": "制限速度",
+  "createtrainnext.speed_limit.row": "速度",
 
   "message.createtrainnext.angle": "角度: %s°",
   "message.createtrainnext.link_started": "ここから経路を開始します。次のアンカーをクリックすると繋がります。",

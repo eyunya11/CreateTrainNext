@@ -3,6 +3,7 @@ package com.eyunya.createtrainnext;
 import org.slf4j.Logger;
 
 import com.eyunya.createtrainnext.client.CreateTrainNextClient;
+import com.eyunya.createtrainnext.speed.CTNEdgePointTypes;
 import com.mojang.logging.LogUtils;
 
 import net.minecraft.resources.ResourceLocation;
@@ -30,10 +31,14 @@ public class CreateTrainNext {
 
 	public CreateTrainNext(IEventBus modEventBus, ModContainer modContainer) {
 		CTNRegistry.register(modEventBus);
+		// Create's edge point types are a static map with no registry event behind them, so this
+		// has to be poked by hand rather than deferred like the blocks above.
+		CTNEdgePointTypes.register();
 		CTNCommands.init(modEventBus);
 
+		// The config is registered from the client branch because everything in it is client side.
 		if (FMLEnvironment.dist == Dist.CLIENT)
-			CreateTrainNextClient.init(modEventBus);
+			CreateTrainNextClient.init(modEventBus, modContainer);
 	}
 
 	public static ResourceLocation asResource(String path) {

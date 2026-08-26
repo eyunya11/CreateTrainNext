@@ -1,6 +1,9 @@
 {
   "itemGroup.createtrainnext": "Create Train Next",
   "block.createtrainnext.angled_track_anchor": "Angled Track Anchor",
+  "block.createtrainnext.track_speed_limit": "Track Speed Limit",
+  "createtrainnext.speed_limit.limit": "Speed Limit",
+  "createtrainnext.speed_limit.row": "Speed",
 
   "message.createtrainnext.angle": "Angle: %s°",
   "message.createtrainnext.link_started": "Route starts here. Click the next anchor to link to it.",
