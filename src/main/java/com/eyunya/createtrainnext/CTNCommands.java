@@ -4,14 +4,25 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 
+import com.eyunya.createtrainnext.track.AngledTrackAnchorBlockEntity;
 import com.mojang.brigadier.CommandDispatcher;
 import com.simibubi.create.Create;
 import com.simibubi.create.content.trains.GlobalRailwayManager;
+import com.simibubi.create.content.trains.graph.TrackEdge;
 import com.simibubi.create.content.trains.graph.TrackGraph;
+import com.simibubi.create.content.trains.graph.TrackNode;
+import com.simibubi.create.content.trains.graph.TrackNodeLocation;
+import com.simibubi.create.content.trains.graph.TrackNodeLocation.DiscoveredLocation;
+import com.simibubi.create.content.trains.track.ITrackBlock;
 
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.commands.Commands;
+import net.minecraft.commands.arguments.coordinates.BlockPosArgument;
+import net.minecraft.core.BlockPos;
 import net.minecraft.network.chat.Component;
+import net.minecraft.server.level.ServerLevel;
+import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.phys.Vec3;
 
 import net.neoforged.bus.api.IEventBus;
 import net.neoforged.neoforge.common.NeoForge;
@@ -46,7 +57,120 @@ public class CTNCommands {
 		dispatcher.register(Commands.literal(CreateTrainNext.ID)
 			.requires(source -> source.hasPermission(2))
 			.then(Commands.literal("resetgraph")
-				.executes(context -> resetGraph(context.getSource()))));
+				.executes(context -> resetGraph(context.getSource())))
+			.then(Commands.literal("probe")
+				.then(Commands.argument("pos", BlockPosArgument.blockPos())
+					.executes(context -> probe(context.getSource(),
+						BlockPosArgument.getLoadedBlockPos(context, "pos"))))));
+	}
+
+	/**
+	 * Prints everything {@code TrackGraphHelper.getGraphLocationAt} looks at for one anchor, and the
+	 * comparisons it makes, so a refusal to place a station or signal can be read off rather than
+	 * guessed at. Both of its cases are covered: the node at the block's centre with the directions
+	 * of the edges leaving it, and the block's linear query with the direction to each end.
+	 */
+	private static int probe(CommandSourceStack source, BlockPos pos) {
+		ServerLevel level = source.getLevel();
+		BlockState state = level.getBlockState(pos);
+
+		if (!(state.getBlock() instanceof ITrackBlock track)) {
+			source.sendFailure(Component.literal("Not a track block: " + state.getBlock()));
+			return 0;
+		}
+
+		List<Vec3> axes = track.getTrackAxes(level, pos, state);
+		Vec3 axis = axes.get(0);
+		say(source, "reported axis = " + fmt(axis) + "   (" + axes.size() + " total)");
+
+		if (level.getBlockEntity(pos) instanceof AngledTrackAnchorBlockEntity anchor)
+			say(source, "yaw = " + anchor.getYaw() + "  prev=" + (anchor.getPrev() != null) + " next="
+				+ (anchor.getNext() != null));
+
+		// Case 1: is the block's centre a node, and does any edge leaving it match?
+		Vec3 centre = Vec3.atBottomCenterOf(pos)
+			.add(0, track.getElevationAtCenter(level, pos, state), 0);
+		TrackNodeLocation centreLocation = new TrackNodeLocation(centre).in(level);
+		TrackGraph graph = Create.RAILWAYS.sided(level)
+			.getGraph(level, centreLocation);
+		TrackNode node = graph == null ? null : graph.locateNode(centreLocation);
+
+		say(source, "-- case 1: centre " + fmt(centre) + (node == null ? " is NOT a node" : " is a node")
+			+ (graph == null ? "  [no graph here]" : ""));
+		if (node != null) {
+			var connections = graph.getConnectionsFrom(node);
+			say(source, "   edges from centre: " + (connections == null ? "null" : connections.size()));
+			if (connections != null)
+				for (TrackEdge edge : connections.values()) {
+					Vec3 direction = edge.getDirection(true);
+					say(source, "   edge dir " + fmt(direction) + "  turn=" + edge.isTurn() + "  d2(+)="
+						+ fmt(direction.distanceToSqr(axis)) + "  d2(-)="
+						+ fmt(direction.distanceToSqr(axis.scale(-1))) + "   (needs < " + fmt(1 / 4096f) + ")");
+				}
+		}
+
+		// Where do the edges actually live? Check every position this anchor might have put a node
+		// at, plus its neighbours' centres, and say which of them the graph knows about.
+		say(source, "-- node census");
+		if (level.getBlockEntity(pos) instanceof AngledTrackAnchorBlockEntity a) {
+			censusAt(source, level, "centre", centre);
+			censusAt(source, level, "entryNode", a.entryNode());
+			censusAt(source, level, "exitNode", a.exitNode());
+			for (BlockPos neighbour : new BlockPos[] { a.getPrev(), a.getNext() })
+				if (neighbour != null)
+					censusAt(source, level, "neighbour " + neighbour, Vec3.atBottomCenterOf(neighbour));
+		}
+
+		// Case 2: the linear query, and the direction from the centre out to each end it reports.
+		say(source, "-- case 2: linear ends");
+		for (DiscoveredLocation end : track.getConnected(level, pos, state, true, null)) {
+			Vec3 toEnd = end.getLocation()
+				.subtract(centre);
+			if (toEnd.lengthSqr() < 1.0E-9) {
+				say(source, "   end " + fmt(end.getLocation()) + " is the centre itself");
+				continue;
+			}
+			Vec3 unit = toEnd.normalize();
+			say(source, "   end " + fmt(end.getLocation()) + "  dir " + fmt(unit) + "  d2(+)="
+				+ fmt(unit.distanceToSqr(axis.normalize())) + "  d2(-)="
+				+ fmt(unit.distanceToSqr(axis.normalize()
+					.scale(-1))));
+		}
+
+		return 1;
+	}
+
+	/** Reports whether the graph has a node at one position, and how many edges leave it. */
+	private static void censusAt(CommandSourceStack source, ServerLevel level, String label, Vec3 at) {
+		TrackNodeLocation location = new TrackNodeLocation(at).in(level);
+		TrackGraph graph = Create.RAILWAYS.sided(level)
+			.getGraph(level, location);
+		TrackNode node = graph == null ? null : graph.locateNode(location);
+		int edges = node == null ? -1 : graph.getConnectionsFrom(node)
+			.size();
+		// Graph identity matters as much as the counts: an isolated node with a graph of its own
+		// means the network fragmented rather than that an edge simply went missing.
+		String where = graph == null ? "no graph"
+			: node == null ? "no node" : edges + " edge(s) in graph#" + System.identityHashCode(graph);
+		say(source, "   " + label + " " + fmt(at) + " -> " + where);
+
+		// Which blocks does the propagator ask about this location? A node on a block boundary is
+		// shared by the blocks either side; one at a centre may reach only its own.
+		if (node != null)
+			say(source, "      allAdjacent -> " + location.allAdjacent());
+	}
+
+	private static void say(CommandSourceStack source, String line) {
+		source.sendSuccess(() -> Component.literal(line), false);
+		CreateTrainNext.LOGGER.info("[CTN-PROBE] {}", line);
+	}
+
+	private static String fmt(Vec3 v) {
+		return String.format("(%.4f, %.4f, %.4f)", v.x, v.y, v.z);
+	}
+
+	private static String fmt(double d) {
+		return String.format("%.6f", d);
 	}
 
 	private static int resetGraph(CommandSourceStack source) {
@@ -69,8 +193,9 @@ public class CTNCommands {
 		int graphCount = graphs.size();
 		int trainCount = trains.size();
 		source.sendSuccess(() -> Component.literal("Cleared " + graphCount + " track graph(s) and "
-			+ trainCount + " train(s). Break and replace one block of each track network to rebuild it, "
-			+ "then re-link the anchors. Rejoin the world if the F3 overlay still shows old edges."), true);
+			+ trainCount + " train(s). Nothing rebuilds on its own: break and replace one block of "
+			+ "each track network, and re-link the anchors, or they will silently have no edges."),
+			true);
 		return graphCount;
 	}
 }

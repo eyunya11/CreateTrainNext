@@ -179,8 +179,24 @@ public class AngledTrackAnchorBlock extends Block implements EntityBlock, ITrack
 		return new Vec3(0, 1, 0);
 	}
 
+	/**
+	 * The heading, not the block's discrete axis.
+	 *
+	 * <p>This is what station and signal placement asks for: {@code getNearestTrackAxis} picks from
+	 * here, and {@code TrackGraphHelper.getGraphLocationAt} then requires the chosen axis to match
+	 * the direction of an edge leaving the node to within about a degree. The edges leaving an
+	 * anchor follow its heading, so reporting the discrete axis instead only agreed when the two
+	 * happened to coincide — at multiples of 45 degrees — and placement was refused everywhere else.
+	 *
+	 * <p>Safe to report a free vector here because nothing this mod puts on the lattice comes
+	 * through it: node positions are taken from the block's axis directly. The one caveat is
+	 * Create's own track wand, which builds a curve start from whatever this returns, and would
+	 * get an off-lattice point from an anchor pointed between axes.
+	 */
 	@Override
 	public List<Vec3> getTrackAxes(BlockGetter world, BlockPos pos, BlockState state) {
+		if (world.getBlockEntity(pos) instanceof AngledTrackAnchorBlockEntity anchor)
+			return ImmutableList.of(anchor.targetingAxis());
 		return ImmutableList.of(axisVector(state));
 	}
 
@@ -274,15 +290,21 @@ public class AngledTrackAnchorBlock extends Block implements EntityBlock, ITrack
 		if (linear || anchor == null)
 			return list;
 
-		// Only the curve ahead: the one behind is reported by the anchor that owns it.
-		BezierConnection bc = anchor.buildCurveToNext();
-		if (bc == null)
-			return list;
+		// Both curves this anchor sits between, not just the one it owns. A node at a block's
+		// centre is reachable only from that block, so reporting the curve ahead alone left the
+		// graph walkable in one direction — and rebuilding walks forward after deleting everything
+		// it can reach, which quietly dropped the curve behind. Reporting both makes it symmetric,
+		// the way Create's own track is by storing each bezier on both of its ends.
+		for (BezierConnection bc : new BezierConnection[] { anchor.buildCurveToNext(),
+			anchor.buildCurveFromPrev() }) {
+			if (bc == null)
+				continue;
 
-		ITrackBlock.addToListIfConnected(connectedTo, list,
-			(d, b) -> d == 1 ? Vec3.atLowerCornerOf(bc.bePositions.get(b)) : bc.starts.get(b), bc.normals::get,
-			b -> world instanceof Level l ? l.dimension() : Level.OVERWORLD, bc::yOffsetAt, null, bc,
-			(b, v) -> getMaterial());
+			ITrackBlock.addToListIfConnected(connectedTo, list,
+				(d, b) -> d == 1 ? Vec3.atLowerCornerOf(bc.bePositions.get(b)) : bc.starts.get(b), bc.normals::get,
+				b -> world instanceof Level l ? l.dimension() : Level.OVERWORLD, bc::yOffsetAt, null, bc,
+				(b, v) -> getMaterial());
+		}
 
 		return list;
 	}

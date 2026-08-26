@@ -202,6 +202,13 @@ public class AngledTrackAnchorBlockEntity extends BlockEntity {
 		}
 	}
 
+	// Deliberately no rebuild on chunk load. It looks like the obvious way to recover a graph that
+	// was thrown away — by /createtrainnext resetgraph, or by a build that moved where nodes go —
+	// but onRailAdded removes everything it can reach before rebuilding, and on load a neighbour's
+	// chunk may not be there yet. buildCurveToNext then returns null for want of a loaded partner,
+	// so the pass deletes a working edge and puts nothing back. Recovering a discarded graph has to
+	// mean placing a block, where the surroundings are known to be loaded.
+
 	/** Queues the rebuild, matching how Create defers propagation to a scheduled tick. */
 	private void attachNeighbourhood() {
 		if (level == null || level.isClientSide)
@@ -245,6 +252,60 @@ public class AngledTrackAnchorBlockEntity extends BlockEntity {
 	/** Which way the route runs through this anchor. */
 	public Vec3 heading() {
 		return directionFromYaw(yaw);
+	}
+
+	/**
+	 * The direction station and signal placement compares against, which is not the heading.
+	 *
+	 * <p>{@code TrackGraphHelper.getGraphLocationAt} matches the axis a track block reports against
+	 * {@code TrackEdge.getDirection}, and that is measured as the chord across the first quarter of
+	 * an edge rather than the tangent at its end. On a curve the two differ by a degree or two,
+	 * and the comparison allows about 0.9, so reporting the heading has placement refused anywhere
+	 * the route is actually curving. Measuring the same chord here makes the two agree by
+	 * construction.
+	 */
+	public Vec3 targetingAxis() {
+		// An end resolves through the helper's second case, which compares against the direction of
+		// this block's own linear span rather than any edge — and that span lies on the discrete
+		// axis. Reporting the heading there had it refused at every angle where the two differ,
+		// which is why only multiples of 45 worked.
+		if (!isInterior())
+			return AngledTrackAnchorBlock.axisVector(getBlockState());
+
+		// Matched to the curve ahead exactly, which means placement works from one side only.
+		//
+		// The comparison is against this axis negated, so which of the two edges at the node it
+		// runs against depends on which way the player faces, and reporting two axes is not an
+		// option — more than one is read as a junction and refused. A bisector was tried, on the
+		// assumption the two edges were nearly collinear here: the tangents are, exactly, but
+		// getDirection measures the chord across a quarter of an <em>entire</em> curve, and on a
+		// long one that came out 18 and 26 degrees off the tangent, the two edges 45 degrees from
+		// collinear. Split between them and neither is within the 0.9 degrees allowed; matched to
+		// one and that one is exact.
+		//
+		// The underlying limit is Create's, not this mod's: that tolerance assumes a block with a
+		// straight edge, and an interior anchor is mid-curve by construction. Create places its own
+		// stations and signals on straight track for the same reason.
+		Vec3 ahead = chordOf(buildCurveToNext());
+		if (ahead != null)
+			return ahead;
+
+		BezierConnection behind = buildCurveFromPrev();
+		Vec3 back = behind == null ? null : chordOf(behind.secondary());
+		return back == null ? heading() : back.scale(-1);
+	}
+
+	/**
+	 * The direction {@code TrackEdge.getDirection} would report for this curve at its start: the
+	 * chord across its first quarter, not the tangent.
+	 */
+	@Nullable
+	private static Vec3 chordOf(@Nullable BezierConnection curve) {
+		if (curve == null)
+			return null;
+		Vec3 chord = curve.getPosition(0.25)
+			.subtract(curve.getPosition(0));
+		return chord.lengthSqr() < 1.0E-6 ? null : chord.normalize();
 	}
 
 	/** An axis vector turned to point the way the route is going. */
@@ -353,6 +414,23 @@ public class AngledTrackAnchorBlockEntity extends BlockEntity {
 			Couple.create(heading(), ahead.heading()
 				.scale(-1)),
 			Couple.create(up, up), true, false, TrackMaterial.ANDESITE);
+	}
+
+	/**
+	 * The curve arriving from the anchor behind, which that anchor owns and builds.
+	 *
+	 * <p>Reported here as well so the graph can be walked backwards. {@code walkConnectedTracks}
+	 * asks the blocks around a node, and a node at a block's centre reaches only its own block, so
+	 * an anchor that reported nothing but the curve ahead of it could be traversed in one direction
+	 * only. {@code onRailAdded} removes everything it can reach before rebuilding, and rebuilding
+	 * is a forward walk, so a rebuild triggered anywhere along a chain deleted the curve behind it
+	 * and never put it back — leaving anchors with one edge, or none, depending on whose tick ran
+	 * last. Create sidesteps this by storing each bezier on both of its ends.
+	 */
+	@Nullable
+	public BezierConnection buildCurveFromPrev() {
+		AngledTrackAnchorBlockEntity behind = anchorAt(prev);
+		return behind == null ? null : behind.buildCurveToNext();
 	}
 
 	/**
