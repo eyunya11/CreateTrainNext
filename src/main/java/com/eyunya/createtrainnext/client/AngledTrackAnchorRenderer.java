@@ -33,12 +33,17 @@ public class AngledTrackAnchorRenderer implements BlockEntityRenderer<AngledTrac
 		if (level == null)
 			return;
 
-		BezierConnection curve = anchor.getCurveForRender();
-		if (curve == null)
-			return;
-
 		VertexConsumer vb = buffer.getBuffer(RenderType.cutoutMipped());
-		TrackRenderer.renderBezierTurn(level, curve, ms, vb);
+
+		// The block's own span. Drawn here rather than by the block model because its shape
+		// follows the yaw and the link, which a blockstate cannot express.
+		BezierConnection span = anchor.buildSpan();
+		if (span != null)
+			TrackRenderer.renderBezierTurn(level, span, ms, vb);
+
+		BezierConnection curve = anchor.getCurveForRender();
+		if (curve != null)
+			TrackRenderer.renderBezierTurn(level, curve, ms, vb);
 	}
 
 	/**

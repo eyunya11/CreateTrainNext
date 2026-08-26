@@ -1,16 +1,16 @@
 {
   "variants": {
     "axis=z_ortho": {
-      "model": "createtrainnext:block/angled_track_anchor_z"
+      "model": "createtrainnext:block/angled_track_anchor"
     },
     "axis=x_ortho": {
-      "model": "createtrainnext:block/angled_track_anchor_x"
+      "model": "createtrainnext:block/angled_track_anchor"
     },
     "axis=diag": {
-      "model": "createtrainnext:block/angled_track_anchor_diag"
+      "model": "createtrainnext:block/angled_track_anchor"
     },
     "axis=diag_2": {
-      "model": "createtrainnext:block/angled_track_anchor_diag_2"
+      "model": "createtrainnext:block/angled_track_anchor"
     }
   }
 }

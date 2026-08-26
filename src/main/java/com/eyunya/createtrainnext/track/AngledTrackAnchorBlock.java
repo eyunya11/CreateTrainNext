@@ -61,23 +61,21 @@ import net.minecraft.world.phys.shapes.VoxelShape;
 /**
  * One end of a free-angle curve, and a real Create track block.
  *
- * <p>The anchor carries an ordinary one-block straight stub along {@link #AXIS}, which
- * keeps its graph nodes on the half-block lattice {@code TrackNodeLocation} rounds everything to
- * and lets it dock with Create's own track. The free angle lives in the curve's <em>tangent</em>,
- * which nothing downstream quantises — not the graph, not NBT.
+ * <p>{@link #AXIS} says which pair of block boundaries this anchor's two graph nodes sit on. It is
+ * limited to the four directions that land on the half-block lattice {@code TrackNodeLocation}
+ * rounds every node to, and it follows the heading as closely as those four allow. The heading
+ * itself is free: nothing downstream quantises a tangent, not the graph and not NBT.
  *
- * <p>That split has a cost worth stating plainly: the stub can only lie on a discrete axis while
- * the curve leaves at whatever angle was chosen, so the two meet at a corner of up to 45 degrees.
- * {@code alignStubToYaw} picks the nearer axis to keep it to that bound, and it falls to zero when
- * the yaw is axis-aligned. Removing the stub does not fix this — {@code TrackPropagator} seeds its
- * search with a linear-only query and crashes on a block that has no straight geometry — so a
- * corner where a lattice-quantised graph meets a free angle is inherent, not a defect to chase.
+ * <p>Anchors chain, and the chain is what makes the geometry work — see
+ * {@link AngledTrackAnchorBlockEntity}. Joints in the middle of a chain are smooth because the
+ * headings either side of them are the same vector; only the two ends of a chain reconcile a free
+ * angle with a discrete axis, and the anchor's own span bends across its block to do it.
  *
  * <p>Controls:
  * <ul>
  * <li>Right click with an empty hand turns the anchor by 15 degrees (sneak to go back).</li>
- * <li>Right click with a stick starts a link, then completes it on a second anchor.
- * Using a stick on an anchor that already has a link clears it.</li>
+ * <li>Right click with a stick on one anchor then another continues the route from the first to
+ * the second. Using a stick on an anchor that is already linked clears both of its links.</li>
  * </ul>
  */
 public class AngledTrackAnchorBlock extends Block implements EntityBlock, ITrackBlock {
@@ -167,7 +165,7 @@ public class AngledTrackAnchorBlock extends Block implements EntityBlock, ITrack
 	protected void onRemove(BlockState state, Level level, BlockPos pos, BlockState newState, boolean isMoving) {
 		if (!state.is(newState.getBlock())) {
 			if (!level.isClientSide && level.getBlockEntity(pos) instanceof AngledTrackAnchorBlockEntity anchor)
-				anchor.unlinkPartner();
+				anchor.unlink();
 			TrackPropagator.onRailRemoved(level, pos, state);
 		}
 		super.onRemove(state, level, pos, newState, isMoving);
@@ -241,29 +239,33 @@ public class AngledTrackAnchorBlock extends Block implements EntityBlock, ITrack
 		Vec3 center = Vec3.atBottomCenterOf(pos)
 			.add(0, getElevationAtCenter(world, pos, state), 0);
 
+		AngledTrackAnchorBlockEntity anchor =
+			world.getBlockEntity(pos) instanceof AngledTrackAnchorBlockEntity a ? a : null;
+		BezierConnection span = linear || anchor == null ? null : anchor.buildSpan();
+
 		for (Vec3 axis : getTrackAxes(world, pos, state)) {
-			BiFunction<Double, Boolean, Vec3> offsetFactory = (d, b) -> axis.scale(b ? d : -d)
-				.add(center);
+			BiFunction<Double, Boolean, Vec3> offsetFactory = span != null
+				? (d, b) -> d == 1 ? Vec3.atLowerCornerOf(span.bePositions.get(b)) : span.starts.get(b)
+				: (d, b) -> axis.scale(b ? d : -d)
+					.add(center);
 			Function<Boolean, ResourceKey<Level>> dimensionFactory =
 				b -> world instanceof Level l ? l.dimension() : Level.OVERWORLD;
 			Function<Vec3, Integer> yOffsetFactory = v -> getYOffsetAt(world, pos, state, v);
 
+			// The same two node positions either way — the linear form exists only because
+			// onRailAdded seeds its search with a linear-only query and then dereferences the
+			// start node it expects to have found. Report nothing there and it crashes.
 			ITrackBlock.addToListIfConnected(connectedTo, list, offsetFactory,
-				b -> getUpNormal(world, pos, state), dimensionFactory, yOffsetFactory, axis, null,
+				b -> getUpNormal(world, pos, state), dimensionFactory, yOffsetFactory,
+				span != null ? null : axis, span,
 				(b, v) -> ITrackBlock.getMaterialSimple(world, v, getMaterial()));
 		}
 
-		// onRailAdded seeds its search with a linear-only query, and dereferences the start node
-		// it expects that to have found. Reporting nothing here leaves it null and crashes, so
-		// the stub is not optional: the propagator requires every track block to have straight
-		// geometry of its own.
-		if (linear)
+		if (linear || anchor == null)
 			return list;
 
-		if (!(world.getBlockEntity(pos) instanceof AngledTrackAnchorBlockEntity anchor))
-			return list;
-
-		BezierConnection bc = anchor.buildCurve();
+		// Only the curve ahead: the one behind is reported by the anchor that owns it.
+		BezierConnection bc = anchor.buildCurveToNext();
 		if (bc == null)
 			return list;
 
@@ -333,26 +335,33 @@ public class AngledTrackAnchorBlock extends Block implements EntityBlock, ITrack
 			return ItemInteractionResult.SUCCESS;
 
 		UUID playerId = player.getUUID();
+		BlockPos pending = PENDING_LINKS.get(playerId);
 
-		if (anchor.getPartner() != null) {
-			anchor.unlinkPartner();
+		// Clicking the anchor you are already holding just puts it down. This used to unlink it,
+		// which sat badly with the flow: right after linking into an anchor it is the held one, so
+		// clicking it again — the obvious way to say "carry on from here" — tore up the link that
+		// had just been made. Breaking the block is the way to undo a link; onRemove handles it.
+		if (pos.equals(pending)) {
 			PENDING_LINKS.remove(playerId);
-			player.displayClientMessage(Component.translatable("message.createtrainnext.link_cleared"), true);
+			player.displayClientMessage(Component.translatable("message.createtrainnext.link_cancelled"), true);
 			return ItemInteractionResult.CONSUME;
 		}
 
-		BlockPos pending = PENDING_LINKS.get(playerId);
-		boolean pendingIsUsable = pending != null && !pending.equals(pos)
-			&& level.getBlockEntity(pending) instanceof AngledTrackAnchorBlockEntity;
+		AngledTrackAnchorBlockEntity from =
+			pending != null && level.getBlockEntity(pending) instanceof AngledTrackAnchorBlockEntity f ? f : null;
 
-		if (!pendingIsUsable) {
+		if (from == null) {
 			PENDING_LINKS.put(playerId, pos);
 			player.displayClientMessage(Component.translatable("message.createtrainnext.link_started"), true);
 			return ItemInteractionResult.CONSUME;
 		}
 
-		((AngledTrackAnchorBlockEntity) level.getBlockEntity(pending)).linkTo(anchor);
-		PENDING_LINKS.remove(playerId);
+		from.linkTo(anchor);
+
+		// Carry on from the anchor just reached, so a whole route is laid by clicking each anchor
+		// along it in turn. Stopping here instead would make every segment a separate two-click
+		// gesture, and an anchor could never become the start of the next one.
+		PENDING_LINKS.put(playerId, pos);
 		player.displayClientMessage(Component.translatable("message.createtrainnext.link_done"), true);
 		return ItemInteractionResult.CONSUME;
 	}
