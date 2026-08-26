@@ -5,6 +5,7 @@ import java.util.Locale;
 import java.util.Optional;
 
 import com.eyunya.createtrainnext.CreateTrainNext;
+import com.eyunya.createtrainnext.dispatch.TrainBound.Match;
 import com.google.common.collect.ImmutableList;
 import com.simibubi.create.Create;
 import com.simibubi.create.content.trains.entity.Carriage;
@@ -49,10 +50,17 @@ import net.neoforged.api.distmarker.OnlyIn;
  * cleared stays put no matter where along a long platform the train happened to stop. Every
  * carriage of the other train is tested, not just its leading one, so a train longer than the
  * radius still counts as passing until its tail is clear.
+ *
+ * <p>The bound match is what makes this usable on a two-track line. Without it a local waiting in
+ * an up-line loop would also be released by an express running <em>down</em> the other track, which
+ * is exactly the train it does not care about. Set to same-bound, the condition compares the other
+ * train's schedule title against the waiting train's own, so one condition serves both directions
+ * of a route without naming either — see {@link TrainBound}.
  */
 public class TrainPassedCondition extends ScheduleWaitCondition {
 
 	private static final String DATA_TRAIN = "Train";
+	private static final String DATA_BOUND = "Bound";
 	private static final String DATA_RADIUS = "Radius";
 
 	/** Set on the condition's own context tag once a matching train has been inside the radius. */
@@ -79,6 +87,10 @@ public class TrainPassedCondition extends ScheduleWaitCondition {
 		return textData(DATA_TRAIN).trim();
 	}
 
+	private Match boundMatch() {
+		return enumData(DATA_BOUND, Match.class);
+	}
+
 	private int radius() {
 		// Guarded rather than trusted: a condition whose editor never ran reads back as zero, and
 		// a zero radius would never see anything at all.
@@ -91,9 +103,11 @@ public class TrainPassedCondition extends ScheduleWaitCondition {
 	@Override
 	public boolean tickCompletion(Level level, Train train, CompoundTag context) {
 		String filter = trainFilter();
-		if (filter.isEmpty())
-			// Nothing named to wait for. Releasing the train is the safer reading of an empty field
-			// than holding it at the platform forever with nothing on screen to explain why.
+		Match bound = boundMatch();
+		if (filter.isEmpty() && bound == Match.ANY)
+			// No name and no bound is no criterion at all. Releasing the train is the safer reading
+			// of a blank condition than holding it at the platform forever with nothing on screen
+			// to explain why. Either field on its own is a real filter, and does hold it.
 			return true;
 
 		GlobalStation station = train.getCurrentStation();
@@ -105,7 +119,7 @@ public class TrainPassedCondition extends ScheduleWaitCondition {
 		if (dimension == null || stationPos == null)
 			return false;
 
-		boolean present = isMatchingTrainNear(train, filter, dimension, stationPos, radius());
+		boolean present = isMatchingTrainNear(train, filter, bound, dimension, stationPos, radius());
 		boolean arrived = context.getBoolean(CONTEXT_ARRIVED);
 
 		if (present) {
@@ -126,12 +140,14 @@ public class TrainPassedCondition extends ScheduleWaitCondition {
 	 * that has a position and so speaks for the head of the train alone. A train pulling out of a
 	 * loop is not clear of it until its last carriage is.
 	 */
-	private static boolean isMatchingTrainNear(Train waiting, String filter, ResourceKey<Level> dimension,
-		BlockPos stationPos, int radius) {
+	private static boolean isMatchingTrainNear(Train waiting, String filter, Match bound,
+		ResourceKey<Level> dimension, BlockPos stationPos, int radius) {
 		for (Train other : Create.RAILWAYS.trains.values()) {
 			if (other.id.equals(waiting.id))
 				continue;
 			if (!matches(other, filter))
+				continue;
+			if (!bound.test(waiting, other))
 				continue;
 			for (Carriage carriage : other.carriages) {
 				Optional<BlockPos> position = carriage.getPositionInDimension(dimension);
@@ -143,8 +159,13 @@ public class TrainPassedCondition extends ScheduleWaitCondition {
 		return false;
 	}
 
-	/** Substring, ignoring case, so "Express" catches "Express 1" and "Night Express" alike. */
+	/**
+	 * Substring, ignoring case, so "Express" catches "Express 1" and "Night Express" alike. A blank
+	 * filter matches every train, which is the useful reading once a bound is doing the filtering.
+	 */
 	private static boolean matches(Train train, String filter) {
+		if (filter.isEmpty())
+			return true;
 		return train.name.getString()
 			.toLowerCase(Locale.ROOT)
 			.contains(filter.toLowerCase(Locale.ROOT));
@@ -169,9 +190,18 @@ public class TrainPassedCondition extends ScheduleWaitCondition {
 
 	@Override
 	public MutableComponent getWaitingStatus(Level level, Train train, CompoundTag context) {
-		Component name = Component.literal(trainFilter());
+		// Called out because it is the one way this condition can hang with nothing visibly wrong:
+		// a bound match needs a title on both trains, and a route where nobody added a Rename gives
+		// no hint on the board about why the train is not leaving.
+		if (boundMatch() != Match.ANY && TrainBound.of(train)
+			.isEmpty())
+			return Component.translatable(key("status.no_bound"));
+
+		String filter = trainFilter();
+		Component subject = filter.isEmpty() ? Component.translatable(key("subject.any"))
+			: Component.literal(filter);
 		return Component.translatable(key(context.getBoolean(CONTEXT_ARRIVED) ? "status.passing" : "status.waiting"),
-			name);
+			subject);
 	}
 
 	private MutableComponent title() {
@@ -200,8 +230,15 @@ public class TrainPassedCondition extends ScheduleWaitCondition {
 	public void initConfigurationWidgets(ModularGuiLineBuilder builder) {
 		// The widgets carry their own persistence: ModularGuiLine copies an EditBox's text and a
 		// ScrollInput's state into the data tag under these keys, so there is nothing to wire up.
-		builder.addTextInput(0, 86, (editBox, tooltip) -> {}, DATA_TRAIN);
-		builder.addScrollInput(90, 31, (input, label) -> {
+		builder.addTextInput(0, 48, (editBox, tooltip) -> {}, DATA_TRAIN);
+
+		builder.addSelectionScrollInput(50, 44, (input, label) -> {
+			input.forOptions(List.of(Component.translatable(key("bound.any")),
+				Component.translatable(key("bound.same")), Component.translatable(key("bound.opposite"))))
+				.titled(Component.translatable(key("bound")));
+		}, DATA_BOUND);
+
+		builder.addScrollInput(96, 25, (input, label) -> {
 			input.titled(Component.translatable(key("radius")))
 				.withRange(MIN_RADIUS, MAX_RADIUS + 1)
 				.withShiftStep(16);

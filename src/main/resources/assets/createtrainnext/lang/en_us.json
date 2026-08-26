@@ -6,9 +6,15 @@
   "createtrainnext.speed_limit.row": "Speed",
 
   "createtrainnext.schedule.condition.train_passed": "Train Passed",
+  "createtrainnext.schedule.condition.train_passed.bound": "Direction",
+  "createtrainnext.schedule.condition.train_passed.bound.any": "Any",
+  "createtrainnext.schedule.condition.train_passed.bound.same": "Same",
+  "createtrainnext.schedule.condition.train_passed.bound.opposite": "Opposite",
+  "createtrainnext.schedule.condition.train_passed.radius": "Detection radius",
+  "createtrainnext.schedule.condition.train_passed.subject.any": "another train",
   "createtrainnext.schedule.condition.train_passed.status.waiting": "Waiting for %s",
   "createtrainnext.schedule.condition.train_passed.status.passing": "%s is passing",
-  "createtrainnext.schedule.condition.train_passed.radius": "Detection radius",
+  "createtrainnext.schedule.condition.train_passed.status.no_bound": "No direction set on this train",
 
   "message.createtrainnext.angle": "Angle: %s°",
   "message.createtrainnext.link_started": "Route starts here. Click the next anchor to link to it.",

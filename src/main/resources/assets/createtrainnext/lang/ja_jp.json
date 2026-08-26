@@ -6,9 +6,15 @@
   "createtrainnext.speed_limit.row": "速度",
 
   "createtrainnext.schedule.condition.train_passed": "列車の通過待ち",
-  "createtrainnext.schedule.condition.train_passed.status.waiting": "%s を待機中",
-  "createtrainnext.schedule.condition.train_passed.status.passing": "%s が通過中",
+  "createtrainnext.schedule.condition.train_passed.bound": "方面",
+  "createtrainnext.schedule.condition.train_passed.bound.any": "指定なし",
+  "createtrainnext.schedule.condition.train_passed.bound.same": "同方向",
+  "createtrainnext.schedule.condition.train_passed.bound.opposite": "対向",
   "createtrainnext.schedule.condition.train_passed.radius": "検知半径",
+  "createtrainnext.schedule.condition.train_passed.subject.any": "他の列車",
+  "createtrainnext.schedule.condition.train_passed.status.waiting": "%sを待機中",
+  "createtrainnext.schedule.condition.train_passed.status.passing": "%sが通過中",
+  "createtrainnext.schedule.condition.train_passed.status.no_bound": "この列車に方面が未設定です",
 
   "message.createtrainnext.angle": "角度: %s°",
   "message.createtrainnext.link_started": "ここから経路を開始します。次のアンカーをクリックすると繋がります。",
