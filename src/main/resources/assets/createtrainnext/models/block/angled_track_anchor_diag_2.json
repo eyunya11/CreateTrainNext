@@ -1,0 +1,4 @@
+{
+  "parent": "create:block/track/diag_2",
+  "render_type": "minecraft:cutout_mipped"
+}

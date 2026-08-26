@@ -30,6 +30,7 @@ public class CreateTrainNext {
 
 	public CreateTrainNext(IEventBus modEventBus, ModContainer modContainer) {
 		CTNRegistry.register(modEventBus);
+		CTNCommands.init(modEventBus);
 
 		if (FMLEnvironment.dist == Dist.CLIENT)
 			CreateTrainNextClient.init(modEventBus);

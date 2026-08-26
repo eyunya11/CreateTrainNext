@@ -12,6 +12,10 @@ import net.neoforged.neoforge.client.event.EntityRenderersEvent;
  * {@code @EventBusSubscriber}: that annotation's {@code bus} attribute is deprecated for
  * removal, and its default is the game bus, while {@link EntityRenderersEvent.RegisterRenderers}
  * is fired on the mod bus.
+ *
+ * <p>The cut-out render layer the track model needs is declared in the block models themselves
+ * via {@code render_type}, rather than through the deprecated
+ * {@code ItemBlockRenderTypes.setRenderLayer}.
  */
 public class CreateTrainNextClient {
 

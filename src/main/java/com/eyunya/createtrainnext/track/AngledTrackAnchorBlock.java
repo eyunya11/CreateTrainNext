@@ -15,6 +15,7 @@ import com.google.common.collect.ImmutableList;
 import com.mojang.blaze3d.vertex.PoseStack;
 import com.simibubi.create.AllBlocks;
 import com.simibubi.create.AllPartialModels;
+import com.simibubi.create.AllShapes;
 import com.simibubi.create.content.trains.graph.TrackNodeLocation;
 import com.simibubi.create.content.trains.graph.TrackNodeLocation.DiscoveredLocation;
 import com.simibubi.create.content.trains.track.BezierConnection;
@@ -54,15 +55,23 @@ import net.minecraft.world.level.block.state.properties.BlockStateProperties;
 import net.minecraft.world.level.block.state.properties.EnumProperty;
 import net.minecraft.world.phys.BlockHitResult;
 import net.minecraft.world.phys.Vec3;
+import net.minecraft.world.phys.shapes.CollisionContext;
+import net.minecraft.world.phys.shapes.VoxelShape;
 
 /**
  * One end of a free-angle curve, and a real Create track block.
  *
- * <p>The anchor presents an ordinary one-block straight stub along {@link #HORIZONTAL_AXIS}.
- * That matters for more than looks: {@code TrackNodeLocation} snaps every graph node onto a
- * half-block lattice, so a stub along a discrete axis is what keeps this anchor's nodes on
- * that lattice and lets it dock with Create's own track. The free angle lives in the curve's
- * <em>tangent</em>, which the graph never quantises, rather than in the node positions.
+ * <p>The anchor carries an ordinary one-block straight stub along {@link #AXIS}, which
+ * keeps its graph nodes on the half-block lattice {@code TrackNodeLocation} rounds everything to
+ * and lets it dock with Create's own track. The free angle lives in the curve's <em>tangent</em>,
+ * which nothing downstream quantises — not the graph, not NBT.
+ *
+ * <p>That split has a cost worth stating plainly: the stub can only lie on a discrete axis while
+ * the curve leaves at whatever angle was chosen, so the two meet at a corner of up to 45 degrees.
+ * {@code alignStubToYaw} picks the nearer axis to keep it to that bound, and it falls to zero when
+ * the yaw is axis-aligned. Removing the stub does not fix this — {@code TrackPropagator} seeds its
+ * search with a linear-only query and crashes on a block that has no straight geometry — so a
+ * corner where a lattice-quantised graph meets a free angle is inherent, not a defect to chase.
  *
  * <p>Controls:
  * <ul>
@@ -73,7 +82,7 @@ import net.minecraft.world.phys.Vec3;
  */
 public class AngledTrackAnchorBlock extends Block implements EntityBlock, ITrackBlock {
 
-	public static final EnumProperty<Direction.Axis> HORIZONTAL_AXIS = BlockStateProperties.HORIZONTAL_AXIS;
+	public static final EnumProperty<AnchorAxis> AXIS = EnumProperty.create("axis", AnchorAxis.class);
 
 	private static final float STEP_DEGREES = 15.0F;
 
@@ -82,18 +91,19 @@ public class AngledTrackAnchorBlock extends Block implements EntityBlock, ITrack
 
 	public AngledTrackAnchorBlock(Properties properties) {
 		super(properties);
-		registerDefaultState(defaultBlockState().setValue(HORIZONTAL_AXIS, Direction.Axis.Z));
+		registerDefaultState(defaultBlockState().setValue(AXIS, AnchorAxis.Z_ORTHO));
 	}
 
 	@Override
 	protected void createBlockStateDefinition(StateDefinition.Builder<Block, BlockState> builder) {
-		builder.add(HORIZONTAL_AXIS);
+		builder.add(AXIS);
 	}
 
 	@Override
 	public BlockState getStateForPlacement(BlockPlaceContext context) {
-		return defaultBlockState().setValue(HORIZONTAL_AXIS, context.getHorizontalDirection()
-			.getAxis());
+		return defaultBlockState().setValue(AXIS,
+			AnchorAxis.nearestTo(Vec3.atLowerCornerOf(context.getHorizontalDirection()
+				.getNormal())));
 	}
 
 	@Override
@@ -102,9 +112,39 @@ public class AngledTrackAnchorBlock extends Block implements EntityBlock, ITrack
 		return new AngledTrackAnchorBlockEntity(pos, state);
 	}
 
-	/** Unit vector of this anchor's straight stub. Always a discrete axis, so nodes stay on the lattice. */
+	/** Which pair of block boundaries this anchor's node may sit on. Discrete, to stay on the lattice. */
 	public static Vec3 axisVector(BlockState state) {
-		return state.getValue(HORIZONTAL_AXIS) == Direction.Axis.X ? new Vec3(1, 0, 0) : new Vec3(0, 0, 1);
+		return state.getValue(AXIS).axis();
+	}
+
+	// ------------------------------------------------------------------ shape
+
+	// Reuse Create's own track shapes rather than approximating them, so an anchor selects and
+	// walks exactly like the track it sits in line with.
+
+	private VoxelShape outlineShape(BlockState state) {
+		return switch (state.getValue(AXIS)) {
+			case X_ORTHO -> AllShapes.TRACK_ORTHO.get(Direction.EAST);
+			case Z_ORTHO -> AllShapes.TRACK_ORTHO.get(Direction.SOUTH);
+			case DIAG -> AllShapes.TRACK_DIAG.get(Direction.EAST);
+			case DIAG_2 -> AllShapes.TRACK_DIAG.get(Direction.SOUTH);
+		};
+	}
+
+	@Override
+	protected VoxelShape getShape(BlockState state, BlockGetter level, BlockPos pos, CollisionContext context) {
+		return outlineShape(state);
+	}
+
+	@Override
+	protected VoxelShape getInteractionShape(BlockState state, BlockGetter level, BlockPos pos) {
+		return outlineShape(state);
+	}
+
+	@Override
+	protected VoxelShape getCollisionShape(BlockState state, BlockGetter level, BlockPos pos,
+		CollisionContext context) {
+		return AllShapes.TRACK_COLLISION;
 	}
 
 	// -------------------------------------------------------------- lifecycle
@@ -154,13 +194,14 @@ public class AngledTrackAnchorBlock extends Block implements EntityBlock, ITrack
 	@Override
 	public BlockState getBogeyAnchor(BlockGetter world, BlockPos pos, BlockState state) {
 		return AllBlocks.SMALL_BOGEY.getDefaultState()
-			.setValue(BlockStateProperties.HORIZONTAL_AXIS, state.getValue(HORIZONTAL_AXIS));
+			.setValue(BlockStateProperties.HORIZONTAL_AXIS,
+				Math.abs(axisVector(state).x) > Math.abs(axisVector(state).z) ? Direction.Axis.X : Direction.Axis.Z);
 	}
 
 	@Override
 	public boolean trackEquals(BlockState state1, BlockState state2) {
 		return state1.getBlock() == this && state2.getBlock() == this
-			&& state1.getValue(HORIZONTAL_AXIS) == state2.getValue(HORIZONTAL_AXIS);
+			&& state1.getValue(AXIS) == state2.getValue(AXIS);
 	}
 
 	@Override
@@ -169,10 +210,18 @@ public class AngledTrackAnchorBlock extends Block implements EntityBlock, ITrack
 	}
 
 	/**
-	 * Reports the straight stub (via the interface default) plus, when this anchor is linked,
-	 * the free-angle curve as a {@code viaTurn} connection. The node positions handed to the
-	 * graph are the curve's endpoints, which is why those endpoints sit on the stub ends rather
-	 * than anywhere the tangent happens to point.
+	 * Reports only the free-angle curve, as a {@code viaTurn} connection.
+	 *
+	 * <p>Note what is <em>not</em> here: a straight edge across the anchor's own block. An earlier
+	 * version reported one, so the anchor behaved like a one-block piece of track that a curve
+	 * happened to leave from. But that stub can only lie on a discrete axis — it has to, to keep
+	 * its nodes on the half-block lattice — while the curve leaves at whatever angle the player
+	 * chose, so the two met at an angle of up to 45 degrees. The graph was right and the curve was
+	 * right; the bend between them was what read as a train running beside its rails.
+	 *
+	 * <p>With one node per anchor there is nothing for the curve to disagree with. Docking to
+	 * Create's own track still works: that node sits on the block boundary, which is a lattice
+	 * point an adjacent Create track reports too, so the two merge into one node as before.
 	 */
 	@Override
 	public Collection<DiscoveredLocation> getConnected(BlockGetter worldIn, BlockPos pos, BlockState state,
@@ -204,6 +253,10 @@ public class AngledTrackAnchorBlock extends Block implements EntityBlock, ITrack
 				(b, v) -> ITrackBlock.getMaterialSimple(world, v, getMaterial()));
 		}
 
+		// onRailAdded seeds its search with a linear-only query, and dereferences the start node
+		// it expects that to have found. Reporting nothing here leaves it null and crashes, so
+		// the stub is not optional: the propagator requires every track block to have straight
+		// geometry of its own.
 		if (linear)
 			return list;
 

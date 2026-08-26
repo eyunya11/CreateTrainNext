@@ -9,6 +9,7 @@ import com.simibubi.create.content.trains.track.TrackPropagator;
 
 import net.createmod.catnip.data.Couple;
 import net.minecraft.core.BlockPos;
+import net.minecraft.core.Direction;
 import net.minecraft.core.HolderLookup;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.network.protocol.Packet;
@@ -31,22 +32,20 @@ import net.minecraft.world.phys.Vec3;
  * the player actually sees, and trains would drift off the rails. Only the <em>tangents</em>
  * are free, and those the graph never quantises.
  *
- * <p>Both anchors of a pair store the link. One is marked primary and draws the curve; the
- * other builds the mirrored version, so the two report identical node positions to the graph.
+ * <p>Both anchors of a pair store the link, and either can build the curve. Which end counts as
+ * the start is derived from the two block positions, so the two ends always agree on one curve
+ * rather than each describing its own.
  */
 public class AngledTrackAnchorBlockEntity extends BlockEntity {
 
 	private static final String TAG_YAW = "Yaw";
 	private static final String TAG_PARTNER = "Partner";
-	private static final String TAG_PRIMARY = "Primary";
 
 	private float yaw = 0.0F;
 
 	@Nullable
 	private BlockPos partner = null;
 
-	/** Only the primary end renders the curve; Create's renderer skips secondary connections. */
-	private boolean primary = false;
 
 	@Nullable
 	private BezierConnection cachedCurve = null;
@@ -54,6 +53,10 @@ public class AngledTrackAnchorBlockEntity extends BlockEntity {
 
 	public AngledTrackAnchorBlockEntity(BlockPos pos, BlockState state) {
 		super(CTNRegistry.ANGLED_TRACK_ANCHOR_ENTITY.get(), pos, state);
+		// Start the yaw already agreeing with the stub the block was placed with, so a freshly
+		// placed anchor is straight rather than bent 90 degrees until it is first rotated.
+		yaw = state.getValue(AngledTrackAnchorBlock.AXIS)
+			.defaultYaw();
 	}
 
 	// ---------------------------------------------------------------- state
@@ -70,12 +73,34 @@ public class AngledTrackAnchorBlockEntity extends BlockEntity {
 	public void rotateYaw(float degrees) {
 		detachFromGraph();
 		yaw = Mth.wrapDegrees(yaw + degrees);
+		alignStubToYaw();
 		invalidateCurve();
 		sync();
 		attachToGraph();
 	}
 
-	/** Links this anchor (as primary) to {@code other}, replacing any existing links on either end. */
+	/**
+	 * Points the straight stub at whichever of the four lattice-safe axes sits closest to the yaw.
+	 *
+	 * <p>The stub cannot follow the yaw exactly — it has to stay on one of those axes to keep its
+	 * graph nodes on the half-block lattice. Having the diagonals available as well as the two
+	 * orthogonals means it is never more than 22.5 degrees away from the curve leaving it.
+	 */
+	private void alignStubToYaw() {
+		if (level == null || level.isClientSide)
+			return;
+
+		AnchorAxis wanted = AnchorAxis.nearestTo(directionFromYaw(yaw));
+
+		BlockState state = getBlockState();
+		if (state.getValue(AngledTrackAnchorBlock.AXIS) == wanted)
+			return;
+
+		// Same block, only a property changes, so the block entity and its link survive this.
+		level.setBlock(worldPosition, state.setValue(AngledTrackAnchorBlock.AXIS, wanted), Block.UPDATE_ALL);
+	}
+
+	/** Links this anchor to {@code other}, replacing any existing links on either end. */
 	public void linkTo(AngledTrackAnchorBlockEntity other) {
 		if (other == this)
 			return;
@@ -87,9 +112,7 @@ public class AngledTrackAnchorBlockEntity extends BlockEntity {
 		other.detachFromGraph();
 
 		this.partner = other.getBlockPos();
-		this.primary = true;
 		other.partner = this.worldPosition;
-		other.primary = false;
 
 		invalidateCurve();
 		other.invalidateCurve();
@@ -113,13 +136,11 @@ public class AngledTrackAnchorBlockEntity extends BlockEntity {
 			other.detachFromGraph();
 
 		partner = null;
-		primary = false;
 		invalidateCurve();
 		sync();
 
 		if (other != null) {
 			other.partner = null;
-			other.primary = false;
 			other.invalidateCurve();
 			other.sync();
 			other.attachToGraph();
@@ -182,45 +203,65 @@ public class AngledTrackAnchorBlockEntity extends BlockEntity {
 		if (!(level.getBlockEntity(partner) instanceof AngledTrackAnchorBlockEntity other))
 			return null;
 
-		Vec3 hereCenter = Vec3.atBottomCenterOf(worldPosition);
-		Vec3 thereCenter = Vec3.atBottomCenterOf(partner);
-		Vec3 hereToThere = thereCenter.subtract(hereCenter);
-		if (hereToThere.lengthSqr() < 1.0E-4)
+		if (Vec3.atBottomCenterOf(partner)
+			.subtract(Vec3.atBottomCenterOf(worldPosition))
+			.lengthSqr() < 1.0E-4)
 			return null;
 
-		// Endpoints: the end of each anchor's straight stub, facing the other anchor. Discrete,
-		// so they land exactly on the node lattice. The flip tests are written so that the
-		// partner computing this from its own side arrives at the same two points.
-		Vec3 dockHere = AngledTrackAnchorBlock.axisVector(getBlockState());
-		if (dockHere.dot(hereToThere) < 0)
-			dockHere = dockHere.scale(-1);
+		// Which end is the start is derived from the two positions, not stored. It used to come
+		// from a persisted 'primary' flag that the two anchors had to hold in exact opposition,
+		// and any way of ending up with both set the same — old saves, a half-applied link —
+		// made each end name itself the start. The tangent convention is asymmetric, so the two
+		// then describe genuinely different curves rather than one curve traversed both ways:
+		// both get drawn, both go into the graph, and a train picks whichever it likes. Deriving
+		// the order from BlockPos cannot disagree between the two ends.
+		boolean startsHere = worldPosition.asLong() < partner.asLong();
+		AngledTrackAnchorBlockEntity from = startsHere ? this : other;
+		AngledTrackAnchorBlockEntity to = startsHere ? other : this;
 
-		Vec3 dockThere = AngledTrackAnchorBlock.axisVector(other.getBlockState());
-		if (dockThere.dot(hereToThere) > 0)
-			dockThere = dockThere.scale(-1);
+		// Create requires both tangents to point *into* the curve — see determineHandles, which
+		// negates axis2 before measuring the turn angle. So the far end's tangent is the reverse
+		// of its heading. Note these are fixed negations, not tests against the line joining the
+		// anchors: such a test flips through 180 degrees as it crosses perpendicular, and an
+		// earlier version of this method did exactly that. Feeding Create a tangent pointing out
+		// of the curve puts a cusp in the bezier, where the derivative approaches zero and
+		// incrementT explodes — which shows up in game as a stopped train jittering back and forth.
+		Vec3 axisFrom = directionFromYaw(from.yaw);
+		Vec3 axisTo = directionFromYaw(to.yaw)
+			.scale(-1);
 
-		Vec3 startHere = hereCenter.add(dockHere.scale(0.5));
-		Vec3 startThere = thereCenter.add(dockThere.scale(0.5));
-
-		// Tangents: the free part. Nothing downstream rounds these.
-		Vec3 axisHere = directionFromYaw(yaw);
-		if (axisHere.dot(hereToThere) < 0)
-			axisHere = axisHere.scale(-1);
-
-		Vec3 axisThere = directionFromYaw(other.yaw);
-		if (axisThere.dot(hereToThere) > 0)
-			axisThere = axisThere.scale(-1);
+		// Endpoints: the end of each anchor's stub that its tangent faces. Discrete, so they land
+		// exactly on the node lattice.
+		//
+		// Pinning both curves at an anchor to one shared end was tried, on the reasoning that two
+		// curves meeting there carry exactly opposite tangents and would then join smoothly. They
+		// do — but a curve whose tangent faces the other way has to overshoot the block and double
+		// back to reach that end, and the resulting loop crosses the stub. Create reads crossing
+		// curves as a junction, and trains stop routing through it. Following the tangent keeps the
+		// geometry honest, at the cost of the corner this was trying to remove.
+		Vec3 startFrom = Vec3.atBottomCenterOf(from.getBlockPos())
+			.add(dockOffset(from.getBlockState(), axisFrom));
+		Vec3 startTo = Vec3.atBottomCenterOf(to.getBlockPos())
+			.add(dockOffset(to.getBlockState(), axisTo));
 
 		Vec3 up = new Vec3(0, 1, 0);
 
 		return new BezierConnection(
-			Couple.create(worldPosition, partner),
-			Couple.create(startHere, startThere),
-			Couple.create(axisHere, axisThere),
+			Couple.create(from.getBlockPos(), to.getBlockPos()),
+			Couple.create(startFrom, startTo),
+			Couple.create(axisFrom, axisTo),
 			Couple.create(up, up),
-			primary,
+			this == from,
 			false, // no girder
 			TrackMaterial.ANDESITE);
+	}
+
+	/** Half a block along the anchor's stub, on whichever side the given tangent points. */
+	private static Vec3 dockOffset(BlockState state, Vec3 tangent) {
+		Vec3 axis = AngledTrackAnchorBlock.axisVector(state);
+		if (axis.dot(tangent) < 0)
+			axis = axis.scale(-1);
+		return axis.scale(0.5);
 	}
 
 	/** Client-side accessor used by the renderer. Caches until an endpoint actually moves. */
@@ -265,7 +306,6 @@ public class AngledTrackAnchorBlockEntity extends BlockEntity {
 	protected void saveAdditional(CompoundTag tag, HolderLookup.Provider registries) {
 		super.saveAdditional(tag, registries);
 		tag.putFloat(TAG_YAW, yaw);
-		tag.putBoolean(TAG_PRIMARY, primary);
 		if (partner != null)
 			tag.putLong(TAG_PARTNER, partner.asLong());
 	}
@@ -274,7 +314,6 @@ public class AngledTrackAnchorBlockEntity extends BlockEntity {
 	protected void loadAdditional(CompoundTag tag, HolderLookup.Provider registries) {
 		super.loadAdditional(tag, registries);
 		yaw = tag.getFloat(TAG_YAW);
-		primary = tag.getBoolean(TAG_PRIMARY);
 		partner = tag.contains(TAG_PARTNER) ? BlockPos.of(tag.getLong(TAG_PARTNER)) : null;
 		invalidateCurve();
 	}

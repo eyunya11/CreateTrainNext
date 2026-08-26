@@ -32,10 +32,15 @@ public class CTNRegistry {
 	public static final DeferredBlock<AngledTrackAnchorBlock> ANGLED_TRACK_ANCHOR = BLOCKS.registerBlock(
 		"angled_track_anchor",
 		AngledTrackAnchorBlock::new,
+		// Mirrors the properties Create gives its own track block. noOcclusion is the important
+		// one: without it the game treats this as a full opaque cube and culls the faces of
+		// neighbouring blocks, so you see straight through the ground around the anchor.
 		BlockBehaviour.Properties.of()
-			.mapColor(MapColor.STONE)
-			.strength(1.5F)
-			.sound(SoundType.STONE));
+			.mapColor(MapColor.METAL)
+			.strength(0.8F)
+			.sound(SoundType.METAL)
+			.noOcclusion()
+			.forceSolidOn());
 
 	public static final DeferredItem<BlockItem> ANGLED_TRACK_ANCHOR_ITEM =
 		ITEMS.registerSimpleBlockItem("angled_track_anchor", ANGLED_TRACK_ANCHOR);

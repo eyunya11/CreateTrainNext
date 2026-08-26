@@ -1,6 +1,22 @@
 {
-  "parent": "minecraft:block/cube_all",
+  "parent": "block/block",
   "textures": {
-    "all": "minecraft:block/polished_andesite"
-  }
+    "all": "create:block/palettes/stone_types/polished/andesite_cut_polished",
+    "particle": "create:block/palettes/stone_types/polished/andesite_cut_polished"
+  },
+  "elements": [
+    {
+      "__comment": "A low pad, not a piece of rail. The anchor contributes a single graph node on the block boundary, so drawing a full straight rail here would show track where none exists.",
+      "from": [5, 0, 5],
+      "to": [11, 2, 11],
+      "faces": {
+        "down": {"uv": [5, 5, 11, 11], "texture": "#all", "cullface": "down"},
+        "up": {"uv": [5, 5, 11, 11], "texture": "#all"},
+        "north": {"uv": [5, 14, 11, 16], "texture": "#all"},
+        "south": {"uv": [5, 14, 11, 16], "texture": "#all"},
+        "west": {"uv": [5, 14, 11, 16], "texture": "#all"},
+        "east": {"uv": [5, 14, 11, 16], "texture": "#all"}
+      }
+    }
+  ]
 }
