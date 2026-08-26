@@ -7,7 +7,6 @@
 
   "message.createtrainnext.angle": "Angle: %s°",
   "message.createtrainnext.link_started": "Route starts here. Click the next anchor to link to it.",
-  "message.createtrainnext.link_done": "Linked. Click the next anchor to carry the route on.",
-  "message.createtrainnext.link_cancelled": "Selection cleared.",
-  "message.createtrainnext.link_cleared": "Cleared this anchor's links."
+  "message.createtrainnext.link_done": "Linked. Click this anchor again to carry on from here.",
+  "message.createtrainnext.link_cancelled": "Selection cleared."
 }

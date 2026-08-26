@@ -75,8 +75,10 @@ import net.minecraft.world.phys.shapes.VoxelShape;
  * <p>Controls:
  * <ul>
  * <li>Right click with an empty hand turns the anchor by 15 degrees (sneak to go back).</li>
- * <li>Right click with a stick on one anchor then another continues the route from the first to
- * the second. Using a stick on an anchor that is already linked clears both of its links.</li>
+ * <li>Right click with a stick selects an anchor; right clicking a second one links the two and
+ * ends the selection. To carry a route on, click the anchor just reached to select it again.
+ * Clicking the anchor already selected clears the selection instead.</li>
+ * <li>Breaking an anchor is what undoes its links.</li>
  * </ul>
  */
 public class AngledTrackAnchorBlock extends Block implements EntityBlock, ITrackBlock {
@@ -86,7 +88,16 @@ public class AngledTrackAnchorBlock extends Block implements EntityBlock, ITrack
 	private static final float STEP_DEGREES = 15.0F;
 
 	/** Server-side scratch state: which anchor each player picked first. */
-	private static final Map<UUID, BlockPos> PENDING_LINKS = new HashMap<>();
+	/**
+	 * The anchor each player has selected with a stick, if any.
+	 *
+	 * <p>The dimension is held alongside the position rather than the position alone. A bare
+	 * BlockPos is resolved against whatever level the next click happens in, so a selection made in
+	 * one dimension would happily link to whatever anchor sat at the same coordinates in another.
+	 */
+	private record PendingLink(ResourceKey<Level> dimension, BlockPos pos) {}
+
+	private static final Map<UUID, PendingLink> PENDING_LINKS = new HashMap<>();
 
 	public AngledTrackAnchorBlock(Properties properties) {
 		super(properties);
@@ -367,33 +378,38 @@ public class AngledTrackAnchorBlock extends Block implements EntityBlock, ITrack
 			return ItemInteractionResult.SUCCESS;
 
 		UUID playerId = player.getUUID();
-		BlockPos pending = PENDING_LINKS.get(playerId);
+		PendingLink pending = PENDING_LINKS.get(playerId);
+		// A selection from another dimension cannot mean anything here, so it is not one.
+		if (pending != null && !pending.dimension()
+			.equals(level.dimension()))
+			pending = null;
 
-		// Clicking the anchor you are already holding just puts it down. This used to unlink it,
-		// which sat badly with the flow: right after linking into an anchor it is the held one, so
-		// clicking it again — the obvious way to say "carry on from here" — tore up the link that
-		// had just been made. Breaking the block is the way to undo a link; onRemove handles it.
-		if (pos.equals(pending)) {
+		// Clicking the anchor already selected puts it down again. Undoing a link is a different
+		// gesture entirely: break the anchor, which onRemove handles.
+		if (pending != null && pos.equals(pending.pos())) {
 			PENDING_LINKS.remove(playerId);
 			player.displayClientMessage(Component.translatable("message.createtrainnext.link_cancelled"), true);
 			return ItemInteractionResult.CONSUME;
 		}
 
-		AngledTrackAnchorBlockEntity from =
-			pending != null && level.getBlockEntity(pending) instanceof AngledTrackAnchorBlockEntity f ? f : null;
+		AngledTrackAnchorBlockEntity from = pending != null
+			&& level.getBlockEntity(pending.pos()) instanceof AngledTrackAnchorBlockEntity f ? f : null;
 
 		if (from == null) {
-			PENDING_LINKS.put(playerId, pos);
+			PENDING_LINKS.put(playerId, new PendingLink(level.dimension(), pos));
 			player.displayClientMessage(Component.translatable("message.createtrainnext.link_started"), true);
 			return ItemInteractionResult.CONSUME;
 		}
 
 		from.linkTo(anchor);
 
-		// Carry on from the anchor just reached, so a whole route is laid by clicking each anchor
-		// along it in turn. Stopping here instead would make every segment a separate two-click
-		// gesture, and an anchor could never become the start of the next one.
-		PENDING_LINKS.put(playerId, pos);
+		// The selection ends with the link rather than moving to the anchor just reached. Carrying
+		// it on made a route one click per anchor, but it also left a selection standing with
+		// nothing to end it, so the next anchor clicked — anywhere, however far away, however much
+		// later — joined itself to wherever the last route happened to stop. Continuing a route now
+		// costs one extra click, on the anchor just reached, and in exchange every link is
+		// something the player pointed at twice on purpose.
+		PENDING_LINKS.remove(playerId);
 		player.displayClientMessage(Component.translatable("message.createtrainnext.link_done"), true);
 		return ItemInteractionResult.CONSUME;
 	}
