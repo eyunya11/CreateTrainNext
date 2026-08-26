@@ -7,7 +7,6 @@
 
   "message.createtrainnext.angle": "角度: %s°",
   "message.createtrainnext.link_started": "ここから経路を開始します。次のアンカーをクリックすると繋がります。",
-  "message.createtrainnext.link_done": "接続しました。続けて次のアンカーをクリックすると経路が伸びます。",
-  "message.createtrainnext.link_cancelled": "選択を解除しました。",
-  "message.createtrainnext.link_cleared": "このアンカーの接続を解除しました。"
+  "message.createtrainnext.link_done": "接続しました。ここから続けるには、このアンカーをもう一度クリックしてください。",
+  "message.createtrainnext.link_cancelled": "選択を解除しました。"
 }
