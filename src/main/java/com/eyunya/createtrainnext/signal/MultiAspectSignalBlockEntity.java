@@ -21,9 +21,11 @@ import com.simibubi.create.foundation.blockEntity.behaviour.scrollValue.ScrollVa
 
 import dev.engine_room.flywheel.lib.transform.TransformStack;
 import net.createmod.catnip.data.Iterate;
+import net.createmod.catnip.math.AngleHelper;
 import net.createmod.catnip.math.VecHelper;
 import net.createmod.catnip.nbt.NBTHelper;
 import net.minecraft.core.BlockPos;
+import net.minecraft.core.Direction;
 import net.minecraft.core.HolderLookup;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.network.chat.Component;
@@ -64,6 +66,16 @@ public class MultiAspectSignalBlockEntity extends SmartBlockEntity implements Tr
 	 */
 	private static final int ASPECT_TICK_RATE = 10;
 
+	/**
+	 * The offset value box's slider does not run 0 to 2, one tick per {@link HorizontalOffset}: the
+	 * board draws its slider {@code (maxValue + 1) * 2} pixels wide, so a domain of 2 is a bar about
+	 * six pixels across — wide enough to see, not wide enough to reliably click a specific third of.
+	 * Scaling the domain up by this and rounding back down to the nearest option on both ends (see
+	 * {@link #onOffsetChanged} and the formatter below) keeps three settings but gives the slider
+	 * proper width to drag across, the same trade Create's own multi-setting value boxes make.
+	 */
+	private static final int OFFSET_STEP = 25;
+
 	public TrackTargetingBehaviour<SignalBoundary> edgePoint;
 	public ScrollValueBehaviour offset;
 
@@ -87,19 +99,25 @@ public class MultiAspectSignalBlockEntity extends SmartBlockEntity implements Tr
 
 		offset = new ScrollValueBehaviour(Component.translatable("createtrainnext.multi_aspect_signal.offset"),
 			this, new OffsetValueBox());
-		offset.between(0, HorizontalOffset.values().length - 1);
-		offset.value = HorizontalOffset.CENTER.ordinal();
-		offset.withFormatter(v -> Component.translatable(
-			"createtrainnext.multi_aspect_signal.offset." + HorizontalOffset.values()[v].getSerializedName())
+		offset.between(0, (HorizontalOffset.values().length - 1) * OFFSET_STEP);
+		offset.value = HorizontalOffset.CENTER.ordinal() * OFFSET_STEP;
+		offset.withFormatter(v -> Component.translatable("createtrainnext.multi_aspect_signal.offset."
+			+ offsetForRawValue(v).getSerializedName())
 			.getString());
 		offset.withCallback(this::onOffsetChanged);
 		behaviours.add(offset);
 	}
 
-	private void onOffsetChanged(int ordinal) {
+	/** Rounds a raw slider value to whichever {@link HorizontalOffset} it landed closest to. */
+	private static HorizontalOffset offsetForRawValue(int raw) {
+		int ordinal = Math.round(raw / (float) OFFSET_STEP);
+		return HorizontalOffset.values()[ordinal];
+	}
+
+	private void onOffsetChanged(int raw) {
 		if (level == null || level.isClientSide())
 			return;
-		HorizontalOffset newOffset = HorizontalOffset.values()[ordinal];
+		HorizontalOffset newOffset = offsetForRawValue(raw);
 		BlockState state = getBlockState();
 		if (state.getValue(MultiAspectSignalBlock.OFFSET) == newOffset)
 			return;
@@ -230,10 +248,16 @@ public class MultiAspectSignalBlockEntity extends SmartBlockEntity implements Tr
 
 		@Override
 		public void rotate(LevelAccessor level, BlockPos pos, BlockState state, PoseStack ms) {
-			// The housing's own front is modelYaw(state); this sits on the back, so add the
-			// half-turn rather than reusing that angle directly.
+			// Create's own idiom for a box mounted on a given side (see RedstoneLinkFrequencySlot,
+			// the only other user of rotateHorizontally in Create): AngleHelper.horizontalAngle(side)
+			// + 180, not this class's own modelYaw. The two agree for north/south but disagree in
+			// sign for east/west, since horizontalAngle negates its result on the X axis and
+			// modelYaw does not - which is what had this reading backwards on two of the four
+			// facings.
+			Direction back = state.getValue(MultiAspectSignalBlock.FACING)
+				.getOpposite();
 			TransformStack.of(ms)
-				.rotateYDegrees(-MultiAspectSignalBlock.modelYaw(state) + 180);
+				.rotateYDegrees(AngleHelper.horizontalAngle(back) + 180);
 		}
 	}
 }

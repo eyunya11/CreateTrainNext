@@ -64,11 +64,18 @@ public class MultiAspectSignalBlock extends Block
 		// read() with no "ScrollValue" key present, and that reads back as 0. Ordinal 0 being the
 		// blockstate's own default turns that into a no-op instead of a bug to work around.
 		//
-		// LOCAL_X is how far housing_left.json/housing_right.json were shifted from housing.json,
-		// in the same south-authored local space the model is built in, and MultiAspectSignalRenderer
+		// LOCAL_X is where the lamp column sits in housing_left.json/housing_right.json, in the
+		// same south-authored local space the model is built in, and MultiAspectSignalRenderer
 		// shifts the lamps by the same amount before applying the same rotation, so the two cannot
 		// drift apart the way two independently-chosen numbers could.
-		CENTER(0), LEFT(-3.5F), RIGHT(3.5F);
+		//
+		// Read off the "light_base" element in each model (its backing board, spanning the full
+		// lamp column) rather than assumed: housing_left/housing_right are no longer a uniform shift
+		// of housing.json — they carry their own pole and support geometry now — so there is no
+		// single delta to reapply by formula the way there was when this was still 3.5 either way.
+		// If light_base moves again, read its new centre the same way rather than guessing from the
+		// visible geometry around it.
+		CENTER(0), LEFT(-6.5F), RIGHT(6.5F);
 
 		private final float localX;
 
