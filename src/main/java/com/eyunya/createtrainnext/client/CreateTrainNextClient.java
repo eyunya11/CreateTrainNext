@@ -3,6 +3,7 @@ package com.eyunya.createtrainnext.client;
 import com.eyunya.createtrainnext.CTNConfig;
 import com.eyunya.createtrainnext.CTNRegistry;
 import com.eyunya.createtrainnext.CreateTrainNext;
+import com.eyunya.createtrainnext.signal.SignalAspect.LampColour;
 
 import dev.engine_room.flywheel.lib.model.baked.PartialModel;
 
@@ -37,6 +38,34 @@ public class CreateTrainNextClient {
 	public static final PartialModel SPEED_LIMIT_SIGN =
 		PartialModel.of(CreateTrainNext.asResource("block/track_speed_limit"));
 
+	/**
+	 * The signal's lamps, one model per state a socket can be in.
+	 *
+	 * <p>Four models rather than twenty: every socket is drawn from the same lamp, moved up or down
+	 * the housing by the renderer, so adding or removing a lamp from the column costs no assets at
+	 * all. The housing itself is a blockstate model and is not here.
+	 */
+	public static final PartialModel SIGNAL_LAMP_OFF = signalLamp("light_blank");
+
+	public static final PartialModel SIGNAL_LAMP_RED = signalLamp("light_lit_red");
+
+	public static final PartialModel SIGNAL_LAMP_YELLOW = signalLamp("light_lit_yellow");
+
+	public static final PartialModel SIGNAL_LAMP_GREEN = signalLamp("light_lit_green");
+
+	private static PartialModel signalLamp(String name) {
+		return PartialModel.of(CreateTrainNext.asResource("block/multi_aspect_signal/" + name));
+	}
+
+	/** The lit lamp for a colour. Kept beside the fields so a new colour cannot be half-added. */
+	public static PartialModel litLamp(LampColour colour) {
+		return switch (colour) {
+			case RED -> SIGNAL_LAMP_RED;
+			case YELLOW -> SIGNAL_LAMP_YELLOW;
+			case GREEN -> SIGNAL_LAMP_GREEN;
+		};
+	}
+
 	public static void init(IEventBus modEventBus, ModContainer modContainer) {
 		modContainer.registerConfig(ModConfig.Type.CLIENT, CTNConfig.CLIENT_SPEC);
 		modEventBus.addListener(CreateTrainNextClient::onRegisterRenderers);
@@ -46,5 +75,7 @@ public class CreateTrainNextClient {
 		event.registerBlockEntityRenderer(CTNRegistry.ANGLED_TRACK_ANCHOR_ENTITY.get(),
 			AngledTrackAnchorRenderer::new);
 		event.registerBlockEntityRenderer(CTNRegistry.TRACK_SPEED_LIMIT_ENTITY.get(), SpeedLimitRenderer::new);
+		event.registerBlockEntityRenderer(CTNRegistry.MULTI_ASPECT_SIGNAL_ENTITY.get(),
+			MultiAspectSignalRenderer::new);
 	}
 }

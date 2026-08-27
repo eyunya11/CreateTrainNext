@@ -2,11 +2,15 @@ package com.eyunya.createtrainnext;
 
 import java.util.function.Supplier;
 
+import com.eyunya.createtrainnext.pole.SignalPoleBlock;
+import com.eyunya.createtrainnext.signal.MultiAspectSignalBlock;
+import com.eyunya.createtrainnext.signal.MultiAspectSignalBlockEntity;
 import com.eyunya.createtrainnext.speed.CTNEdgePointTypes;
 import com.eyunya.createtrainnext.speed.SpeedLimitBlock;
 import com.eyunya.createtrainnext.speed.SpeedLimitBlockEntity;
 import com.eyunya.createtrainnext.track.AngledTrackAnchorBlock;
 import com.eyunya.createtrainnext.track.AngledTrackAnchorBlockEntity;
+import com.simibubi.create.content.trains.graph.EdgePointType;
 import com.simibubi.create.content.trains.track.TrackTargetingBlockItem;
 
 import net.minecraft.core.registries.Registries;
@@ -80,6 +84,44 @@ public class CTNRegistry {
 			.of(SpeedLimitBlockEntity::new, TRACK_SPEED_LIMIT.get())
 			.build(null));
 
+	public static final DeferredBlock<SignalPoleBlock> SIGNAL_POLE = BLOCKS.registerBlock(
+		"signal_pole",
+		SignalPoleBlock::new,
+		// noOcclusion because a two pixel mast is nowhere near a full cube: without it the game
+		// culls the faces of everything it touches and the ground around a planted pole goes
+		// see-through.
+		BlockBehaviour.Properties.of()
+			.mapColor(MapColor.METAL)
+			.strength(0.8F)
+			.sound(SoundType.NETHERITE_BLOCK)
+			.noOcclusion());
+
+	public static final DeferredItem<BlockItem> SIGNAL_POLE_ITEM =
+		ITEMS.registerSimpleBlockItem("signal_pole", SIGNAL_POLE);
+
+	public static final DeferredBlock<MultiAspectSignalBlock> MULTI_ASPECT_SIGNAL = BLOCKS.registerBlock(
+		"multi_aspect_signal",
+		MultiAspectSignalBlock::new,
+		BlockBehaviour.Properties.of()
+			.mapColor(MapColor.PODZOL)
+			.strength(0.8F)
+			.sound(SoundType.NETHERITE_BLOCK)
+			.noOcclusion());
+
+	/**
+	 * Built on Create's own SIGNAL point type rather than one of this mod's. That is what makes
+	 * trains obey it: Create's navigation looks for {@code SignalBoundary} by its concrete class,
+	 * so a signal of any other type would be invisible to braking and block reservation alike.
+	 */
+	public static final DeferredItem<TrackTargetingBlockItem> MULTI_ASPECT_SIGNAL_ITEM =
+		ITEMS.registerItem("multi_aspect_signal", properties -> new TrackTargetingBlockItem(
+			MULTI_ASPECT_SIGNAL.get(), properties, EdgePointType.SIGNAL));
+
+	public static final Supplier<BlockEntityType<MultiAspectSignalBlockEntity>> MULTI_ASPECT_SIGNAL_ENTITY =
+		BLOCK_ENTITIES.register("multi_aspect_signal", () -> BlockEntityType.Builder
+			.of(MultiAspectSignalBlockEntity::new, MULTI_ASPECT_SIGNAL.get())
+			.build(null));
+
 	public static final DeferredHolder<CreativeModeTab, CreativeModeTab> TAB =
 		CREATIVE_TABS.register("main", () -> CreativeModeTab.builder()
 			.title(Component.translatable("itemGroup." + CreateTrainNext.ID))
@@ -88,6 +130,8 @@ public class CTNRegistry {
 			.displayItems((params, output) -> {
 				output.accept(ANGLED_TRACK_ANCHOR_ITEM.get());
 				output.accept(TRACK_SPEED_LIMIT_ITEM.get());
+				output.accept(SIGNAL_POLE_ITEM.get());
+				output.accept(MULTI_ASPECT_SIGNAL_ITEM.get());
 			})
 			.build());
 

@@ -1,0 +1,9 @@
+{
+	"__comment": "y is zero for south because that is the way the model was drawn: its lamps sit at z=10, on the +z face of the panel. MultiAspectSignalBlock.modelYaw spells the same four angles, and the renderer measures the lamps from it, so the housing and the lamps cannot drift apart.",
+	"variants": {
+		"facing=south": { "model": "createtrainnext:block/multi_aspect_signal/housing" },
+		"facing=west": { "model": "createtrainnext:block/multi_aspect_signal/housing", "y": 90 },
+		"facing=north": { "model": "createtrainnext:block/multi_aspect_signal/housing", "y": 180 },
+		"facing=east": { "model": "createtrainnext:block/multi_aspect_signal/housing", "y": 270 }
+	}
+}

@@ -2,8 +2,13 @@
   "itemGroup.createtrainnext": "Create Train Next",
   "block.createtrainnext.angled_track_anchor": "Angled Track Anchor",
   "block.createtrainnext.track_speed_limit": "Track Speed Limit",
+  "block.createtrainnext.signal_pole": "Signal Pole",
   "createtrainnext.speed_limit.limit": "Speed Limit",
   "createtrainnext.speed_limit.row": "Speed",
+
+  "block.createtrainnext.multi_aspect_signal": "5-Aspect Railway Signal",
+  "message.createtrainnext.signal.restricted_on": "Showing 警戒 (Restricted) instead of 注意 (Approach)",
+  "message.createtrainnext.signal.restricted_off": "Showing 注意 (Approach)",
 
   "message.createtrainnext.angle": "Angle: %s°",
   "message.createtrainnext.link_started": "Route starts here. Click the next anchor to link to it.",
