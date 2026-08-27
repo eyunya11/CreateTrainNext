@@ -5,6 +5,8 @@ import java.util.List;
 import org.jetbrains.annotations.Nullable;
 
 import com.eyunya.createtrainnext.CTNRegistry;
+import com.eyunya.createtrainnext.signal.MultiAspectSignalBlock.HorizontalOffset;
+import com.mojang.blaze3d.vertex.PoseStack;
 import com.simibubi.create.Create;
 import com.simibubi.create.api.contraption.transformable.TransformableBlockEntity;
 import com.simibubi.create.content.contraptions.StructureTransform;
@@ -14,12 +16,19 @@ import com.simibubi.create.content.trains.signal.SignalBoundary;
 import com.simibubi.create.content.trains.track.TrackTargetingBehaviour;
 import com.simibubi.create.foundation.blockEntity.SmartBlockEntity;
 import com.simibubi.create.foundation.blockEntity.behaviour.BlockEntityBehaviour;
+import com.simibubi.create.foundation.blockEntity.behaviour.ValueBoxTransform;
+import com.simibubi.create.foundation.blockEntity.behaviour.scrollValue.ScrollValueBehaviour;
 
+import dev.engine_room.flywheel.lib.transform.TransformStack;
 import net.createmod.catnip.data.Iterate;
+import net.createmod.catnip.math.VecHelper;
 import net.createmod.catnip.nbt.NBTHelper;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.HolderLookup;
 import net.minecraft.nbt.CompoundTag;
+import net.minecraft.network.chat.Component;
+import net.minecraft.world.level.LevelAccessor;
+import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.block.entity.BlockEntityType;
 import net.minecraft.world.level.block.state.BlockState;
@@ -36,8 +45,11 @@ import net.minecraft.world.phys.Vec3;
  * trains would run straight past this signal without braking or reserving anything. Being the same
  * kind of point also means these can be mixed freely with Create's own signals on one line.
  *
- * <p>So nothing here holds a train back. Create does that. All this adds is which lamps to light,
- * and {@link AspectResolver} works that out by counting Create's blocks.
+ * <p>So nothing here holds a train back. Create does that. Most of what this adds is which lamps
+ * to light, worked out by {@link AspectResolver} by counting Create's blocks. The one other thing
+ * is {@link MultiAspectSignalBlock.HorizontalOffset}, a value box rather than block-entity data of
+ * its own — it edits {@link MultiAspectSignalBlock#OFFSET} directly, since that is a blockstate
+ * property and has to be for {@code getShape} and the blockstate model to see it.
  */
 public class MultiAspectSignalBlockEntity extends SmartBlockEntity implements TransformableBlockEntity {
 
@@ -53,6 +65,7 @@ public class MultiAspectSignalBlockEntity extends SmartBlockEntity implements Tr
 	private static final int ASPECT_TICK_RATE = 10;
 
 	public TrackTargetingBehaviour<SignalBoundary> edgePoint;
+	public ScrollValueBehaviour offset;
 
 	/** Starts at the most restrictive: a signal that has not worked itself out yet shows 停止. */
 	private SignalAspect aspect = SignalAspect.STOP;
@@ -71,6 +84,28 @@ public class MultiAspectSignalBlockEntity extends SmartBlockEntity implements Tr
 	@Override
 	public void addBehaviours(List<BlockEntityBehaviour> behaviours) {
 		behaviours.add(edgePoint = new TrackTargetingBehaviour<>(this, EdgePointType.SIGNAL));
+
+		offset = new ScrollValueBehaviour(Component.translatable("createtrainnext.multi_aspect_signal.offset"),
+			this, new OffsetValueBox());
+		offset.between(0, HorizontalOffset.values().length - 1);
+		offset.value = HorizontalOffset.CENTER.ordinal();
+		offset.withFormatter(v -> Component.translatable(
+			"createtrainnext.multi_aspect_signal.offset." + HorizontalOffset.values()[v].getSerializedName())
+			.getString());
+		offset.withCallback(this::onOffsetChanged);
+		behaviours.add(offset);
+	}
+
+	private void onOffsetChanged(int ordinal) {
+		if (level == null || level.isClientSide())
+			return;
+		HorizontalOffset newOffset = HorizontalOffset.values()[ordinal];
+		BlockState state = getBlockState();
+		if (state.getValue(MultiAspectSignalBlock.OFFSET) == newOffset)
+			return;
+		// Same block, only a property changes, so this block entity survives the state swap and
+		// nothing has to be re-read on the other side of it.
+		level.setBlock(worldPosition, state.setValue(MultiAspectSignalBlock.OFFSET, newOffset), Block.UPDATE_ALL);
 	}
 
 	public SignalAspect getAspect() {
@@ -174,5 +209,31 @@ public class MultiAspectSignalBlockEntity extends SmartBlockEntity implements Tr
 	@Override
 	public void transform(BlockEntity be, StructureTransform transform) {
 		edgePoint.transform(be, transform);
+	}
+
+	/**
+	 * Puts the offset value box on the lower back of the head — behind, where whoever is standing at
+	 * the mast to wire it up is already looking, and low enough to sit clear of the lamp column at
+	 * every offset rather than tracking it. The box does not move when the offset does: a control
+	 * that relocated itself when used would be harder to find on the second click, not easier.
+	 */
+	private static class OffsetValueBox extends ValueBoxTransform {
+
+		// South-authored, like the housing: centred left-right, low, and just clear of the panel's
+		// own back face at z=7.
+		private static final Vec3 LOCAL = VecHelper.voxelSpace(8, 2, 6);
+
+		@Override
+		public Vec3 getLocalOffset(LevelAccessor level, BlockPos pos, BlockState state) {
+			return rotateHorizontally(state, LOCAL);
+		}
+
+		@Override
+		public void rotate(LevelAccessor level, BlockPos pos, BlockState state, PoseStack ms) {
+			// The housing's own front is modelYaw(state); this sits on the back, so add the
+			// half-turn rather than reusing that angle directly.
+			TransformStack.of(ms)
+				.rotateYDegrees(-MultiAspectSignalBlock.modelYaw(state) + 180);
+		}
 	}
 }

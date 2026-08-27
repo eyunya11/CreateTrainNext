@@ -1,9 +1,50 @@
 {
-	"__comment": "y is zero for south because that is the way the model was drawn: its lamps sit at z=10, on the +z face of the panel. MultiAspectSignalBlock.modelYaw spells the same four angles, and the renderer measures the lamps from it, so the housing and the lamps cannot drift apart.",
+	"__comment": "y is zero for south because that is the way the model was drawn: its lamps sit at z=10, on the +z face of the panel. MultiAspectSignalBlock.modelYaw spells the same four angles, and the renderer measures the lamps from it, so the housing and the lamps cannot drift apart. housing_left/housing_right are housing.json with every element shifted along local x by the offset HorizontalOffset carries as its own localX() \u2014 see that enum before changing either.",
 	"variants": {
-		"facing=south": { "model": "createtrainnext:block/multi_aspect_signal/housing" },
-		"facing=west": { "model": "createtrainnext:block/multi_aspect_signal/housing", "y": 90 },
-		"facing=north": { "model": "createtrainnext:block/multi_aspect_signal/housing", "y": 180 },
-		"facing=east": { "model": "createtrainnext:block/multi_aspect_signal/housing", "y": 270 }
+		"facing=south,offset=center": {
+			"model": "createtrainnext:block/multi_aspect_signal/housing"
+		},
+		"facing=south,offset=left": {
+			"model": "createtrainnext:block/multi_aspect_signal/housing_left"
+		},
+		"facing=south,offset=right": {
+			"model": "createtrainnext:block/multi_aspect_signal/housing_right"
+		},
+		"facing=west,offset=center": {
+			"model": "createtrainnext:block/multi_aspect_signal/housing",
+			"y": 90
+		},
+		"facing=west,offset=left": {
+			"model": "createtrainnext:block/multi_aspect_signal/housing_left",
+			"y": 90
+		},
+		"facing=west,offset=right": {
+			"model": "createtrainnext:block/multi_aspect_signal/housing_right",
+			"y": 90
+		},
+		"facing=north,offset=center": {
+			"model": "createtrainnext:block/multi_aspect_signal/housing",
+			"y": 180
+		},
+		"facing=north,offset=left": {
+			"model": "createtrainnext:block/multi_aspect_signal/housing_left",
+			"y": 180
+		},
+		"facing=north,offset=right": {
+			"model": "createtrainnext:block/multi_aspect_signal/housing_right",
+			"y": 180
+		},
+		"facing=east,offset=center": {
+			"model": "createtrainnext:block/multi_aspect_signal/housing",
+			"y": 270
+		},
+		"facing=east,offset=left": {
+			"model": "createtrainnext:block/multi_aspect_signal/housing_left",
+			"y": 270
+		},
+		"facing=east,offset=right": {
+			"model": "createtrainnext:block/multi_aspect_signal/housing_right",
+			"y": 270
+		}
 	}
 }

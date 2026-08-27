@@ -72,6 +72,8 @@ public class MultiAspectSignalRenderer extends SmartBlockEntityRenderer<MultiAsp
 
 		SignalAspect aspect = be.getAspect();
 		float yaw = MultiAspectSignalBlock.modelYaw(state);
+		float localX = state.getValue(MultiAspectSignalBlock.OFFSET)
+			.localX();
 
 		for (int position = 1; position <= SignalAspect.LAMP_COUNT; position++) {
 			boolean lit = aspect.isLit(position);
@@ -80,16 +82,20 @@ public class MultiAspectSignalRenderer extends SmartBlockEntityRenderer<MultiAsp
 
 			// Position 1 is the top, so a lower number sits higher: the step is away from the
 			// reference socket, not towards it.
-			float offset = (REFERENCE_POSITION - position) * LAMP_SPACING;
+			float verticalOffset = (REFERENCE_POSITION - position) * LAMP_SPACING;
 
 			CachedBuffers.partial(model, state)
 				// Negated because a blockstate variant's y turns the model the opposite way round
 				// from this, and modelYaw is measured in the blockstate's sense so the housing and
 				// the lamps agree.
 				.rotateCenteredDegrees(-yaw, Direction.Axis.Y)
-				// After the turn, so the lamps climb the housing rather than off to one side of it.
-				// Harmless either way while the offset is vertical, but only by luck.
-				.translate(0, offset, 0)
+				// Issued after the rotation, so — per Flywheel's Affine, which composes each call
+				// inside the ones before it — this runs first, in the same south-authored local
+				// space housing_left.json/housing_right.json were shifted in, and the rotation above
+				// carries it around exactly as it carries the housing's own baked shift. Reversing
+				// the order would translate along the already-rotated axes instead and send the
+				// lamps sideways off the housing on three of the four facings.
+				.translate(localX, verticalOffset, 0)
 				.light(lit ? LightTexture.FULL_BLOCK : light)
 				.renderInto(ms, buffer.getBuffer(RenderType.cutoutMipped()));
 		}

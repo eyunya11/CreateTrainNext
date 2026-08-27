@@ -1,6 +1,7 @@
 package com.eyunya.createtrainnext.signal;
 
 import java.util.EnumMap;
+import java.util.Locale;
 import java.util.Map;
 
 import com.eyunya.createtrainnext.CTNRegistry;
@@ -28,6 +29,8 @@ import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.block.state.StateDefinition;
 import net.minecraft.world.level.block.state.properties.BlockStateProperties;
 import net.minecraft.world.level.block.state.properties.DirectionProperty;
+import net.minecraft.world.level.block.state.properties.EnumProperty;
+import net.minecraft.util.StringRepresentable;
 import net.minecraft.world.phys.BlockHitResult;
 import net.minecraft.world.phys.shapes.CollisionContext;
 import net.minecraft.world.phys.shapes.VoxelShape;
@@ -52,6 +55,50 @@ public class MultiAspectSignalBlock extends Block
 	public static final DirectionProperty FACING = BlockStateProperties.HORIZONTAL_FACING;
 
 	/**
+	 * Where the housing sits across the width of its own block, so a pole standing in the middle of
+	 * a multi-track bed can carry heads offset to either side of it rather than only ever centred.
+	 */
+	public enum HorizontalOffset implements StringRepresentable {
+		// CENTER first and so ordinal 0: TrackTargetingBlockItem writes block entity NBT at
+		// placement (the targeted track), which makes a fresh block's ScrollValueBehaviour run its
+		// read() with no "ScrollValue" key present, and that reads back as 0. Ordinal 0 being the
+		// blockstate's own default turns that into a no-op instead of a bug to work around.
+		//
+		// LOCAL_X is how far housing_left.json/housing_right.json were shifted from housing.json,
+		// in the same south-authored local space the model is built in, and MultiAspectSignalRenderer
+		// shifts the lamps by the same amount before applying the same rotation, so the two cannot
+		// drift apart the way two independently-chosen numbers could.
+		CENTER(0), LEFT(-3.5F), RIGHT(3.5F);
+
+		private final float localX;
+
+		HorizontalOffset(float localX) {
+			this.localX = localX;
+		}
+
+		@Override
+		public String getSerializedName() {
+			return name().toLowerCase(Locale.ROOT);
+		}
+
+		/** Which baked model this offset uses, alongside {@code housing.json} for {@link #CENTER}. */
+		public String modelPath() {
+			return this == CENTER ? "housing" : "housing_" + getSerializedName();
+		}
+
+		/**
+		 * How far the housing model was shifted along its own local x, south-authored, in blocks.
+		 * The lamps need the same number so they land on the housing rather than beside it.
+		 */
+		public float localX() {
+			return localX / 16F;
+		}
+	}
+
+	public static final EnumProperty<HorizontalOffset> OFFSET =
+		EnumProperty.create("offset", HorizontalOffset.class);
+
+	/**
 	 * Degrees the housing model is turned by to face a given direction, in the sense a blockstate
 	 * variant's {@code y} means. Zero for south because that is the way the model was drawn: its
 	 * lamps sit at z=10, on the +z side of the panel.
@@ -64,34 +111,58 @@ public class MultiAspectSignalBlock extends Block
 	}
 
 	/**
-	 * The housing is not symmetric front to back — it is deeper in front of the mast than behind —
-	 * so each facing gets its own box rather than one being rotated by an axis test.
+	 * The housing is not symmetric front to back, nor (away from {@link HorizontalOffset#CENTER})
+	 * left to right, so every facing x offset combination gets its own box rather than one being
+	 * rotated by an axis test. All twelve are the same rotation applied to the housing model's own
+	 * bounds, worked out once and hardcoded rather than computed on every shape query.
 	 */
-	private static final Map<Direction, VoxelShape> SHAPES = new EnumMap<>(Direction.class);
+	private static final Map<Direction, Map<HorizontalOffset, VoxelShape>> SHAPES = new EnumMap<>(Direction.class);
 
 	static {
-		// Drawn facing south: x 4.5..11.5, z 7..11.5. The rest follow by turning that clockwise
-		// about the block's centre, matching the blockstate's own y rotations.
-		SHAPES.put(Direction.SOUTH, Block.box(4.5, 0, 7, 11.5, 16, 11.5));
-		SHAPES.put(Direction.WEST, Block.box(4.5, 0, 4.5, 9, 16, 11.5));
-		SHAPES.put(Direction.NORTH, Block.box(4.5, 0, 4.5, 11.5, 16, 9));
-		SHAPES.put(Direction.EAST, Block.box(7, 0, 4.5, 11.5, 16, 11.5));
+		// Drawn facing south, CENTER: x 4.5..11.5, z 7..11.5. LEFT and RIGHT are that shifted by
+		// the same 3.5 the housing_left/housing_right models were, and every other facing follows
+		// by turning the SOUTH box clockwise about the block's centre per 90 degrees of FACING, the
+		// same rotation the blockstate's own 'y' applies to the model.
+		put(Direction.SOUTH, HorizontalOffset.LEFT, Block.box(1, 0, 7, 8, 16, 11.5));
+		put(Direction.SOUTH, HorizontalOffset.CENTER, Block.box(4.5, 0, 7, 11.5, 16, 11.5));
+		put(Direction.SOUTH, HorizontalOffset.RIGHT, Block.box(8, 0, 7, 15, 16, 11.5));
+
+		put(Direction.WEST, HorizontalOffset.LEFT, Block.box(4.5, 0, 1, 9, 16, 8));
+		put(Direction.WEST, HorizontalOffset.CENTER, Block.box(4.5, 0, 4.5, 9, 16, 11.5));
+		put(Direction.WEST, HorizontalOffset.RIGHT, Block.box(4.5, 0, 8, 9, 16, 15));
+
+		put(Direction.NORTH, HorizontalOffset.LEFT, Block.box(8, 0, 4.5, 15, 16, 9));
+		put(Direction.NORTH, HorizontalOffset.CENTER, Block.box(4.5, 0, 4.5, 11.5, 16, 9));
+		put(Direction.NORTH, HorizontalOffset.RIGHT, Block.box(1, 0, 4.5, 8, 16, 9));
+
+		put(Direction.EAST, HorizontalOffset.LEFT, Block.box(7, 0, 8, 11.5, 16, 15));
+		put(Direction.EAST, HorizontalOffset.CENTER, Block.box(7, 0, 4.5, 11.5, 16, 11.5));
+		put(Direction.EAST, HorizontalOffset.RIGHT, Block.box(7, 0, 1, 11.5, 16, 8));
+	}
+
+	private static void put(Direction facing, HorizontalOffset offset, VoxelShape shape) {
+		SHAPES.computeIfAbsent(facing, $ -> new EnumMap<>(HorizontalOffset.class))
+			.put(offset, shape);
 	}
 
 	public MultiAspectSignalBlock(Properties properties) {
 		super(properties);
-		registerDefaultState(defaultBlockState().setValue(FACING, Direction.NORTH));
+		registerDefaultState(defaultBlockState().setValue(FACING, Direction.NORTH)
+			.setValue(OFFSET, HorizontalOffset.CENTER));
 	}
 
 	@Override
 	protected void createBlockStateDefinition(StateDefinition.Builder<Block, BlockState> builder) {
-		super.createBlockStateDefinition(builder.add(FACING));
+		super.createBlockStateDefinition(builder.add(FACING, OFFSET));
 	}
 
 	@Override
 	public BlockState getStateForPlacement(BlockPlaceContext context) {
 		return defaultBlockState().setValue(FACING, context.getHorizontalDirection()
 			.getOpposite());
+		// OFFSET keeps its default of CENTER: placement has no face to read a side from, and this
+		// mod's TrackTargetingBlockItem places on a right click chosen for the target track, not for
+		// where across the block the housing should sit. See the value box for how OFFSET changes.
 	}
 
 	@Override
@@ -106,7 +177,8 @@ public class MultiAspectSignalBlock extends Block
 
 	@Override
 	protected VoxelShape getShape(BlockState state, BlockGetter level, BlockPos pos, CollisionContext context) {
-		return SHAPES.get(state.getValue(FACING));
+		return SHAPES.get(state.getValue(FACING))
+			.get(state.getValue(OFFSET));
 	}
 
 	/**
@@ -174,13 +246,22 @@ public class MultiAspectSignalBlock extends Block
 	}
 
 	/**
-	 * Poles join this from behind or from below — a head on the front of a mast, or on top of one.
-	 * Never from the front, which is the side that has to stay clear to be read.
+	 * Poles join this from behind, from below, or from either side — never from the front, which is
+	 * the side that has to stay clear to be read.
+	 *
+	 * <p>The sides matter once {@link #OFFSET} is anything but {@link HorizontalOffset#CENTER}: a
+	 * head pushed to one edge of its block is meant to be reached by a horizontal arm running in
+	 * from that side, off a mast planted further along the gantry rather than directly behind the
+	 * head. A centred head has no reason to prefer a side over the back, so it accepts both; nothing
+	 * here forces the arm to originate from whichever side the offset leans toward.
 	 */
 	@Override
 	public boolean connectsToPole(BlockState state, Direction towardsPole) {
-		return towardsPole == Direction.DOWN || towardsPole == state.getValue(FACING)
-			.getOpposite();
+		if (towardsPole == Direction.DOWN)
+			return true;
+		Direction facing = state.getValue(FACING);
+		return towardsPole == facing.getOpposite() || towardsPole == facing.getClockWise()
+			|| towardsPole == facing.getCounterClockWise();
 	}
 
 	@Override
