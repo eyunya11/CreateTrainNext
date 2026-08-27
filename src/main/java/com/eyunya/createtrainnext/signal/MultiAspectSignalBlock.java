@@ -11,8 +11,11 @@ import com.simibubi.create.foundation.block.IBE;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.network.chat.Component;
+import net.minecraft.world.InteractionHand;
 import net.minecraft.world.InteractionResult;
+import net.minecraft.world.ItemInteractionResult;
 import net.minecraft.world.entity.player.Player;
+import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.context.BlockPlaceContext;
 import net.minecraft.world.item.context.UseOnContext;
 import net.minecraft.world.level.BlockGetter;
@@ -28,6 +31,8 @@ import net.minecraft.world.level.block.state.properties.DirectionProperty;
 import net.minecraft.world.phys.BlockHitResult;
 import net.minecraft.world.phys.shapes.CollisionContext;
 import net.minecraft.world.phys.shapes.VoxelShape;
+
+import net.neoforged.neoforge.common.Tags;
 
 /**
  * A Japanese five-aspect signal head.
@@ -133,6 +138,26 @@ public class MultiAspectSignalBlock extends Block
 					: "message.createtrainnext.signal.restricted_off"), true);
 			return InteractionResult.SUCCESS;
 		});
+	}
+
+	/**
+	 * Lets a wrench through to {@link #onWrenched}.
+	 *
+	 * <p>Needed because {@link #useWithoutItem} below runs whether or not the player is holding
+	 * anything: the game offers the block the item first, and a block that does not take it — which
+	 * is what the inherited PASS_TO_DEFAULT_BLOCK_INTERACTION says — then gets its no-item
+	 * interaction, and only if <em>that</em> also declines does the item finally get used. So the
+	 * rotation was consuming the click and the wrench never reached its own useOn at all. SKIP
+	 * rather than PASS is the difference: it declines without asking for the no-item interaction.
+	 *
+	 * <p>By the tag rather than by Create's own wrench, so a wrench from another mod behaves the
+	 * same way here as it does on Create's blocks.
+	 */
+	@Override
+	protected ItemInteractionResult useItemOn(ItemStack stack, BlockState state, Level level, BlockPos pos,
+		Player player, InteractionHand hand, BlockHitResult hit) {
+		return stack.is(Tags.Items.TOOLS_WRENCH) ? ItemInteractionResult.SKIP_DEFAULT_BLOCK_INTERACTION
+			: ItemInteractionResult.PASS_TO_DEFAULT_BLOCK_INTERACTION;
 	}
 
 	/** An empty hand turns the head a quarter turn, sneak to go back. */

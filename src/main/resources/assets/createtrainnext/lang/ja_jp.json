@@ -7,8 +7,8 @@
   "createtrainnext.speed_limit.row": "速度",
 
   "block.createtrainnext.multi_aspect_signal": "5灯式信号機",
-  "message.createtrainnext.signal.restricted_on": "注意の代わりに警戒を現示します",
-  "message.createtrainnext.signal.restricted_off": "注意を現示します",
+  "message.createtrainnext.signal.restricted_on": "進行 → 減速 → 注意 → 警戒 → 停止",
+  "message.createtrainnext.signal.restricted_off": "進行 → 減速 → 注意 → 停止",
 
   "message.createtrainnext.angle": "角度: %s°",
   "message.createtrainnext.link_started": "ここから経路を開始します。次のアンカーをクリックすると繋がります。",

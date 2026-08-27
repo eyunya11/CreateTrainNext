@@ -11,10 +11,8 @@ package com.eyunya.createtrainnext.signal;
  * colours.
  *
  * <p>Which aspect a signal shows follows from how far ahead the line is clear, counted in blocks
- * from the signal outwards. Working back from a train, the signal protecting it is at
- * {@link #STOP}; the one before that {@link #APPROACH}; the one before that {@link #REDUCED_SPEED};
- * and anything further back {@link #PROCEED}. {@link #RESTRICTED} does not fit that count — see
- * its own note.
+ * from the signal outwards, stepping up a {@link Ladder}. Whether {@link #RESTRICTED} is one of
+ * that ladder's rungs is the signal's own setting — see its note.
  *
  * <p>This is data only. Nothing reads it yet: the block, its renderer and the block-counting that
  * would choose an aspect are all still to be written.
@@ -27,10 +25,10 @@ public enum SignalAspect {
 	/**
 	 * 警戒. Both outer yellows, lamps 1 and 4.
 	 *
-	 * <p>The odd one out: it is not simply "N blocks clear". Real railways use it where the block
-	 * ahead is too short for a train running at {@link #APPROACH} speed to stop within it, so an
-	 * extra, slower step is inserted ahead of the stop signal instead. It therefore has to be a
-	 * property of the signal or of the block behind it, not something derived from a clear count.
+	 * <p>An extra rung below {@link #APPROACH} rather than a replacement for it, and one a signal
+	 * only has if it is told to. Real railways insert it where the block ahead is too short for a
+	 * train running at 注意 speed to stop within, which is a fact about the layout rather than
+	 * about traffic, so no count of clear blocks could decide it.
 	 */
 	RESTRICTED(25, LampPattern.of(1, 4)),
 
@@ -101,6 +99,46 @@ public enum SignalAspect {
 		/** Path of the lit model for this colour, under {@code block/multi_aspect_signal/}. */
 		public String litModelName() {
 			return "light_lit_" + name().toLowerCase(java.util.Locale.ROOT);
+		}
+	}
+
+	/**
+	 * The order the aspects step through as the line ahead clears, most permissive first.
+	 *
+	 * <p>警戒 is not a substitute for 注意 but an extra rung below it, so turning it on lengthens
+	 * the ladder rather than swapping a step out: a signal three blocks behind a train shows 減速
+	 * either way, but two blocks behind it shows 注意 on the short ladder and 警戒 on the long one.
+	 * That in turn is why the ladder decides how far ahead there is any point looking — one block
+	 * further than it has rungs below 進行 could not change the answer.
+	 */
+	public enum Ladder {
+
+		/** 進行 → 減速 → 注意 → 停止. */
+		WITHOUT_RESTRICTED(PROCEED, REDUCED_SPEED, APPROACH, STOP),
+
+		/** 進行 → 減速 → 注意 → 警戒 → 停止. */
+		WITH_RESTRICTED(PROCEED, REDUCED_SPEED, APPROACH, RESTRICTED, STOP);
+
+		private final SignalAspect[] steps;
+
+		Ladder(SignalAspect... steps) {
+			this.steps = steps;
+		}
+
+		public static Ladder of(boolean withRestricted) {
+			return withRestricted ? WITH_RESTRICTED : WITHOUT_RESTRICTED;
+		}
+
+		/** The aspect to show with this many blocks clear ahead. */
+		public SignalAspect aspectFor(int clearBlocks) {
+			// Counted from the restrictive end, which is where the rungs are pinned: zero clear is
+			// always 停止, and it is 進行 that moves as the ladder grows.
+			return steps[Math.max(0, steps.length - 1 - clearBlocks)];
+		}
+
+		/** How far ahead is worth counting. One more than this cannot change the aspect. */
+		public int lookahead() {
+			return steps.length - 1;
 		}
 	}
 

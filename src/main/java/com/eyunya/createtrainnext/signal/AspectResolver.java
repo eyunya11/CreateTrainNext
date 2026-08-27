@@ -13,11 +13,10 @@ import com.simibubi.create.content.trains.signal.SignalPropagator;
 /**
  * Works out which aspect a signal should be showing, by counting how far ahead the line is clear.
  *
- * <p>The count is the whole of the Japanese five-aspect system bar one exception: the signal
- * protecting an occupied block is at {@link SignalAspect#STOP}, the one behind it
- * {@link SignalAspect#APPROACH}, the one behind that {@link SignalAspect#REDUCED_SPEED}, and
- * anything further back {@link SignalAspect#PROCEED}. So three blocks is as far as anything needs
- * to look — a fourth clear block cannot make the aspect any less restrictive.
+ * <p>The count is the whole of the system: the signal protecting an occupied block shows the most
+ * restrictive rung of its {@link SignalAspect.Ladder}, the one behind it the next rung up, and so on until the
+ * ladder runs out at 進行. How far to count therefore comes from the ladder rather than being fixed
+ * here — one block past its last rung could not make an aspect any less restrictive.
  *
  * <p>Every block this walks over is Create's own. A block here is a {@code SignalEdgeGroup}, the
  * same thing Create's signals divide the track into and the same thing its trains reserve, so this
@@ -28,24 +27,12 @@ import com.simibubi.create.content.trains.signal.SignalPropagator;
 public class AspectResolver {
 
 	/**
-	 * Blocks to look ahead. Three is not a tuning knob — it is where the aspect ladder tops out, so
-	 * counting further would cost graph walks that could not change the answer.
-	 */
-	private static final int LOOKAHEAD = 3;
-
-	/**
-	 * @param restrictedInsteadOfApproach show 警戒 rather than 注意 with one block clear. Not
-	 *        derivable from the count: real railways insert it where the block ahead is too short
-	 *        to stop in from 注意 speed, which is a property of the layout rather than of traffic.
+	 * @param ladder which rungs this signal has. It also fixes how far ahead there is any point
+	 *        counting, so a signal without 警戒 walks one block less of graph than one with it.
 	 */
 	public static SignalAspect resolve(TrackGraph graph, SignalBoundary signal, boolean side,
-		boolean restrictedInsteadOfApproach) {
-		return switch (countClearBlocks(graph, signal, side, LOOKAHEAD)) {
-			case 0 -> SignalAspect.STOP;
-			case 1 -> restrictedInsteadOfApproach ? SignalAspect.RESTRICTED : SignalAspect.APPROACH;
-			case 2 -> SignalAspect.REDUCED_SPEED;
-			default -> SignalAspect.PROCEED;
-		};
+		SignalAspect.Ladder ladder) {
+		return ladder.aspectFor(countClearBlocks(graph, signal, side, ladder.lookahead()));
 	}
 
 	/**

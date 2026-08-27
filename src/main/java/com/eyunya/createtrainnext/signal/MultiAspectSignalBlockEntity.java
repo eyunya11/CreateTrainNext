@@ -77,7 +77,7 @@ public class MultiAspectSignalBlockEntity extends SmartBlockEntity implements Tr
 		return aspect;
 	}
 
-	/** Whether one clear block ahead shows 警戒 rather than 注意. */
+	/** Whether 警戒 is a rung on this signal's ladder, between 注意 and 停止. */
 	public boolean isRestricted() {
 		return restricted;
 	}
@@ -116,7 +116,7 @@ public class MultiAspectSignalBlockEntity extends SmartBlockEntity implements Tr
 		if (graph == null)
 			return SignalAspect.STOP;
 
-		return AspectResolver.resolve(graph, signal, side, restricted);
+		return AspectResolver.resolve(graph, signal, side, SignalAspect.Ladder.of(restricted));
 	}
 
 	/**

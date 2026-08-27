@@ -7,8 +7,8 @@
   "createtrainnext.speed_limit.row": "Speed",
 
   "block.createtrainnext.multi_aspect_signal": "5-Aspect Railway Signal",
-  "message.createtrainnext.signal.restricted_on": "Showing 警戒 (Restricted) instead of 注意 (Approach)",
-  "message.createtrainnext.signal.restricted_off": "Showing 注意 (Approach)",
+  "message.createtrainnext.signal.restricted_on": "進行 → 減速 → 注意 → 警戒 → 停止",
+  "message.createtrainnext.signal.restricted_off": "進行 → 減速 → 注意 → 停止",
 
   "message.createtrainnext.angle": "Angle: %s°",
   "message.createtrainnext.link_started": "Route starts here. Click the next anchor to link to it.",
