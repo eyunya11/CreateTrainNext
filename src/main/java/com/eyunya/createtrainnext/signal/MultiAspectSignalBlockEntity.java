@@ -17,6 +17,8 @@ import com.simibubi.create.content.trains.track.TrackTargetingBehaviour;
 import com.simibubi.create.foundation.blockEntity.SmartBlockEntity;
 import com.simibubi.create.foundation.blockEntity.behaviour.BlockEntityBehaviour;
 import com.simibubi.create.foundation.blockEntity.behaviour.ValueBoxTransform;
+import com.simibubi.create.foundation.blockEntity.behaviour.ValueSettingsBoard;
+import com.simibubi.create.foundation.blockEntity.behaviour.ValueSettingsFormatter;
 import com.simibubi.create.foundation.blockEntity.behaviour.scrollValue.ScrollValueBehaviour;
 
 import dev.engine_room.flywheel.lib.transform.TransformStack;
@@ -33,8 +35,10 @@ import net.minecraft.world.level.LevelAccessor;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.block.entity.BlockEntityType;
+import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.phys.AABB;
+import net.minecraft.world.phys.BlockHitResult;
 import net.minecraft.world.phys.Vec3;
 
 /**
@@ -66,16 +70,6 @@ public class MultiAspectSignalBlockEntity extends SmartBlockEntity implements Tr
 	 */
 	private static final int ASPECT_TICK_RATE = 10;
 
-	/**
-	 * The offset value box's slider does not run 0 to 2, one tick per {@link HorizontalOffset}: the
-	 * board draws its slider {@code (maxValue + 1) * 2} pixels wide, so a domain of 2 is a bar about
-	 * six pixels across — wide enough to see, not wide enough to reliably click a specific third of.
-	 * Scaling the domain up by this and rounding back down to the nearest option on both ends (see
-	 * {@link #onOffsetChanged} and the formatter below) keeps three settings but gives the slider
-	 * proper width to drag across, the same trade Create's own multi-setting value boxes make.
-	 */
-	private static final int OFFSET_STEP = 25;
-
 	public TrackTargetingBehaviour<SignalBoundary> edgePoint;
 	public ScrollValueBehaviour offset;
 
@@ -97,27 +91,21 @@ public class MultiAspectSignalBlockEntity extends SmartBlockEntity implements Tr
 	public void addBehaviours(List<BlockEntityBehaviour> behaviours) {
 		behaviours.add(edgePoint = new TrackTargetingBehaviour<>(this, EdgePointType.SIGNAL));
 
-		offset = new ScrollValueBehaviour(Component.translatable("createtrainnext.multi_aspect_signal.offset"),
+		offset = new OffsetScrollBehaviour(Component.translatable("createtrainnext.multi_aspect_signal.offset"),
 			this, new OffsetValueBox());
-		offset.between(0, (HorizontalOffset.values().length - 1) * OFFSET_STEP);
-		offset.value = HorizontalOffset.CENTER.ordinal() * OFFSET_STEP;
-		offset.withFormatter(v -> Component.translatable("createtrainnext.multi_aspect_signal.offset."
-			+ offsetForRawValue(v).getSerializedName())
+		offset.between(0, HorizontalOffset.values().length - 1);
+		offset.value = HorizontalOffset.CENTER.ordinal();
+		offset.withFormatter(v -> Component.translatable(
+			"createtrainnext.multi_aspect_signal.offset." + HorizontalOffset.values()[v].getSerializedName())
 			.getString());
 		offset.withCallback(this::onOffsetChanged);
 		behaviours.add(offset);
 	}
 
-	/** Rounds a raw slider value to whichever {@link HorizontalOffset} it landed closest to. */
-	private static HorizontalOffset offsetForRawValue(int raw) {
-		int ordinal = Math.round(raw / (float) OFFSET_STEP);
-		return HorizontalOffset.values()[ordinal];
-	}
-
-	private void onOffsetChanged(int raw) {
+	private void onOffsetChanged(int ordinal) {
 		if (level == null || level.isClientSide())
 			return;
-		HorizontalOffset newOffset = offsetForRawValue(raw);
+		HorizontalOffset newOffset = HorizontalOffset.values()[ordinal];
 		BlockState state = getBlockState();
 		if (state.getValue(MultiAspectSignalBlock.OFFSET) == newOffset)
 			return;
@@ -227,6 +215,35 @@ public class MultiAspectSignalBlockEntity extends SmartBlockEntity implements Tr
 	@Override
 	public void transform(BlockEntity be, StructureTransform transform) {
 		edgePoint.transform(be, transform);
+	}
+
+	/**
+	 * A scroll value whose popup shows the offset's name rather than its raw 0/1/2.
+	 *
+	 * <p>{@link ScrollValueBehaviour#createBoard} — not the formatter set by
+	 * {@link ScrollValueBehaviour#withFormatter}, which only reaches the passive hover label — is
+	 * what draws the popup, and its own default board reads the number straight off
+	 * {@code ValueSettings::format}. Left as that, the popup would show a bare 0, 1 or 2 while
+	 * "Left"/"Center"/"Right" only ever appeared on the hover text, which is confusing enough on its
+	 * own without also being the wrong fix for the popup being too narrow to drag reliably — a
+	 * separate problem this does not attempt to solve. Overriding the board with the same formatted
+	 * name, rather than widening the domain to make the slider physically bigger, is what keeps this
+	 * an actual three-way choice instead of a disguised 0-to-50 slider that happens to snap to three
+	 * of its positions.
+	 */
+	private static class OffsetScrollBehaviour extends ScrollValueBehaviour {
+
+		OffsetScrollBehaviour(Component label, SmartBlockEntity be, ValueBoxTransform slot) {
+			super(label, be, slot);
+		}
+
+		@Override
+		public ValueSettingsBoard createBoard(Player player, BlockHitResult hitResult) {
+			return new ValueSettingsBoard(label, HorizontalOffset.values().length - 1, 1,
+				List.of(Component.translatable("createtrainnext.multi_aspect_signal.offset.select")),
+				new ValueSettingsFormatter(settings -> Component.translatable("createtrainnext.multi_aspect_signal.offset."
+					+ HorizontalOffset.values()[settings.value()].getSerializedName())));
+		}
 	}
 
 	/**

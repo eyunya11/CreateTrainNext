@@ -14,6 +14,7 @@
   "createtrainnext.multi_aspect_signal.offset.center": "中央",
   "createtrainnext.multi_aspect_signal.offset.left": "左",
   "createtrainnext.multi_aspect_signal.offset.right": "右",
+  "createtrainnext.multi_aspect_signal.offset.select": "選択",
 
   "message.createtrainnext.angle": "角度: %s°",
   "message.createtrainnext.link_started": "ここから経路を開始します。次のアンカーをクリックすると繋がります。",

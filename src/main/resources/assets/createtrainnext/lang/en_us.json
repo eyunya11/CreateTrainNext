@@ -14,6 +14,7 @@
   "createtrainnext.multi_aspect_signal.offset.center": "Center",
   "createtrainnext.multi_aspect_signal.offset.left": "Left",
   "createtrainnext.multi_aspect_signal.offset.right": "Right",
+  "createtrainnext.multi_aspect_signal.offset.select": "Select",
 
   "message.createtrainnext.angle": "Angle: %s°",
   "message.createtrainnext.link_started": "Route starts here. Click the next anchor to link to it.",
