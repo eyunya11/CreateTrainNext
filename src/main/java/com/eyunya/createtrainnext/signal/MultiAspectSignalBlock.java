@@ -14,6 +14,7 @@ import net.minecraft.network.chat.Component;
 import net.minecraft.world.InteractionResult;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.context.BlockPlaceContext;
+import net.minecraft.world.item.context.UseOnContext;
 import net.minecraft.world.level.BlockGetter;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.Block;
@@ -104,26 +105,47 @@ public class MultiAspectSignalBlock extends Block
 	}
 
 	/**
-	 * An empty hand toggles 警戒.
+	 * A wrench toggles 警戒, matching Create's own signal, where a wrench cycles entry and cross
+	 * mode rather than turning the block.
 	 *
 	 * <p>It is a toggle rather than something worked out from traffic because it cannot be worked
 	 * out from traffic: 警戒 exists where the block ahead is too short to stop in from 注意 speed,
 	 * which is a fact about the layout that only the person who built it knows.
+	 *
+	 * <p>Taking the wrench over costs the rotation IWrenchable would otherwise give, which here
+	 * only ever worked when clicking the top or bottom face anyway. Turning the head is on an empty
+	 * hand instead, the same as this mod's track anchors.
 	 */
 	@Override
-	protected InteractionResult useWithoutItem(BlockState state, Level level, BlockPos pos, Player player,
-		BlockHitResult hit) {
+	public InteractionResult onWrenched(BlockState state, UseOnContext context) {
+		Level level = context.getLevel();
+		BlockPos pos = context.getClickedPos();
 		if (level.isClientSide)
 			return InteractionResult.SUCCESS;
 
 		return onBlockEntityUse(level, pos, be -> {
 			boolean restricted = !be.isRestricted();
 			be.setRestricted(restricted);
-			player.displayClientMessage(Component.translatable(restricted
-				? "message.createtrainnext.signal.restricted_on"
-				: "message.createtrainnext.signal.restricted_off"), true);
+			Player player = context.getPlayer();
+			if (player != null)
+				player.displayClientMessage(Component.translatable(restricted
+					? "message.createtrainnext.signal.restricted_on"
+					: "message.createtrainnext.signal.restricted_off"), true);
 			return InteractionResult.SUCCESS;
 		});
+	}
+
+	/** An empty hand turns the head a quarter turn, sneak to go back. */
+	@Override
+	protected InteractionResult useWithoutItem(BlockState state, Level level, BlockPos pos, Player player,
+		BlockHitResult hit) {
+		if (level.isClientSide)
+			return InteractionResult.SUCCESS;
+
+		Direction facing = state.getValue(FACING);
+		Direction turned = player.isShiftKeyDown() ? facing.getCounterClockWise() : facing.getClockWise();
+		level.setBlock(pos, state.setValue(FACING, turned), Block.UPDATE_ALL);
+		return InteractionResult.SUCCESS;
 	}
 
 	/**
