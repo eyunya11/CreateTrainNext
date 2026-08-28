@@ -17,10 +17,9 @@ import net.neoforged.fml.loading.FMLEnvironment;
 /**
  * Entry point for Create Train Next.
  *
- * <p>This is currently a rendering-only experiment: it proves that Create's own curve
- * geometry can be driven at arbitrary end angles, rather than the 45/90 degree steps
- * the vanilla track placement tool allows. Nothing here touches Create's track graph,
- * signals or train logic yet.
+ * <p>The mod gives Create's track curves that leave at any angle, rather than the 45 and 90
+ * degree steps its own placement tool allows, and a wand to draw them with. The geometry runs
+ * through Create's own bezier and track graph, so trains drive the result as ordinary track.
  */
 @Mod(CreateTrainNext.ID)
 public class CreateTrainNext {
@@ -31,6 +30,8 @@ public class CreateTrainNext {
 
 	public CreateTrainNext(IEventBus modEventBus, ModContainer modContainer) {
 		CTNRegistry.register(modEventBus);
+		CTNDataComponents.register(modEventBus);
+		CTNNetwork.init(modEventBus);
 		// Create's edge point types are a static map with no registry event behind them, so this
 		// has to be poked by hand rather than deferred like the blocks above.
 		CTNEdgePointTypes.register();

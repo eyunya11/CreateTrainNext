@@ -5,8 +5,30 @@
   "createtrainnext.speed_limit.limit": "Speed Limit",
   "createtrainnext.speed_limit.row": "Speed",
 
-  "message.createtrainnext.angle": "Angle: %s°",
-  "message.createtrainnext.link_started": "Route starts here. Click the next anchor to link to it.",
-  "message.createtrainnext.link_done": "Linked. Click this anchor again to carry on from here.",
-  "message.createtrainnext.link_cancelled": "Selection cleared."
+  "item.createtrainnext.curve_wand": "Curve Wand",
+  "tooltip.createtrainnext.curve_wand.start": "Right click track, then where it should go",
+  "tooltip.createtrainnext.curve_wand.adjust": "Sneak + scroll to turn the far end by hand",
+  "tooltip.createtrainnext.curve_wand.cancel": "Sneak + right click to cancel, or to unlink an anchor",
+
+  "message.createtrainnext.wand.started": "Curve starts here. Right click where it should go.",
+  "message.createtrainnext.wand.ready": "Curve ready — %s blocks, turning %s°",
+  "message.createtrainnext.wand.adjusted": " (turned %s° by hand)",
+  "message.createtrainnext.wand.built": "Curve built — %s blocks. Right click on to carry the route on.",
+  "message.createtrainnext.wand.docked": "Curve built — %s blocks, joined onto the track.",
+  "message.createtrainnext.wand.cleared": "Selection cleared.",
+  "message.createtrainnext.wand.angle_reset": "Angle back to the arc.",
+  "message.createtrainnext.wand.unlinked": "Took this anchor's curves apart.",
+
+  "message.createtrainnext.wand.invalid_start": "The track this curve started from is gone.",
+  "message.createtrainnext.wand.same_anchor": "Both ends would be the same anchor.",
+  "message.createtrainnext.wand.start_taken": "This end already continues into a curve.",
+  "message.createtrainnext.wand.end_taken": "A curve already arrives at this end.",
+  "message.createtrainnext.wand.junction": "Cannot start from a junction.",
+  "message.createtrainnext.wand.slope": "Cannot start from sloped track.",
+  "message.createtrainnext.wand.no_room": "No room for an anchor there.",
+  "message.createtrainnext.wand.too_close": "Too close — give the curve some room.",
+  "message.createtrainnext.wand.too_far": "Too far.",
+  "message.createtrainnext.wand.too_sharp": "Too sharp for a train to take.",
+  "message.createtrainnext.wand.too_steep": "Too steep — go further out, or come down less.",
+  "message.createtrainnext.wand.doubles_back": "The curve would double back on itself."
 }

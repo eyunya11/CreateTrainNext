@@ -2,11 +2,7 @@ package com.eyunya.createtrainnext.track;
 
 import java.util.ArrayList;
 import java.util.Collection;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
-import java.util.UUID;
-import java.util.function.BiFunction;
 import java.util.function.Function;
 
 import org.jetbrains.annotations.Nullable;
@@ -34,16 +30,9 @@ import net.createmod.catnip.math.AngleHelper;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.core.Direction.AxisDirection;
-import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceKey;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.util.RandomSource;
-import net.minecraft.world.InteractionHand;
-import net.minecraft.world.InteractionResult;
-import net.minecraft.world.ItemInteractionResult;
-import net.minecraft.world.entity.player.Player;
-import net.minecraft.world.item.ItemStack;
-import net.minecraft.world.item.Items;
 import net.minecraft.world.item.context.BlockPlaceContext;
 import net.minecraft.world.level.BlockGetter;
 import net.minecraft.world.level.Level;
@@ -54,7 +43,6 @@ import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.block.state.StateDefinition;
 import net.minecraft.world.level.block.state.properties.BlockStateProperties;
 import net.minecraft.world.level.block.state.properties.EnumProperty;
-import net.minecraft.world.phys.BlockHitResult;
 import net.minecraft.world.phys.Vec3;
 import net.minecraft.world.phys.shapes.CollisionContext;
 import net.minecraft.world.phys.shapes.VoxelShape;
@@ -72,32 +60,14 @@ import net.minecraft.world.phys.shapes.VoxelShape;
  * headings either side of them are the same vector; only the two ends of a chain reconcile a free
  * angle with a discrete axis, and the anchor's own span bends across its block to do it.
  *
- * <p>Controls:
- * <ul>
- * <li>Right click with an empty hand turns the anchor by 15 degrees (sneak to go back).</li>
- * <li>Right click with a stick selects an anchor; right clicking a second one links the two and
- * ends the selection. To carry a route on, click the anchor just reached to select it again.
- * Clicking the anchor already selected clears the selection instead.</li>
- * <li>Breaking an anchor is what undoes its links.</li>
- * </ul>
+ * <p>The block carries no interactions of its own. Everything a player does to a route — aiming an
+ * anchor, joining two of them, taking a join apart — is done with the {@link CurveWandItem}, which
+ * places anchors as a side effect of drawing a curve rather than asking anyone to place them first.
+ * Breaking an anchor still undoes its links, because that is what breaking a piece of track means.
  */
 public class AngledTrackAnchorBlock extends Block implements EntityBlock, ITrackBlock {
 
 	public static final EnumProperty<AnchorAxis> AXIS = EnumProperty.create("axis", AnchorAxis.class);
-
-	private static final float STEP_DEGREES = 15.0F;
-
-	/** Server-side scratch state: which anchor each player picked first. */
-	/**
-	 * The anchor each player has selected with a stick, if any.
-	 *
-	 * <p>The dimension is held alongside the position rather than the position alone. A bare
-	 * BlockPos is resolved against whatever level the next click happens in, so a selection made in
-	 * one dimension would happily link to whatever anchor sat at the same coordinates in another.
-	 */
-	private record PendingLink(ResourceKey<Level> dimension, BlockPos pos) {}
-
-	private static final Map<UUID, PendingLink> PENDING_LINKS = new HashMap<>();
 
 	public AngledTrackAnchorBlock(Properties properties) {
 		super(properties);
@@ -349,68 +319,5 @@ public class AngledTrackAnchorBlock extends Block implements EntityBlock, ITrack
 		TransformStack.of(ms)
 			.rotateCentered(AngleHelper.rad(AngleHelper.horizontalAngle(direction)), Direction.UP);
 		return AllPartialModels.TRACK_ASSEMBLING_OVERLAY;
-	}
-
-	// ----------------------------------------------------------- interaction
-
-	@Override
-	protected InteractionResult useWithoutItem(BlockState state, Level level, BlockPos pos, Player player,
-		BlockHitResult hit) {
-		if (!(level.getBlockEntity(pos) instanceof AngledTrackAnchorBlockEntity anchor))
-			return InteractionResult.PASS;
-		if (level.isClientSide)
-			return InteractionResult.SUCCESS;
-
-		anchor.rotateYaw(player.isShiftKeyDown() ? -STEP_DEGREES : STEP_DEGREES);
-		player.displayClientMessage(
-			Component.translatable("message.createtrainnext.angle", String.format("%.1f", anchor.getYaw())), true);
-		return InteractionResult.CONSUME;
-	}
-
-	@Override
-	protected ItemInteractionResult useItemOn(ItemStack stack, BlockState state, Level level, BlockPos pos,
-		Player player, InteractionHand hand, BlockHitResult hit) {
-		if (!stack.is(Items.STICK))
-			return ItemInteractionResult.PASS_TO_DEFAULT_BLOCK_INTERACTION;
-		if (!(level.getBlockEntity(pos) instanceof AngledTrackAnchorBlockEntity anchor))
-			return ItemInteractionResult.PASS_TO_DEFAULT_BLOCK_INTERACTION;
-		if (level.isClientSide)
-			return ItemInteractionResult.SUCCESS;
-
-		UUID playerId = player.getUUID();
-		PendingLink pending = PENDING_LINKS.get(playerId);
-		// A selection from another dimension cannot mean anything here, so it is not one.
-		if (pending != null && !pending.dimension()
-			.equals(level.dimension()))
-			pending = null;
-
-		// Clicking the anchor already selected puts it down again. Undoing a link is a different
-		// gesture entirely: break the anchor, which onRemove handles.
-		if (pending != null && pos.equals(pending.pos())) {
-			PENDING_LINKS.remove(playerId);
-			player.displayClientMessage(Component.translatable("message.createtrainnext.link_cancelled"), true);
-			return ItemInteractionResult.CONSUME;
-		}
-
-		AngledTrackAnchorBlockEntity from = pending != null
-			&& level.getBlockEntity(pending.pos()) instanceof AngledTrackAnchorBlockEntity f ? f : null;
-
-		if (from == null) {
-			PENDING_LINKS.put(playerId, new PendingLink(level.dimension(), pos));
-			player.displayClientMessage(Component.translatable("message.createtrainnext.link_started"), true);
-			return ItemInteractionResult.CONSUME;
-		}
-
-		from.linkTo(anchor);
-
-		// The selection ends with the link rather than moving to the anchor just reached. Carrying
-		// it on made a route one click per anchor, but it also left a selection standing with
-		// nothing to end it, so the next anchor clicked — anywhere, however far away, however much
-		// later — joined itself to wherever the last route happened to stop. Continuing a route now
-		// costs one extra click, on the anchor just reached, and in exchange every link is
-		// something the player pointed at twice on purpose.
-		PENDING_LINKS.remove(playerId);
-		player.displayClientMessage(Component.translatable("message.createtrainnext.link_done"), true);
-		return ItemInteractionResult.CONSUME;
 	}
 }

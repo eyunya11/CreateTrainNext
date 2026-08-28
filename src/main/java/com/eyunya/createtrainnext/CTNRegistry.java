@@ -7,6 +7,7 @@ import com.eyunya.createtrainnext.speed.SpeedLimitBlock;
 import com.eyunya.createtrainnext.speed.SpeedLimitBlockEntity;
 import com.eyunya.createtrainnext.track.AngledTrackAnchorBlock;
 import com.eyunya.createtrainnext.track.AngledTrackAnchorBlockEntity;
+import com.eyunya.createtrainnext.track.CurveWandItem;
 import com.simibubi.create.content.trains.track.TrackTargetingBlockItem;
 
 import net.minecraft.core.registries.Registries;
@@ -49,6 +50,16 @@ public class CTNRegistry {
 	public static final DeferredItem<BlockItem> ANGLED_TRACK_ANCHOR_ITEM =
 		ITEMS.registerSimpleBlockItem("angled_track_anchor", ANGLED_TRACK_ANCHOR);
 
+	/**
+	 * The tool the whole feature is actually used through.
+	 *
+	 * <p>The anchor above is still an item, and still placeable by hand, but it is no longer how a
+	 * route is built — the wand places one wherever a curve needs an end. Keeping it around is for
+	 * the case the wand is bad at: putting an anchor on an exact block, before deciding where the
+	 * line goes.
+	 */
+	public static final DeferredItem<CurveWandItem> CURVE_WAND = ITEMS.registerItem("curve_wand", CurveWandItem::new);
+
 	// The BlockEntityType is what carries our renderer, so the block itself can stay a plain cube.
 	public static final Supplier<BlockEntityType<AngledTrackAnchorBlockEntity>> ANGLED_TRACK_ANCHOR_ENTITY =
 		BLOCK_ENTITIES.register("angled_track_anchor", () -> BlockEntityType.Builder
@@ -83,9 +94,10 @@ public class CTNRegistry {
 	public static final DeferredHolder<CreativeModeTab, CreativeModeTab> TAB =
 		CREATIVE_TABS.register("main", () -> CreativeModeTab.builder()
 			.title(Component.translatable("itemGroup." + CreateTrainNext.ID))
-			.icon(() -> ANGLED_TRACK_ANCHOR_ITEM.get()
+			.icon(() -> CURVE_WAND.get()
 				.getDefaultInstance())
 			.displayItems((params, output) -> {
+				output.accept(CURVE_WAND.get());
 				output.accept(ANGLED_TRACK_ANCHOR_ITEM.get());
 				output.accept(TRACK_SPEED_LIMIT_ITEM.get());
 			})

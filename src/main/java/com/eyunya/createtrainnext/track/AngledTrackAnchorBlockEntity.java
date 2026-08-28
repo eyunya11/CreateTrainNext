@@ -14,7 +14,6 @@ import net.minecraft.nbt.CompoundTag;
 import net.minecraft.network.protocol.Packet;
 import net.minecraft.network.protocol.game.ClientGamePacketListener;
 import net.minecraft.network.protocol.game.ClientboundBlockEntityDataPacket;
-import net.minecraft.util.Mth;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.entity.BlockEntity;
@@ -85,14 +84,6 @@ public class AngledTrackAnchorBlockEntity extends BlockEntity {
 		return prev != null || next != null;
 	}
 
-	public void rotateYaw(float degrees) {
-		detachNeighbourhood();
-		yaw = Mth.wrapDegrees(yaw + degrees);
-		alignAxisToYaw();
-		invalidateNeighbourhood();
-		attachNeighbourhood();
-	}
-
 	/**
 	 * Points the span at whichever of the four lattice-safe axes sits closest to the heading.
 	 *
@@ -113,8 +104,20 @@ public class AngledTrackAnchorBlockEntity extends BlockEntity {
 		level.setBlock(worldPosition, state.setValue(AngledTrackAnchorBlock.AXIS, wanted), Block.UPDATE_ALL);
 	}
 
-	/** Continues the route from this anchor to {@code other}. */
-	public void linkTo(AngledTrackAnchorBlockEntity other) {
+	/**
+	 * Continues the route from this anchor to {@code other}, aiming both ends as it goes.
+	 *
+	 * <p>Aiming happens here rather than through separate calls either side of the link because
+	 * each of those would tear the neighbourhood out of the track graph and queue it to be rebuilt.
+	 * Doing all three at once means one teardown and one rebuild, and — more to the point — no
+	 * intermediate state where one end has been turned and the other has not, which is a shape the
+	 * graph would have had to accept as real for a tick.
+	 *
+	 * @param thisHeading  where this anchor should point afterwards, or null to leave it.
+	 * @param otherHeading where {@code other} should point afterwards, or null to leave it.
+	 */
+	public void linkTo(AngledTrackAnchorBlockEntity other, @Nullable Vec3 thisHeading,
+		@Nullable Vec3 otherHeading) {
 		if (other == this)
 			return;
 
@@ -124,6 +127,15 @@ public class AngledTrackAnchorBlockEntity extends BlockEntity {
 		// Whatever used to follow this anchor, or lead into the other, loses its half of the link.
 		clearNextOfThis();
 		other.clearPrevOfThis();
+
+		if (thisHeading != null) {
+			yaw = yawOf(thisHeading);
+			alignAxisToYaw();
+		}
+		if (otherHeading != null) {
+			other.yaw = yawOf(otherHeading);
+			other.alignAxisToYaw();
+		}
 
 		next = other.getBlockPos();
 		other.prev = worldPosition;
@@ -249,6 +261,11 @@ public class AngledTrackAnchorBlockEntity extends BlockEntity {
 		return new Vec3(-Math.sin(radians), 0, Math.cos(radians));
 	}
 
+	/** The inverse of {@link #directionFromYaw}, so a heading can be stored as one. */
+	public static float yawOf(Vec3 heading) {
+		return (float) Math.toDegrees(Math.atan2(-heading.x, heading.z));
+	}
+
 	/** Which way the route runs through this anchor. */
 	public Vec3 heading() {
 		return directionFromYaw(yaw);
@@ -330,7 +347,33 @@ public class AngledTrackAnchorBlockEntity extends BlockEntity {
 	 * order, putting the nodes on edge midpoints where Create's diagonals never have any.
 	 */
 	private Vec3 forwardOffset() {
-		return forward(getBlockState().getValue(AngledTrackAnchorBlock.AXIS), heading());
+		return forwardOffset(heading());
+	}
+
+	/**
+	 * Half a step along the lattice-safe axis nearest {@code heading}, pointing the way the route
+	 * is going.
+	 *
+	 * <p>Derived from the heading rather than read off {@code AXIS}, even though
+	 * {@link #alignAxisToYaw} keeps the two in step. The point is that the curve wand has to work
+	 * out where a node <em>would</em> land for an anchor that does not exist yet, or that is about
+	 * to be turned, and it can only do that from a heading. Sharing one function with the live
+	 * anchor is what makes the preview the same geometry as the result rather than a lookalike.
+	 */
+	public static Vec3 forwardOffset(Vec3 heading) {
+		return forward(AnchorAxis.nearestTo(heading), heading);
+	}
+
+	/** Where {@link #entryNode} would fall for an anchor at {@code pos} pointed along {@code heading}. */
+	public static Vec3 entryNode(BlockPos pos, Vec3 heading, boolean interior) {
+		Vec3 centre = Vec3.atBottomCenterOf(pos);
+		return interior ? centre : centre.subtract(forwardOffset(heading));
+	}
+
+	/** Where {@link #exitNode} would fall for an anchor at {@code pos} pointed along {@code heading}. */
+	public static Vec3 exitNode(BlockPos pos, Vec3 heading, boolean interior) {
+		Vec3 centre = Vec3.atBottomCenterOf(pos);
+		return interior ? centre : centre.add(forwardOffset(heading));
 	}
 
 	/**
@@ -346,14 +389,12 @@ public class AngledTrackAnchorBlockEntity extends BlockEntity {
 	 * puts its nodes and sharing one is what lets the two dock.
 	 */
 	public Vec3 entryNode() {
-		Vec3 centre = Vec3.atBottomCenterOf(worldPosition);
-		return isInterior() ? centre : centre.subtract(forwardOffset());
+		return entryNode(worldPosition, heading(), isInterior());
 	}
 
 	/** The node the curve to {@link #next} leaves from. The block's centre when interior. */
 	public Vec3 exitNode() {
-		Vec3 centre = Vec3.atBottomCenterOf(worldPosition);
-		return isInterior() ? centre : centre.add(forwardOffset());
+		return exitNode(worldPosition, heading(), isInterior());
 	}
 
 	/**

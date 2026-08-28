@@ -40,6 +40,7 @@ public class CreateTrainNextClient {
 	public static void init(IEventBus modEventBus, ModContainer modContainer) {
 		modContainer.registerConfig(ModConfig.Type.CLIENT, CTNConfig.CLIENT_SPEC);
 		modEventBus.addListener(CreateTrainNextClient::onRegisterRenderers);
+		CurveWandPreview.init();
 	}
 
 	private static void onRegisterRenderers(EntityRenderersEvent.RegisterRenderers event) {
