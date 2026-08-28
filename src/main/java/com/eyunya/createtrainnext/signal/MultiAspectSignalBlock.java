@@ -12,11 +12,8 @@ import com.simibubi.create.foundation.block.IBE;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.network.chat.Component;
-import net.minecraft.world.InteractionHand;
 import net.minecraft.world.InteractionResult;
-import net.minecraft.world.ItemInteractionResult;
 import net.minecraft.world.entity.player.Player;
-import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.context.BlockPlaceContext;
 import net.minecraft.world.item.context.UseOnContext;
 import net.minecraft.world.level.BlockGetter;
@@ -30,12 +27,9 @@ import net.minecraft.world.level.block.state.StateDefinition;
 import net.minecraft.world.level.block.state.properties.EnumProperty;
 import net.minecraft.world.level.block.state.properties.IntegerProperty;
 import net.minecraft.util.StringRepresentable;
-import net.minecraft.world.phys.BlockHitResult;
 import net.minecraft.world.phys.shapes.CollisionContext;
 import net.minecraft.world.phys.shapes.Shapes;
 import net.minecraft.world.phys.shapes.VoxelShape;
-
-import net.neoforged.neoforge.common.Tags;
 
 /**
  * A Japanese five-aspect signal head.
@@ -46,8 +40,13 @@ import net.neoforged.neoforge.common.Tags;
  * reserve blocks through it using Create's own code — see {@link MultiAspectSignalBlockEntity} for
  * why sharing Create's point type rather than inventing one is what makes that work.
  *
- * <p>The housing is a plain blockstate model. Only the five lamps are drawn by the block entity
- * renderer, since which of them are lit changes with traffic.
+ * <p>The head turns in 22.5 degree steps, which is why only the mast is left in the blockstate
+ * model: a blockstate turns in quarters, so the head and its five lamps are drawn by the block
+ * entity renderer instead. See {@link SignalRotation} for why there is no way around that.
+ *
+ * <p>Which way a head points is settled once, when it is placed, from the direction the player was
+ * facing. There is no way to turn a placed one — the wrench is taken by the 警戒 toggle, and right
+ * clicking does nothing.
  */
 public class MultiAspectSignalBlock extends Block
 	implements IBE<MultiAspectSignalBlockEntity>, IWrenchable, PoleConnectable {
@@ -87,11 +86,6 @@ public class MultiAspectSignalBlock extends Block
 		@Override
 		public String getSerializedName() {
 			return name().toLowerCase(Locale.ROOT);
-		}
-
-		/** Which baked model this offset uses, alongside {@code housing.json} for {@link #CENTER}. */
-		public String modelPath() {
-			return this == CENTER ? "housing" : "housing_" + getSerializedName();
 		}
 
 		/**
@@ -195,9 +189,11 @@ public class MultiAspectSignalBlock extends Block
 	 * out from traffic: 警戒 exists where the block ahead is too short to stop in from 注意 speed,
 	 * which is a fact about the layout that only the person who built it knows.
 	 *
-	 * <p>Taking the wrench over costs the rotation IWrenchable would otherwise give, which here
-	 * only ever worked when clicking the top or bottom face anyway. Turning the head is on an empty
-	 * hand instead, the same as this mod's track anchors.
+	 * <p>Taking the wrench over costs the rotation IWrenchable would otherwise give, which here only
+	 * ever worked when clicking the top or bottom face anyway. Nothing replaces it: which way a head
+	 * points is settled when it is placed, by which way the player was facing, and a placed head does
+	 * not turn. Right clicking a signal does nothing at all, which is the point — there is no way to
+	 * knock one round by walking into it with a spare click.
 	 */
 	@Override
 	public InteractionResult onWrenched(BlockState state, UseOnContext context) {
@@ -216,44 +212,6 @@ public class MultiAspectSignalBlock extends Block
 					: "message.createtrainnext.signal.restricted_off"), true);
 			return InteractionResult.SUCCESS;
 		});
-	}
-
-	/**
-	 * Lets a wrench through to {@link #onWrenched}.
-	 *
-	 * <p>Needed because {@link #useWithoutItem} below runs whether or not the player is holding
-	 * anything: the game offers the block the item first, and a block that does not take it — which
-	 * is what the inherited PASS_TO_DEFAULT_BLOCK_INTERACTION says — then gets its no-item
-	 * interaction, and only if <em>that</em> also declines does the item finally get used. So the
-	 * rotation was consuming the click and the wrench never reached its own useOn at all. SKIP
-	 * rather than PASS is the difference: it declines without asking for the no-item interaction.
-	 *
-	 * <p>By the tag rather than by Create's own wrench, so a wrench from another mod behaves the
-	 * same way here as it does on Create's blocks.
-	 */
-	@Override
-	protected ItemInteractionResult useItemOn(ItemStack stack, BlockState state, Level level, BlockPos pos,
-		Player player, InteractionHand hand, BlockHitResult hit) {
-		return stack.is(Tags.Items.TOOLS_WRENCH) ? ItemInteractionResult.SKIP_DEFAULT_BLOCK_INTERACTION
-			: ItemInteractionResult.PASS_TO_DEFAULT_BLOCK_INTERACTION;
-	}
-
-	/**
-	 * An empty hand nudges the head one segment on, sneak to go back.
-	 *
-	 * <p>22.5 degrees a click rather than the quarter turn this used to be, which is the point of
-	 * having sixteen positions at all: the angles a player cannot stand square to are reachable no
-	 * other way, the wrench here being taken by the 警戒 toggle.
-	 */
-	@Override
-	protected InteractionResult useWithoutItem(BlockState state, Level level, BlockPos pos, Player player,
-		BlockHitResult hit) {
-		if (level.isClientSide)
-			return InteractionResult.SUCCESS;
-
-		int turned = SignalRotation.nudge(state.getValue(ROTATION), player.isShiftKeyDown());
-		level.setBlock(pos, state.setValue(ROTATION, turned), Block.UPDATE_ALL);
-		return InteractionResult.SUCCESS;
 	}
 
 	/**

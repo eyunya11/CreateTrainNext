@@ -66,11 +66,6 @@ public class SignalRotation {
 		return Math.floorMod(lookingAway + SEGMENTS / 2, SEGMENTS);
 	}
 
-	/** One segment on, or back if {@code reverse}. What an empty hand does to a head. */
-	public static int nudge(int segment, boolean reverse) {
-		return Math.floorMod(segment + (reverse ? -1 : 1), SEGMENTS);
-	}
-
 	public static int rotate(int segment, Rotation rotation) {
 		int quarter = SEGMENTS / 4;
 		int segments = switch (rotation) {

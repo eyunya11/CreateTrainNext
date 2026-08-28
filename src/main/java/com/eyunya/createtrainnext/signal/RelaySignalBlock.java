@@ -6,8 +6,6 @@ import com.simibubi.create.foundation.block.IBE;
 
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
-import net.minecraft.world.InteractionResult;
-import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.context.BlockPlaceContext;
 import net.minecraft.world.level.BlockGetter;
 import net.minecraft.world.level.Level;
@@ -18,7 +16,6 @@ import net.minecraft.world.level.block.entity.BlockEntityType;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.block.state.StateDefinition;
 import net.minecraft.world.level.block.state.properties.IntegerProperty;
-import net.minecraft.world.phys.BlockHitResult;
 import net.minecraft.world.phys.shapes.CollisionContext;
 import net.minecraft.world.phys.shapes.Shapes;
 import net.minecraft.world.phys.shapes.VoxelShape;
@@ -29,10 +26,12 @@ import net.minecraft.world.phys.shapes.VoxelShape;
  * <p>Placed like a signal and looking like one, but it is not one and nothing about it touches a
  * train — see {@link RelaySignalBlockEntity} for why that is a property of how it is built rather
  * than a promise. It has no wrench setting and no value box, because it has nothing to set: what it
- * shows is decided entirely by the signal it is pointed at.
+ * shows is decided entirely by the signal it is pointed at, and which way it faces is decided when
+ * it is placed. Right clicking one does nothing.
  *
- * <p>The housing is a blockstate model. Only the seven lamps are drawn by the block entity
- * renderer, since which three of them are lit changes with the signal ahead.
+ * <p>The head turns in 22.5 degree steps, which is why only the mast is left in the blockstate
+ * model: a blockstate turns in quarters, so the head and its seven lamps are drawn by the block
+ * entity renderer instead. See {@link SignalRotation} for why there is no way around that.
  */
 public class RelaySignalBlock extends Block implements IBE<RelaySignalBlockEntity>, PoleConnectable {
 
@@ -95,27 +94,6 @@ public class RelaySignalBlock extends Block implements IBE<RelaySignalBlockEntit
 	@Override
 	protected VoxelShape getShape(BlockState state, BlockGetter level, BlockPos pos, CollisionContext context) {
 		return SHAPES[state.getValue(ROTATION)];
-	}
-
-	/**
-	 * An empty hand nudges the head one segment on, sneak to go back — the same as the five-aspect
-	 * head and this mod's track anchors.
-	 *
-	 * <p>Which way a relay faces is only about who can see it: it reads the same signal whichever
-	 * way it is turned, because what it reads is fixed by the track it was pointed at when it was
-	 * placed, not by which way it looks now. Which is exactly why the fine angles are worth having
-	 * here — a relay is put where a driver can see it, and a driver on a curve is not standing on
-	 * one of four compass points.
-	 */
-	@Override
-	protected InteractionResult useWithoutItem(BlockState state, Level level, BlockPos pos, Player player,
-		BlockHitResult hit) {
-		if (level.isClientSide)
-			return InteractionResult.SUCCESS;
-
-		int turned = SignalRotation.nudge(state.getValue(ROTATION), player.isShiftKeyDown());
-		level.setBlock(pos, state.setValue(ROTATION, turned), Block.UPDATE_ALL);
-		return InteractionResult.SUCCESS;
 	}
 
 	/** Poles join from behind or below, never from the front, which has to stay clear to be read. */
