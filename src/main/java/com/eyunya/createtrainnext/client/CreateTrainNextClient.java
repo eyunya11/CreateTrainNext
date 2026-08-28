@@ -53,6 +53,15 @@ public class CreateTrainNextClient {
 
 	public static final PartialModel SIGNAL_LAMP_GREEN = signalLamp("light_lit_green");
 
+	/**
+	 * The halo drawn over a lit lamp, one square for all five sockets and all three colours.
+	 *
+	 * <p>White, and tinted per colour by the renderer, because a halo is the same shape whatever
+	 * colour it is; three near-identical textures would only be three chances for one of them to
+	 * drift.
+	 */
+	public static final PartialModel SIGNAL_LAMP_GLOW = signalLamp("light_glow");
+
 	private static PartialModel signalLamp(String name) {
 		return PartialModel.of(CreateTrainNext.asResource("block/multi_aspect_signal/" + name));
 	}

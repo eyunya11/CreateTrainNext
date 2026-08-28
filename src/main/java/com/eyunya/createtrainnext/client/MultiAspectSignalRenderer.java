@@ -1,5 +1,6 @@
 package com.eyunya.createtrainnext.client;
 
+import com.eyunya.createtrainnext.CTNConfig;
 import com.eyunya.createtrainnext.signal.MultiAspectSignalBlock;
 import com.eyunya.createtrainnext.signal.MultiAspectSignalBlockEntity;
 import com.eyunya.createtrainnext.signal.SignalAspect;
@@ -8,6 +9,7 @@ import com.simibubi.create.content.trains.track.ITrackBlock;
 import com.simibubi.create.content.trains.track.TrackTargetingBehaviour;
 import com.simibubi.create.content.trains.track.TrackTargetingBehaviour.RenderedTrackOverlayType;
 import com.simibubi.create.foundation.blockEntity.renderer.SmartBlockEntityRenderer;
+import com.simibubi.create.foundation.render.RenderTypes;
 
 import dev.engine_room.flywheel.lib.model.baked.PartialModel;
 import dev.engine_room.flywheel.lib.transform.TransformStack;
@@ -33,6 +35,15 @@ import net.minecraft.world.level.block.state.BlockState;
  * stands. Without that it is merely a coloured shape that goes dim at night, which is when a
  * signal most needs to read as lit. Create does the same for its own signals, and like Create's
  * this is only a rendering trick — the block emits no light and will not brighten anything near it.
+ *
+ * <p>Two further things are done to a lit lamp, both aimed at the same problem and both off by
+ * default in the sense that either can be turned down to nothing in the config: it can be drawn
+ * larger than an unlit one, and it can be given a halo. The problem is that a lamp is 1.7 pixels
+ * wide and its bezel crops that to a circle about 1.6 across, so past a certain distance the lit
+ * area is smaller than a screen pixel and its colour is gone. Create's own signal does not suffer
+ * this because its indicator is a 16-pixel cross rather than a lens. Making the lamp bigger raises
+ * the distance at which that happens; the halo, being several times wider than the lamp, pushes it
+ * much further, and is the same trick Create uses on nixie tubes and display links.
  */
 public class MultiAspectSignalRenderer extends SmartBlockEntityRenderer<MultiAspectSignalBlockEntity> {
 
@@ -47,6 +58,33 @@ public class MultiAspectSignalRenderer extends SmartBlockEntityRenderer<MultiAsp
 	 * middle one, so the others are this many steps away from where the model already is.
 	 */
 	private static final int REFERENCE_POSITION = 3;
+
+	/** Centre of the socket the lamp models are authored at, the point everything here scales about. */
+	private static final float LAMP_CENTRE_X = 8F / 16F;
+
+	private static final float LAMP_CENTRE_Y = 7.75F / 16F;
+
+	private static final float LAMP_CENTRE_Z = 10.0125F / 16F;
+
+	/**
+	 * How far forward an enlarged lamp is moved, in blocks.
+	 *
+	 * <p>The bezel ringing each socket occupies z 10 to 10.05 and the lamp only 10 to 10.025, so the
+	 * lamp is already inside the ring and growing it there would push the new area behind the ring
+	 * rather than into view — nothing would look any different. A tenth of a pixel clears the ring
+	 * for any scale the config allows, and is far too little to see as the lamp standing proud.
+	 */
+	private static final float BEZEL_CLEARANCE = 0.1F / 16F;
+
+	/**
+	 * Where the halo sits, in blocks.
+	 *
+	 * <p>In front of the bezel and of the furthest forward an enlarged lamp can reach, so it is
+	 * never the halo that loses the depth test to the thing it is meant to be surrounding. Still
+	 * well behind the hood over each socket, which should cut the halo off above the lamp exactly
+	 * as a real hood cuts off the glare.
+	 */
+	private static final float GLOW_Z = 10.25F / 16F;
 
 	public MultiAspectSignalRenderer(Context context) {
 		super(context);
@@ -75,6 +113,10 @@ public class MultiAspectSignalRenderer extends SmartBlockEntityRenderer<MultiAsp
 		float localX = state.getValue(MultiAspectSignalBlock.OFFSET)
 			.localX();
 
+		float litScale = CTNConfig.CLIENT.signalLitLampScale.get()
+			.floatValue();
+		boolean glow = CTNConfig.CLIENT.signalGlow.get();
+
 		for (int position = 1; position <= SignalAspect.LAMP_COUNT; position++) {
 			boolean lit = aspect.isLit(position);
 			PartialModel model = lit ? CreateTrainNextClient.litLamp(SignalAspect.colourAt(position))
@@ -83,6 +125,12 @@ public class MultiAspectSignalRenderer extends SmartBlockEntityRenderer<MultiAsp
 			// Position 1 is the top, so a lower number sits higher: the step is away from the
 			// reference socket, not towards it.
 			float verticalOffset = (REFERENCE_POSITION - position) * LAMP_SPACING;
+
+			// Only an enlarged lamp comes forward. At a scale of exactly 1 the lamp is left inside
+			// its bezel where the model puts it, so the config's lower bound is a true "unchanged"
+			// rather than a value that still moves the lamp a tenth of a pixel.
+			float scale = lit ? litScale : 1F;
+			float forward = scale > 1F ? BEZEL_CLEARANCE : 0F;
 
 			CachedBuffers.partial(model, state)
 				// Negated because a blockstate variant's y turns the model the opposite way round
@@ -95,10 +143,56 @@ public class MultiAspectSignalRenderer extends SmartBlockEntityRenderer<MultiAsp
 				// carries it around exactly as it carries the housing's own baked shift. Reversing
 				// the order would translate along the already-rotated axes instead and send the
 				// lamps sideways off the housing on three of the four facings.
-				.translate(localX, verticalOffset, 0)
+				.translate(localX, verticalOffset, forward)
+				// Scaling happens about the model origin, which is the block's corner, so the lamp
+				// has to be walked to the origin and back around it. Innermost of the three, so it
+				// runs before any of the placement above.
+				.translate(LAMP_CENTRE_X, LAMP_CENTRE_Y, LAMP_CENTRE_Z)
+				.scale(scale)
+				.translate(-LAMP_CENTRE_X, -LAMP_CENTRE_Y, -LAMP_CENTRE_Z)
 				.light(lit ? LightTexture.FULL_BLOCK : light)
 				.renderInto(ms, buffer.getBuffer(RenderType.cutoutMipped()));
+
+			if (lit && glow)
+				renderGlow(state, position, yaw, localX, verticalOffset, ms, buffer);
 		}
+	}
+
+	/**
+	 * Draws the halo over one lit lamp.
+	 *
+	 * <p>Additively, through Create's own {@code RenderTypes.additive()}: the halo adds its colour
+	 * to whatever is behind it instead of covering it, which is what makes it read as light coming
+	 * off the lamp rather than as a disc stuck to the front of the signal. It is white in the
+	 * texture and tinted here, and drawn at full brightness for the same reason the lit lamp is.
+	 */
+	private void renderGlow(BlockState state, int position, float yaw, float localX, float verticalOffset,
+		PoseStack ms, MultiBufferSource buffer) {
+		int tint = SignalAspect.colourAt(position)
+			.glowTint();
+		float brightness = CTNConfig.CLIENT.signalGlowBrightness.get()
+			.floatValue();
+		float size = CTNConfig.CLIENT.signalGlowSize.get()
+			.floatValue();
+
+		// Brightness scales the colour rather than the alpha because the blend adds the source
+		// colour on: dimming is a matter of adding less of it.
+		int red = Math.round(((tint >> 16) & 0xFF) * brightness);
+		int green = Math.round(((tint >> 8) & 0xFF) * brightness);
+		int blue = Math.round((tint & 0xFF) * brightness);
+
+		CachedBuffers.partial(CreateTrainNextClient.SIGNAL_LAMP_GLOW, state)
+			.rotateCenteredDegrees(-yaw, Direction.Axis.Y)
+			.translate(localX, verticalOffset, 0)
+			// The halo model is one pixel square and centred on the model origin, so scaling it
+			// there makes the factor its width in pixels, and the translate that follows carries it
+			// onto the socket.
+			.translate(LAMP_CENTRE_X, LAMP_CENTRE_Y, GLOW_Z)
+			.scale(size)
+			.light(LightTexture.FULL_BRIGHT)
+			.color(red, green, blue, 0xFF)
+			.disableDiffuse()
+			.renderInto(ms, buffer.getBuffer(RenderTypes.additive()));
 	}
 
 	private void renderTrackMarker(MultiAspectSignalBlockEntity be, Level level, PoseStack ms,

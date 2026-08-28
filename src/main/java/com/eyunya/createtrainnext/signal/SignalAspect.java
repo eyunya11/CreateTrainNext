@@ -94,11 +94,30 @@ public enum SignalAspect {
 
 	/** The colours a lamp can be. Each maps to one model beside {@code light_blank}. */
 	public enum LampColour {
-		RED, YELLOW, GREEN;
+
+		RED(0xFF2D23), YELLOW(0xE8D51A), GREEN(0x13D161);
+
+		private final int tint;
+
+		LampColour(int tint) {
+			this.tint = tint;
+		}
 
 		/** Path of the lit model for this colour, under {@code block/multi_aspect_signal/}. */
 		public String litModelName() {
 			return "light_lit_" + name().toLowerCase(java.util.Locale.ROOT);
+		}
+
+		/**
+		 * The colour the halo around a lit lamp is drawn in, packed as RGB.
+		 *
+		 * <p>The same values the lit lamp textures are filled with, so the halo cannot drift away
+		 * from the lamp it surrounds. A halo of a slightly different hue would be worse than none:
+		 * the whole point of it is to carry the lamp's colour out to where the lamp itself has
+		 * become too small to read.
+		 */
+		public int glowTint() {
+			return tint;
 		}
 	}
 
