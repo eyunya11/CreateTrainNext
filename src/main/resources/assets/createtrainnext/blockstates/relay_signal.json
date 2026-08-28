@@ -1,0 +1,20 @@
+{
+	"__comment": "y is zero for south because that is the way the model was drawn: its lamps sit at z=10, on the +z face of the panel. RelaySignalBlock.modelYaw spells the same four angles and the renderer measures the lamps from it, so the housing and the lamps cannot drift apart. The model is generated from relay_traffic_signal.json rather than being it — see the credit line in housing.json.",
+	"variants": {
+		"facing=south": {
+			"model": "createtrainnext:block/relay_signal/housing"
+		},
+		"facing=west": {
+			"model": "createtrainnext:block/relay_signal/housing",
+			"y": 90
+		},
+		"facing=north": {
+			"model": "createtrainnext:block/relay_signal/housing",
+			"y": 180
+		},
+		"facing=east": {
+			"model": "createtrainnext:block/relay_signal/housing",
+			"y": 270
+		}
+	}
+}

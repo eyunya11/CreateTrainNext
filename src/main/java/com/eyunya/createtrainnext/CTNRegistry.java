@@ -5,6 +5,8 @@ import java.util.function.Supplier;
 import com.eyunya.createtrainnext.pole.SignalPoleBlock;
 import com.eyunya.createtrainnext.signal.MultiAspectSignalBlock;
 import com.eyunya.createtrainnext.signal.MultiAspectSignalBlockEntity;
+import com.eyunya.createtrainnext.signal.RelaySignalBlock;
+import com.eyunya.createtrainnext.signal.RelaySignalBlockEntity;
 import com.eyunya.createtrainnext.speed.CTNEdgePointTypes;
 import com.eyunya.createtrainnext.speed.SpeedLimitBlock;
 import com.eyunya.createtrainnext.speed.SpeedLimitBlockEntity;
@@ -122,6 +124,34 @@ public class CTNRegistry {
 			.of(MultiAspectSignalBlockEntity::new, MULTI_ASPECT_SIGNAL.get())
 			.build(null));
 
+	public static final DeferredBlock<RelaySignalBlock> RELAY_SIGNAL = BLOCKS.registerBlock(
+		"relay_signal",
+		RelaySignalBlock::new,
+		BlockBehaviour.Properties.of()
+			.mapColor(MapColor.PODZOL)
+			.strength(0.8F)
+			.sound(SoundType.NETHERITE_BLOCK)
+			.noOcclusion());
+
+	/**
+	 * Placed like a signal, and pointedly not one.
+	 *
+	 * <p>{@link TrackTargetingBlockItem} is used for the placement it gives — click the track, then
+	 * click where the block goes — and the point type handed to it decides nothing about the block:
+	 * {@code RelaySignalBlockEntity} never creates a point of any type, which is what keeps a relay
+	 * out of the track graph and therefore out of every train's way. SIGNAL is passed because it is
+	 * the type the item's own placement check should use, so a relay cannot be dropped on top of an
+	 * existing signal's spot.
+	 */
+	public static final DeferredItem<TrackTargetingBlockItem> RELAY_SIGNAL_ITEM =
+		ITEMS.registerItem("relay_signal", properties -> new TrackTargetingBlockItem(RELAY_SIGNAL.get(), properties,
+			EdgePointType.SIGNAL));
+
+	public static final Supplier<BlockEntityType<RelaySignalBlockEntity>> RELAY_SIGNAL_ENTITY =
+		BLOCK_ENTITIES.register("relay_signal", () -> BlockEntityType.Builder
+			.of(RelaySignalBlockEntity::new, RELAY_SIGNAL.get())
+			.build(null));
+
 	public static final DeferredHolder<CreativeModeTab, CreativeModeTab> TAB =
 		CREATIVE_TABS.register("main", () -> CreativeModeTab.builder()
 			.title(Component.translatable("itemGroup." + CreateTrainNext.ID))
@@ -132,6 +162,7 @@ public class CTNRegistry {
 				output.accept(TRACK_SPEED_LIMIT_ITEM.get());
 				output.accept(SIGNAL_POLE_ITEM.get());
 				output.accept(MULTI_ASPECT_SIGNAL_ITEM.get());
+				output.accept(RELAY_SIGNAL_ITEM.get());
 			})
 			.build());
 

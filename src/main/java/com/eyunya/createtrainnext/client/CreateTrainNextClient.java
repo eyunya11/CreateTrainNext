@@ -62,8 +62,23 @@ public class CreateTrainNextClient {
 	 */
 	public static final PartialModel SIGNAL_LAMP_GLOW = signalLamp("light_glow");
 
+	/**
+	 * The relay's lamps, two models for seven sockets.
+	 *
+	 * <p>Two rather than the signal's four because a relay has no colours: every lamp on it is the
+	 * same white, and what it says is said by which three of the seven are lit. The halo above is
+	 * shared with the signal, tinted white where it is used here.
+	 */
+	public static final PartialModel RELAY_LAMP_OFF = relayLamp("light_blank");
+
+	public static final PartialModel RELAY_LAMP_LIT = relayLamp("light_lit");
+
 	private static PartialModel signalLamp(String name) {
 		return PartialModel.of(CreateTrainNext.asResource("block/multi_aspect_signal/" + name));
+	}
+
+	private static PartialModel relayLamp(String name) {
+		return PartialModel.of(CreateTrainNext.asResource("block/relay_signal/" + name));
 	}
 
 	/** The lit lamp for a colour. Kept beside the fields so a new colour cannot be half-added. */
@@ -86,5 +101,6 @@ public class CreateTrainNextClient {
 		event.registerBlockEntityRenderer(CTNRegistry.TRACK_SPEED_LIMIT_ENTITY.get(), SpeedLimitRenderer::new);
 		event.registerBlockEntityRenderer(CTNRegistry.MULTI_ASPECT_SIGNAL_ENTITY.get(),
 			MultiAspectSignalRenderer::new);
+		event.registerBlockEntityRenderer(CTNRegistry.RELAY_SIGNAL_ENTITY.get(), RelaySignalRenderer::new);
 	}
 }

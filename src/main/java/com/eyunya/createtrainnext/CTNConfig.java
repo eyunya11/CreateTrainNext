@@ -64,7 +64,7 @@ public class CTNConfig {
 					"1.0 leaves the lamp exactly as it is and stays behind the bezel. Beyond about 1.35",
 					"the corners of one lamp start to reach over its neighbours, which are 2.25 pixels",
 					"apart.")
-				.defineInRange("litLampScale", 1.2, 1.0, 2.0);
+				.defineInRange("litLampScale", 1.0, 1.0, 2.0);
 
 			signalGlow = builder
 				.comment("Whether a lit lamp is surrounded by a halo of its own colour.",
