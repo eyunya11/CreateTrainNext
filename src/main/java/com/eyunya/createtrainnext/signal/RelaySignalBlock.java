@@ -1,8 +1,5 @@
 package com.eyunya.createtrainnext.signal;
 
-import java.util.EnumMap;
-import java.util.Map;
-
 import com.eyunya.createtrainnext.CTNRegistry;
 import com.eyunya.createtrainnext.pole.PoleConnectable;
 import com.simibubi.create.foundation.block.IBE;
@@ -20,10 +17,10 @@ import net.minecraft.world.level.block.Rotation;
 import net.minecraft.world.level.block.entity.BlockEntityType;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.block.state.StateDefinition;
-import net.minecraft.world.level.block.state.properties.BlockStateProperties;
-import net.minecraft.world.level.block.state.properties.DirectionProperty;
+import net.minecraft.world.level.block.state.properties.IntegerProperty;
 import net.minecraft.world.phys.BlockHitResult;
 import net.minecraft.world.phys.shapes.CollisionContext;
+import net.minecraft.world.phys.shapes.Shapes;
 import net.minecraft.world.phys.shapes.VoxelShape;
 
 /**
@@ -39,76 +36,76 @@ import net.minecraft.world.phys.shapes.VoxelShape;
  */
 public class RelaySignalBlock extends Block implements IBE<RelaySignalBlockEntity>, PoleConnectable {
 
-	public static final DirectionProperty FACING = BlockStateProperties.HORIZONTAL_FACING;
+	/** Sixteen angles, 22.5 degrees apart. See {@link SignalRotation} for the whole of the arithmetic. */
+	public static final IntegerProperty ROTATION = SignalRotation.ROTATION;
 
 	/**
-	 * Degrees the housing model is turned by to face a given direction, in the sense a blockstate
-	 * variant's {@code y} means. Zero for south because that is the way the model was drawn: its
-	 * lamps sit at z=10, on the +z side of the panel — the same convention the five-aspect head uses.
+	 * Degrees the head is turned by, in the sense a blockstate variant's {@code y} means. Zero for
+	 * south because that is the way the model was drawn: its lamps sit on the +z side of the panel —
+	 * the same convention the five-aspect head uses.
 	 */
 	public static float modelYaw(BlockState state) {
-		return state.getValue(FACING)
-			.get2DDataValue() * 90F;
+		return SignalRotation.modelYaw(state);
 	}
 
+	/** The central pole, which never turns and is therefore the same box in every shape. */
+	private static final VoxelShape MAST = Block.box(7, 0, 7, 9, 16, 9);
+
 	/**
-	 * One box per facing, the model's own bounds turned about the block's centre.
-	 *
-	 * <p>The head is wider than a block is deep, so unlike the five-aspect signal there is no offset
-	 * to multiply this by — a relay is read from directly ahead and has no reason to sit anywhere
-	 * but centred.
+	 * The head as drawn, unturned, read off housing.json with its element rotations applied. The
+	 * mast is not in here — it is added to every shape unchanged.
 	 */
-	private static final Map<Direction, VoxelShape> SHAPES = new EnumMap<>(Direction.class);
+	private static final double[] HEAD_BOUNDS = { 2.5, 2.5, 9, 13.5, 13.5, 12.5 };
+
+	/** One shape per segment: the mast, plus the head's own box turned to match. */
+	private static final VoxelShape[] SHAPES = new VoxelShape[SignalRotation.SEGMENTS];
 
 	static {
-		// Drawn facing south: x 2.5..13.5, z 7..12.5, measured off the housing's own elements with
-		// their rotations applied. Each further facing is the previous one turned a quarter clockwise
-		// about the block centre, which is (x, z) -> (16 - z, x) - the same turn the blockstate's own
-		// 'y' applies to the model.
-		SHAPES.put(Direction.SOUTH, Block.box(2.5, 0, 7, 13.5, 16, 12.5));
-		SHAPES.put(Direction.WEST, Block.box(3.5, 0, 2.5, 9, 16, 13.5));
-		SHAPES.put(Direction.NORTH, Block.box(2.5, 0, 3.5, 13.5, 16, 9));
-		SHAPES.put(Direction.EAST, Block.box(7, 0, 2.5, 12.5, 16, 13.5));
+		for (int segment = 0; segment < SignalRotation.SEGMENTS; segment++)
+			SHAPES[segment] = Shapes.or(MAST, SignalRotation.spin(HEAD_BOUNDS[0], HEAD_BOUNDS[1],
+				HEAD_BOUNDS[2], HEAD_BOUNDS[3], HEAD_BOUNDS[4], HEAD_BOUNDS[5],
+				segment * SignalRotation.DEGREES_PER_SEGMENT));
 	}
 
 	public RelaySignalBlock(Properties properties) {
 		super(properties);
-		registerDefaultState(defaultBlockState().setValue(FACING, Direction.NORTH));
+		registerDefaultState(defaultBlockState().setValue(ROTATION, 0));
 	}
 
 	@Override
 	protected void createBlockStateDefinition(StateDefinition.Builder<Block, BlockState> builder) {
-		super.createBlockStateDefinition(builder.add(FACING));
+		super.createBlockStateDefinition(builder.add(ROTATION));
 	}
 
 	@Override
 	public BlockState getStateForPlacement(BlockPlaceContext context) {
-		return defaultBlockState().setValue(FACING, context.getHorizontalDirection()
-			.getOpposite());
+		return defaultBlockState().setValue(ROTATION, SignalRotation.segmentForPlacement(context));
 	}
 
 	@Override
 	protected BlockState rotate(BlockState state, Rotation rotation) {
-		return state.setValue(FACING, rotation.rotate(state.getValue(FACING)));
+		return state.setValue(ROTATION, SignalRotation.rotate(state.getValue(ROTATION), rotation));
 	}
 
 	@Override
 	protected BlockState mirror(BlockState state, Mirror mirror) {
-		return state.setValue(FACING, mirror.mirror(state.getValue(FACING)));
+		return state.setValue(ROTATION, SignalRotation.mirror(state.getValue(ROTATION), mirror));
 	}
 
 	@Override
 	protected VoxelShape getShape(BlockState state, BlockGetter level, BlockPos pos, CollisionContext context) {
-		return SHAPES.get(state.getValue(FACING));
+		return SHAPES[state.getValue(ROTATION)];
 	}
 
 	/**
-	 * An empty hand turns the head a quarter turn, sneak to go back — the same as the five-aspect
+	 * An empty hand nudges the head one segment on, sneak to go back — the same as the five-aspect
 	 * head and this mod's track anchors.
 	 *
 	 * <p>Which way a relay faces is only about who can see it: it reads the same signal whichever
 	 * way it is turned, because what it reads is fixed by the track it was pointed at when it was
-	 * placed, not by which way it looks now.
+	 * placed, not by which way it looks now. Which is exactly why the fine angles are worth having
+	 * here — a relay is put where a driver can see it, and a driver on a curve is not standing on
+	 * one of four compass points.
 	 */
 	@Override
 	protected InteractionResult useWithoutItem(BlockState state, Level level, BlockPos pos, Player player,
@@ -116,16 +113,17 @@ public class RelaySignalBlock extends Block implements IBE<RelaySignalBlockEntit
 		if (level.isClientSide)
 			return InteractionResult.SUCCESS;
 
-		Direction facing = state.getValue(FACING);
-		Direction turned = player.isShiftKeyDown() ? facing.getCounterClockWise() : facing.getClockWise();
-		level.setBlock(pos, state.setValue(FACING, turned), Block.UPDATE_ALL);
+		int turned = SignalRotation.nudge(state.getValue(ROTATION), player.isShiftKeyDown());
+		level.setBlock(pos, state.setValue(ROTATION, turned), Block.UPDATE_ALL);
 		return InteractionResult.SUCCESS;
 	}
 
 	/** Poles join from behind or below, never from the front, which has to stay clear to be read. */
 	@Override
 	public boolean connectsToPole(BlockState state, Direction towardsPole) {
-		return towardsPole == Direction.DOWN || towardsPole == state.getValue(FACING)
+		// Rounded to the nearest quarter, because a pole can only arrive from one of four sides
+		// however finely the head itself is turned.
+		return towardsPole == Direction.DOWN || towardsPole == SignalRotation.nearestFacing(state)
 			.getOpposite();
 	}
 

@@ -23,11 +23,10 @@ import com.simibubi.create.foundation.blockEntity.behaviour.scrollValue.ScrollVa
 
 import dev.engine_room.flywheel.lib.transform.TransformStack;
 import net.createmod.catnip.data.Iterate;
-import net.createmod.catnip.math.AngleHelper;
 import net.createmod.catnip.math.VecHelper;
 import net.createmod.catnip.nbt.NBTHelper;
 import net.minecraft.core.BlockPos;
-import net.minecraft.core.Direction;
+import net.minecraft.core.Direction.Axis;
 import net.minecraft.core.HolderLookup;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.network.chat.Component;
@@ -258,23 +257,30 @@ public class MultiAspectSignalBlockEntity extends SmartBlockEntity implements Tr
 		// own back face at z=7.
 		private static final Vec3 LOCAL = VecHelper.voxelSpace(8, 2, 6);
 
+		/**
+		 * The angle the box is carried round by, which is not the head's own yaw but its negative.
+		 *
+		 * <p>{@code ValueBoxTransform.rotateHorizontally} — which this used to call, and which no
+		 * longer applies since the head stopped having a facing property to read — turns by
+		 * {@code AngleHelper.horizontalAngle}, and that runs the opposite way round from a blockstate
+		 * {@code y}: the two agree for north and south and disagree in sign for east and west,
+		 * because horizontalAngle negates its result on the X axis. Getting this backwards is what
+		 * had the box facing the wrong way on two of the four facings once before, so it is written
+		 * as one negation in one place rather than left to be rediscovered.
+		 */
+		private static float boxYaw(BlockState state) {
+			return -MultiAspectSignalBlock.modelYaw(state);
+		}
+
 		@Override
 		public Vec3 getLocalOffset(LevelAccessor level, BlockPos pos, BlockState state) {
-			return rotateHorizontally(state, LOCAL);
+			return VecHelper.rotateCentered(LOCAL, boxYaw(state), Axis.Y);
 		}
 
 		@Override
 		public void rotate(LevelAccessor level, BlockPos pos, BlockState state, PoseStack ms) {
-			// Create's own idiom for a box mounted on a given side (see RedstoneLinkFrequencySlot,
-			// the only other user of rotateHorizontally in Create): AngleHelper.horizontalAngle(side)
-			// + 180, not this class's own modelYaw. The two agree for north/south but disagree in
-			// sign for east/west, since horizontalAngle negates its result on the X axis and
-			// modelYaw does not - which is what had this reading backwards on two of the four
-			// facings.
-			Direction back = state.getValue(MultiAspectSignalBlock.FACING)
-				.getOpposite();
 			TransformStack.of(ms)
-				.rotateYDegrees(AngleHelper.horizontalAngle(back) + 180);
+				.rotateYDegrees(boxYaw(state));
 		}
 	}
 }

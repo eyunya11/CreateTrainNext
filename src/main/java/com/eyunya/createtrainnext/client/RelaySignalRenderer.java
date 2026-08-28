@@ -95,8 +95,27 @@ public class RelaySignalRenderer extends SmartBlockEntityRenderer<RelaySignalBlo
 		if (level == null)
 			return;
 
+		renderHead(be.getBlockState(), ms, buffer, light);
 		renderLamps(be, be.getBlockState(), ms, buffer, light);
 		renderTrackMarker(be, level, ms, buffer, light, overlay);
+	}
+
+	/**
+	 * Draws the turning half of the housing.
+	 *
+	 * <p>Here rather than in the blockstate because the head turns in 22.5 degree steps and a
+	 * blockstate only turns in quarters — see {@code SignalRotation}. The mast is still a blockstate
+	 * model, so it keeps the chunk mesh's lighting and costs nothing; the head pays for the angle by
+	 * being transformed every frame and lit flat.
+	 */
+	private void renderHead(BlockState state, PoseStack ms, MultiBufferSource buffer, int light) {
+		if (!(state.getBlock() instanceof RelaySignalBlock))
+			return;
+
+		CachedBuffers.partial(CreateTrainNextClient.RELAY_HEAD, state)
+			.rotateCenteredDegrees(-RelaySignalBlock.modelYaw(state), Direction.Axis.Y)
+			.light(light)
+			.renderInto(ms, buffer.getBuffer(RenderType.cutoutMipped()));
 	}
 
 	private void renderLamps(RelaySignalBlockEntity be, BlockState state, PoseStack ms, MultiBufferSource buffer,

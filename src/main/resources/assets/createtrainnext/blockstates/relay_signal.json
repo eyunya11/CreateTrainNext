@@ -1,20 +1,8 @@
 {
-	"__comment": "y is zero for south because that is the way the model was drawn: its lamps sit at z=10, on the +z face of the panel. RelaySignalBlock.modelYaw spells the same four angles and the renderer measures the lamps from it, so the housing and the lamps cannot drift apart. The model is generated from relay_traffic_signal.json rather than being it — see the credit line in housing.json.",
+	"__comment": "The mast only, and no variant key at all: it is the same box whichever of the sixteen angles the head is turned to, so every rotation matches this one entry. The head is drawn by RelaySignalRenderer, because a blockstate y only turns in quarters and this block turns in 22.5 degree steps - see SignalRotation. Both halves are generated from housing.json; the item model still parents the whole thing so the item looks complete.",
 	"variants": {
-		"facing=south": {
-			"model": "createtrainnext:block/relay_signal/housing"
-		},
-		"facing=west": {
-			"model": "createtrainnext:block/relay_signal/housing",
-			"y": 90
-		},
-		"facing=north": {
-			"model": "createtrainnext:block/relay_signal/housing",
-			"y": 180
-		},
-		"facing=east": {
-			"model": "createtrainnext:block/relay_signal/housing",
-			"y": 270
+		"": {
+			"model": "createtrainnext:block/relay_signal/housing_post"
 		}
 	}
 }

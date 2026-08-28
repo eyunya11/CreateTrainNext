@@ -3,6 +3,7 @@ package com.eyunya.createtrainnext.client;
 import com.eyunya.createtrainnext.CTNConfig;
 import com.eyunya.createtrainnext.CTNRegistry;
 import com.eyunya.createtrainnext.CreateTrainNext;
+import com.eyunya.createtrainnext.signal.MultiAspectSignalBlock.HorizontalOffset;
 import com.eyunya.createtrainnext.signal.SignalAspect.LampColour;
 
 import dev.engine_room.flywheel.lib.model.baked.PartialModel;
@@ -75,6 +76,38 @@ public class CreateTrainNextClient {
 	public static final PartialModel RELAY_LAMP_OFF = relayLamp("light_blank");
 
 	public static final PartialModel RELAY_LAMP_LIT = relayLamp("light_lit");
+
+	/**
+	 * The turning halves of the two signals' housings.
+	 *
+	 * <p>Drawn here rather than by their blockstates because they turn in 22.5 degree steps, which a
+	 * blockstate cannot express — see {@code SignalRotation} for why the usual ways out are all
+	 * closed. What is left in each blockstate is the mast, which never turns.
+	 *
+	 * <p>Three for the five-aspect head because its horizontal offset is a different model, not a
+	 * different transform: the offset housings carry their own arm and collars rather than being the
+	 * centred one slid sideways.
+	 */
+	public static final PartialModel SIGNAL_HEAD =
+		PartialModel.of(CreateTrainNext.asResource("block/multi_aspect_signal/housing_head"));
+
+	public static final PartialModel SIGNAL_HEAD_LEFT =
+		PartialModel.of(CreateTrainNext.asResource("block/multi_aspect_signal/housing_left_head"));
+
+	public static final PartialModel SIGNAL_HEAD_RIGHT =
+		PartialModel.of(CreateTrainNext.asResource("block/multi_aspect_signal/housing_right_head"));
+
+	public static final PartialModel RELAY_HEAD =
+		PartialModel.of(CreateTrainNext.asResource("block/relay_signal/housing_head"));
+
+	/** The turning half of the five-aspect housing for an offset. Kept beside the fields above. */
+	public static PartialModel signalHead(HorizontalOffset offset) {
+		return switch (offset) {
+			case CENTER -> SIGNAL_HEAD;
+			case LEFT -> SIGNAL_HEAD_LEFT;
+			case RIGHT -> SIGNAL_HEAD_RIGHT;
+		};
+	}
 
 	private static PartialModel signalLamp(String name) {
 		return PartialModel.of(CreateTrainNext.asResource("block/multi_aspect_signal/" + name));

@@ -27,12 +27,12 @@ import net.minecraft.world.level.block.Rotation;
 import net.minecraft.world.level.block.entity.BlockEntityType;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.block.state.StateDefinition;
-import net.minecraft.world.level.block.state.properties.BlockStateProperties;
-import net.minecraft.world.level.block.state.properties.DirectionProperty;
 import net.minecraft.world.level.block.state.properties.EnumProperty;
+import net.minecraft.world.level.block.state.properties.IntegerProperty;
 import net.minecraft.util.StringRepresentable;
 import net.minecraft.world.phys.BlockHitResult;
 import net.minecraft.world.phys.shapes.CollisionContext;
+import net.minecraft.world.phys.shapes.Shapes;
 import net.minecraft.world.phys.shapes.VoxelShape;
 
 import net.neoforged.neoforge.common.Tags;
@@ -52,7 +52,8 @@ import net.neoforged.neoforge.common.Tags;
 public class MultiAspectSignalBlock extends Block
 	implements IBE<MultiAspectSignalBlockEntity>, IWrenchable, PoleConnectable {
 
-	public static final DirectionProperty FACING = BlockStateProperties.HORIZONTAL_FACING;
+	/** Sixteen angles, 22.5 degrees apart. See {@link SignalRotation} for the whole of the arithmetic. */
+	public static final IntegerProperty ROTATION = SignalRotation.ROTATION;
 
 	/**
 	 * Where the housing sits across the width of its own block, so a pole standing in the middle of
@@ -106,67 +107,66 @@ public class MultiAspectSignalBlock extends Block
 		EnumProperty.create("offset", HorizontalOffset.class);
 
 	/**
-	 * Degrees the housing model is turned by to face a given direction, in the sense a blockstate
-	 * variant's {@code y} means. Zero for south because that is the way the model was drawn: its
-	 * lamps sit at z=10, on the +z side of the panel.
+	 * Degrees the head is turned by, in the sense a blockstate variant's {@code y} means. Zero for
+	 * south because that is the way the model was drawn: its lamps sit at z=10, on the +z side of
+	 * the panel.
 	 *
-	 * <p>The renderer measures the lamps from here too, so the lamps cannot drift off the housing.
+	 * <p>The renderer measures both the housing and the lamps from here, so they cannot drift apart.
 	 */
 	public static float modelYaw(BlockState state) {
-		return state.getValue(FACING)
-			.get2DDataValue() * 90F;
+		return SignalRotation.modelYaw(state);
 	}
 
 	/**
-	 * The housing is not symmetric front to back, nor (away from {@link HorizontalOffset#CENTER})
-	 * left to right, so every facing x offset combination gets its own box rather than one being
-	 * rotated by an axis test. All twelve are the same rotation applied to the housing model's own
-	 * bounds, worked out once and hardcoded rather than computed on every shape query.
+	 * The bounds of each offset's head as drawn, unturned, read off housing.json, housing_left.json
+	 * and housing_right.json with their element rotations applied.
+	 *
+	 * <p>The mast is not in here. It never turns, so it is the same box in every shape and is added
+	 * to all of them unchanged.
 	 */
-	private static final Map<Direction, Map<HorizontalOffset, VoxelShape>> SHAPES = new EnumMap<>(Direction.class);
+	private static final Map<HorizontalOffset, double[]> HEAD_BOUNDS = new EnumMap<>(HorizontalOffset.class);
+
+	/**
+	 * The mast: the central pole, and the collars the offset housings wrap around it, which is what
+	 * makes this a hair wider than the two pixel post on its own.
+	 */
+	private static final VoxelShape MAST = Block.box(6.9, 0, 6.9, 9.1, 16, 9.1);
+
+	/** One shape per offset per segment: the mast, plus that offset's head turned to match. */
+	private static final Map<HorizontalOffset, VoxelShape[]> SHAPES = new EnumMap<>(HorizontalOffset.class);
 
 	static {
-		// Drawn facing south, CENTER: x 4.5..11.5, z 7..11.5. LEFT and RIGHT are that shifted by
-		// the same 3.5 the housing_left/housing_right models were, and every other facing follows
-		// by turning the SOUTH box clockwise about the block's centre per 90 degrees of FACING, the
-		// same rotation the blockstate's own 'y' applies to the model.
-		put(Direction.SOUTH, HorizontalOffset.LEFT, Block.box(1, 0, 7, 8, 16, 11.5));
-		put(Direction.SOUTH, HorizontalOffset.CENTER, Block.box(4.5, 0, 7, 11.5, 16, 11.5));
-		put(Direction.SOUTH, HorizontalOffset.RIGHT, Block.box(8, 0, 7, 15, 16, 11.5));
+		HEAD_BOUNDS.put(HorizontalOffset.CENTER, new double[] { 4.5, 0, 9, 11.5, 16, 11.5 });
+		// The offset heads hang into the block next door on purpose, so these reach past 0 and 16.
+		// SignalRotation.spin clamps what comes out, which is the same approximation the twelve
+		// hardcoded boxes here used to be.
+		HEAD_BOUNDS.put(HorizontalOffset.LEFT, new double[] { -2, 0, 6.9, 7, 16, 11.5 });
+		HEAD_BOUNDS.put(HorizontalOffset.RIGHT, new double[] { 9, 0, 6.9, 18, 16, 11.5 });
 
-		put(Direction.WEST, HorizontalOffset.LEFT, Block.box(4.5, 0, 1, 9, 16, 8));
-		put(Direction.WEST, HorizontalOffset.CENTER, Block.box(4.5, 0, 4.5, 9, 16, 11.5));
-		put(Direction.WEST, HorizontalOffset.RIGHT, Block.box(4.5, 0, 8, 9, 16, 15));
-
-		put(Direction.NORTH, HorizontalOffset.LEFT, Block.box(8, 0, 4.5, 15, 16, 9));
-		put(Direction.NORTH, HorizontalOffset.CENTER, Block.box(4.5, 0, 4.5, 11.5, 16, 9));
-		put(Direction.NORTH, HorizontalOffset.RIGHT, Block.box(1, 0, 4.5, 8, 16, 9));
-
-		put(Direction.EAST, HorizontalOffset.LEFT, Block.box(7, 0, 8, 11.5, 16, 15));
-		put(Direction.EAST, HorizontalOffset.CENTER, Block.box(7, 0, 4.5, 11.5, 16, 11.5));
-		put(Direction.EAST, HorizontalOffset.RIGHT, Block.box(7, 0, 1, 11.5, 16, 8));
-	}
-
-	private static void put(Direction facing, HorizontalOffset offset, VoxelShape shape) {
-		SHAPES.computeIfAbsent(facing, $ -> new EnumMap<>(HorizontalOffset.class))
-			.put(offset, shape);
+		for (HorizontalOffset offset : HorizontalOffset.values()) {
+			double[] bounds = HEAD_BOUNDS.get(offset);
+			VoxelShape[] shapes = new VoxelShape[SignalRotation.SEGMENTS];
+			for (int segment = 0; segment < SignalRotation.SEGMENTS; segment++)
+				shapes[segment] = Shapes.or(MAST, SignalRotation.spin(bounds[0], bounds[1], bounds[2],
+					bounds[3], bounds[4], bounds[5], segment * SignalRotation.DEGREES_PER_SEGMENT));
+			SHAPES.put(offset, shapes);
+		}
 	}
 
 	public MultiAspectSignalBlock(Properties properties) {
 		super(properties);
-		registerDefaultState(defaultBlockState().setValue(FACING, Direction.NORTH)
+		registerDefaultState(defaultBlockState().setValue(ROTATION, 0)
 			.setValue(OFFSET, HorizontalOffset.CENTER));
 	}
 
 	@Override
 	protected void createBlockStateDefinition(StateDefinition.Builder<Block, BlockState> builder) {
-		super.createBlockStateDefinition(builder.add(FACING, OFFSET));
+		super.createBlockStateDefinition(builder.add(ROTATION, OFFSET));
 	}
 
 	@Override
 	public BlockState getStateForPlacement(BlockPlaceContext context) {
-		return defaultBlockState().setValue(FACING, context.getHorizontalDirection()
-			.getOpposite());
+		return defaultBlockState().setValue(ROTATION, SignalRotation.segmentForPlacement(context));
 		// OFFSET keeps its default of CENTER: placement has no face to read a side from, and this
 		// mod's TrackTargetingBlockItem places on a right click chosen for the target track, not for
 		// where across the block the housing should sit. See the value box for how OFFSET changes.
@@ -174,18 +174,17 @@ public class MultiAspectSignalBlock extends Block
 
 	@Override
 	protected BlockState rotate(BlockState state, Rotation rotation) {
-		return state.setValue(FACING, rotation.rotate(state.getValue(FACING)));
+		return state.setValue(ROTATION, SignalRotation.rotate(state.getValue(ROTATION), rotation));
 	}
 
 	@Override
 	protected BlockState mirror(BlockState state, Mirror mirror) {
-		return state.setValue(FACING, mirror.mirror(state.getValue(FACING)));
+		return state.setValue(ROTATION, SignalRotation.mirror(state.getValue(ROTATION), mirror));
 	}
 
 	@Override
 	protected VoxelShape getShape(BlockState state, BlockGetter level, BlockPos pos, CollisionContext context) {
-		return SHAPES.get(state.getValue(FACING))
-			.get(state.getValue(OFFSET));
+		return SHAPES.get(state.getValue(OFFSET))[state.getValue(ROTATION)];
 	}
 
 	/**
@@ -239,16 +238,21 @@ public class MultiAspectSignalBlock extends Block
 			: ItemInteractionResult.PASS_TO_DEFAULT_BLOCK_INTERACTION;
 	}
 
-	/** An empty hand turns the head a quarter turn, sneak to go back. */
+	/**
+	 * An empty hand nudges the head one segment on, sneak to go back.
+	 *
+	 * <p>22.5 degrees a click rather than the quarter turn this used to be, which is the point of
+	 * having sixteen positions at all: the angles a player cannot stand square to are reachable no
+	 * other way, the wrench here being taken by the 警戒 toggle.
+	 */
 	@Override
 	protected InteractionResult useWithoutItem(BlockState state, Level level, BlockPos pos, Player player,
 		BlockHitResult hit) {
 		if (level.isClientSide)
 			return InteractionResult.SUCCESS;
 
-		Direction facing = state.getValue(FACING);
-		Direction turned = player.isShiftKeyDown() ? facing.getCounterClockWise() : facing.getClockWise();
-		level.setBlock(pos, state.setValue(FACING, turned), Block.UPDATE_ALL);
+		int turned = SignalRotation.nudge(state.getValue(ROTATION), player.isShiftKeyDown());
+		level.setBlock(pos, state.setValue(ROTATION, turned), Block.UPDATE_ALL);
 		return InteractionResult.SUCCESS;
 	}
 
@@ -266,7 +270,9 @@ public class MultiAspectSignalBlock extends Block
 	public boolean connectsToPole(BlockState state, Direction towardsPole) {
 		if (towardsPole == Direction.DOWN)
 			return true;
-		Direction facing = state.getValue(FACING);
+		// Rounded to the nearest quarter, because a pole can only arrive from one of four sides
+		// however finely the head itself is turned.
+		Direction facing = SignalRotation.nearestFacing(state);
 		return towardsPole == facing.getOpposite() || towardsPole == facing.getClockWise()
 			|| towardsPole == facing.getCounterClockWise();
 	}
