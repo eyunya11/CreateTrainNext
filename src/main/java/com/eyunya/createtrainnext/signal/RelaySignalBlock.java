@@ -61,14 +61,14 @@ public class RelaySignalBlock extends Block implements IBE<RelaySignalBlockEntit
 	private static final Map<Direction, VoxelShape> SHAPES = new EnumMap<>(Direction.class);
 
 	static {
-		// Drawn facing south: x 2.5..13.5, z 7..11.5, measured off the housing's own elements with
+		// Drawn facing south: x 2.5..13.5, z 7..12.5, measured off the housing's own elements with
 		// their rotations applied. Each further facing is the previous one turned a quarter clockwise
 		// about the block centre, which is (x, z) -> (16 - z, x) - the same turn the blockstate's own
 		// 'y' applies to the model.
-		SHAPES.put(Direction.SOUTH, Block.box(2.5, 0, 7, 13.5, 16, 11.5));
-		SHAPES.put(Direction.WEST, Block.box(4.5, 0, 2.5, 9, 16, 13.5));
-		SHAPES.put(Direction.NORTH, Block.box(2.5, 0, 4.5, 13.5, 16, 9));
-		SHAPES.put(Direction.EAST, Block.box(7, 0, 2.5, 11.5, 16, 13.5));
+		SHAPES.put(Direction.SOUTH, Block.box(2.5, 0, 7, 13.5, 16, 12.5));
+		SHAPES.put(Direction.WEST, Block.box(3.5, 0, 2.5, 9, 16, 13.5));
+		SHAPES.put(Direction.NORTH, Block.box(2.5, 0, 3.5, 13.5, 16, 9));
+		SHAPES.put(Direction.EAST, Block.box(7, 0, 2.5, 12.5, 16, 13.5));
 	}
 
 	public RelaySignalBlock(Properties properties) {

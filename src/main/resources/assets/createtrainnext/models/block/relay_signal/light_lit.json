@@ -1,5 +1,5 @@
 {
-	"credit": "Generated from relay_traffic_signal.json, which is the Blockbench source and is not loaded by the game. Two things are done to it: the eight ring segments Blockbench wrote as 157.5/135/112.5/67.5 degree turns - angles a block model cannot express, and which would have made the whole file fail to load - have their quarter and half turns folded into their coordinates, leaving a legal remainder; and the fourteen lens elements are moved out to the lamp models, since which lamps are lit changes with traffic and a baked model cannot say that. Re-export the source and this has to be regenerated. This is one socket's lens, drawn seven times by the renderer.",
+	"credit": "Generated. One socket's lens, drawn seven times by RelaySignalRenderer - which lamps are lit changes with the signal ahead, and a baked model cannot say that. Centred on the model origin rather than on a socket: RelaySocket carries where each of the seven sits and the renderer moves this there, so moving a lamp is a number in RelaySocket and never a change to this file. Being centred on the origin is also what makes the renderer's scale pivot come out right for free, since scaling happens about the origin.",
 	"textures": {
 		"0": "createtrainnext:block/light_lit_white",
 		"particle": "createtrainnext:block/light_lit_white"
@@ -7,22 +7,22 @@
 	"elements": [
 		{
 			"from": [
-				7.15,
-				4.775,
-				10
+				-0.85,
+				-0.6,
+				-0.0125
 			],
 			"to": [
-				8.85,
-				6.225,
-				10.025
+				0.85,
+				0.85,
+				0.0125
 			],
 			"rotation": {
 				"angle": 45,
 				"axis": "z",
 				"origin": [
-					8,
-					5.375,
-					10.0125
+					0,
+					0,
+					0
 				]
 			},
 			"faces": {
@@ -84,22 +84,22 @@
 		},
 		{
 			"from": [
-				7.4,
-				4.525,
-				9.999
+				-0.6,
+				-0.85,
+				-0.0135
 			],
 			"to": [
-				8.85,
-				6.225,
-				10.024000000000001
+				0.85,
+				0.85,
+				0.0115
 			],
 			"rotation": {
 				"angle": 45,
 				"axis": "z",
 				"origin": [
-					8,
-					5.375,
-					10.0125
+					0,
+					0,
+					0
 				]
 			},
 			"faces": {

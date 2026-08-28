@@ -7,6 +7,9 @@ import com.eyunya.createtrainnext.signal.SignalAspect.LampColour;
 
 import dev.engine_room.flywheel.lib.model.baked.PartialModel;
 
+import net.minecraft.client.Minecraft;
+import net.minecraft.world.level.block.entity.BlockEntity;
+import net.minecraft.world.phys.Vec3;
 import net.neoforged.bus.api.IEventBus;
 import net.neoforged.fml.ModContainer;
 import net.neoforged.fml.config.ModConfig;
@@ -88,6 +91,55 @@ public class CreateTrainNextClient {
 			case YELLOW -> SIGNAL_LAMP_YELLOW;
 			case GREEN -> SIGNAL_LAMP_GREEN;
 		};
+	}
+
+	/**
+	 * How far away a signal's lamps are still drawn, in blocks.
+	 *
+	 * <p>Minecraft draws block entities out to 64 blocks and no further, which for a signal means
+	 * that four chunks away the housing carries on being drawn — it is part of the terrain — while
+	 * the lamps on it stop. An unlit signal is not a signal that is hard to read, it is one that is
+	 * telling you something untrue, so this is the one default worth overriding outright.
+	 */
+	public static int signalViewDistance() {
+		return viewDistance(CTNConfig.CLIENT.signalViewDistance.get());
+	}
+
+	/**
+	 * How far away a speed limit sign is still drawn, in blocks.
+	 *
+	 * <p>The same 64 block default, and a worse consequence of it than the signal has. A sign's
+	 * block model is empty — the plate is drawn by its renderer so it can be turned 22.5 degrees at
+	 * a time — so there is no terrain left behind when the renderer stops. The sign does not go
+	 * blank at four chunks, it goes away.
+	 */
+	public static int signViewDistance() {
+		return viewDistance(CTNConfig.CLIENT.signViewDistance.get());
+	}
+
+	/**
+	 * Resolves a configured view distance, where zero asks for as far as there is anything to draw.
+	 *
+	 * <p>Read every frame per block entity, which is why it is arithmetic on an option rather than
+	 * anything that has to look at the world. The render distance is the real ceiling either way:
+	 * past it the chunk is not loaded on this client, so there is no block entity to draw whatever
+	 * this returns.
+	 */
+	private static int viewDistance(int configured) {
+		return configured > 0 ? configured : Minecraft.getInstance().options.getEffectiveRenderDistance() * 16;
+	}
+
+	/**
+	 * Whether the camera is within {@code blocks} of a block entity.
+	 *
+	 * <p>For the parts of a renderer that want a shorter leash than the renderer itself has. Off
+	 * the camera rather than the player, so it stays right in third person and while spectating.
+	 */
+	public static boolean isWithin(BlockEntity blockEntity, int blocks) {
+		return Minecraft.getInstance()
+			.gameRenderer.getMainCamera()
+			.getPosition()
+			.closerThan(Vec3.atCenterOf(blockEntity.getBlockPos()), blocks);
 	}
 
 	public static void init(IEventBus modEventBus, ModContainer modContainer) {

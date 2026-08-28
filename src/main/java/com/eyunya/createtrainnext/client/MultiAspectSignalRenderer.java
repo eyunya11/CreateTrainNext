@@ -90,8 +90,33 @@ public class MultiAspectSignalRenderer extends SmartBlockEntityRenderer<MultiAsp
 	 */
 	private static final float GLOW_Z = 10.25F / 16F;
 
+	/**
+	 * How far away the marker on the targeted track is still drawn, in blocks.
+	 *
+	 * <p>Deliberately not as far as the lamps. The marker is a setting-up aid — it says which piece
+	 * of track this signal governs — and it is only ever looked at from close enough to be standing
+	 * at the thing. Left uncapped it would scatter overlays across every line in view once the lamps
+	 * started being drawn to the render distance, and pay for drawing them.
+	 *
+	 * <p>Vanilla's own block entity limit, which is what this used to be capped by for free.
+	 */
+	private static final int MARKER_VIEW_DISTANCE = 64;
+
 	public MultiAspectSignalRenderer(Context context) {
 		super(context);
+	}
+
+	/**
+	 * How far the lamps are drawn.
+	 *
+	 * <p>Overridden because vanilla's answer is 64 blocks, and at 65 the housing carries on being
+	 * drawn — it is terrain — while the lamps stop. A signal that goes dark at four chunks is worse
+	 * than one that is merely small: an unlit head reads as an unlit head, not as one too far away
+	 * to see.
+	 */
+	@Override
+	public int getViewDistance() {
+		return CreateTrainNextClient.signalViewDistance();
 	}
 
 	@Override
@@ -201,6 +226,9 @@ public class MultiAspectSignalRenderer extends SmartBlockEntityRenderer<MultiAsp
 
 	private void renderTrackMarker(MultiAspectSignalBlockEntity be, Level level, PoseStack ms,
 		MultiBufferSource buffer, int light, int overlay) {
+		if (!CreateTrainNextClient.isWithin(be, MARKER_VIEW_DISTANCE))
+			return;
+
 		TrackTargetingBehaviour<?> target = be.edgePoint;
 		BlockPos targetPosition = target.getGlobalPosition();
 		BlockState trackState = level.getBlockState(targetPosition);

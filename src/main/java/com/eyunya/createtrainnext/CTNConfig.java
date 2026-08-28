@@ -26,6 +26,8 @@ public class CTNConfig {
 
 		public final ModConfigSpec.DoubleValue signFontScale;
 
+		public final ModConfigSpec.IntValue signViewDistance;
+
 		public final ModConfigSpec.DoubleValue signalLitLampScale;
 
 		public final ModConfigSpec.BooleanValue signalGlow;
@@ -33,6 +35,8 @@ public class CTNConfig {
 		public final ModConfigSpec.DoubleValue signalGlowSize;
 
 		public final ModConfigSpec.DoubleValue signalGlowBrightness;
+
+		public final ModConfigSpec.IntValue signalViewDistance;
 
 		private Client(ModConfigSpec.Builder builder) {
 			builder.comment("Speed limit signs")
@@ -46,6 +50,18 @@ public class CTNConfig {
 					"overlaps the red ring; below about 1.15 three digits stay inside the white centre.",
 					"Above 2.0 a three digit limit runs off the edge of the sign altogether.")
 				.defineInRange("fontScale", 1.7, 0.25, 4.0);
+
+			signViewDistance = builder
+				.comment("How far away a speed limit sign is still drawn, in blocks.",
+					"Worth more here than on a signal. A signal past this distance loses its lamps but",
+					"keeps its housing, which is terrain; a sign has no terrain at all - its block model",
+					"is empty so the plate can be turned 22.5 degrees at a time - so past this distance",
+					"the whole sign vanishes and there is nothing standing beside the track.",
+					"0 means as far as there is anything to draw: the render distance, past which the",
+					"chunk is not loaded and the sign does not exist on this client at all. Any other",
+					"value is a limit in blocks, for putting the cost back - the number is drawn with",
+					"the font, which is not free, and a long line of signs pays for all of them.")
+				.defineInRange("viewDistance", 0, 0, 1024);
 
 			builder.pop();
 
@@ -86,6 +102,17 @@ public class CTNConfig {
 				.comment("How strong the halo is, from 0 to 1. Because it is added to what is behind it,",
 					"high values wash the housing out to white near the lamp.")
 				.defineInRange("glowBrightness", 0.5, 0.0, 1.0);
+
+			signalViewDistance = builder
+				.comment("How far away the lamps are still drawn, in blocks.",
+					"The housing is part of the terrain and is drawn as far as the render distance",
+					"reaches, but the lamps are drawn by a block entity, and Minecraft stops drawing",
+					"those at 64 blocks - so past four chunks a signal turns into an unlit lump.",
+					"0 means as far as there is anything to draw: the render distance, past which the",
+					"chunk is not loaded and the signal does not exist on this client at all. Any other",
+					"value is a limit in blocks, for putting the cost back if a line with a great many",
+					"signals on it is expensive to look down.")
+				.defineInRange("viewDistance", 0, 0, 1024);
 
 			builder.pop();
 		}

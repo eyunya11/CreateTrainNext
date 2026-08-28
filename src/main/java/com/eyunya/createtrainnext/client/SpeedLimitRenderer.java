@@ -73,8 +73,33 @@ public class SpeedLimitRenderer extends SmartBlockEntityRenderer<SpeedLimitBlock
 	 */
 	private static final float DIGIT_HEIGHT_AT_SCALE_ONE = 2.5F / 16F;
 
+	/**
+	 * How far away the marker on the targeted track is still drawn, in blocks.
+	 *
+	 * <p>Deliberately not as far as the sign. The marker is a setting-up aid — it says which piece
+	 * of track this sign governs — and is only ever looked at from close enough to be standing at
+	 * the thing. Left uncapped it would scatter overlays across every line in view once the sign
+	 * started being drawn to the render distance, and pay for drawing them.
+	 *
+	 * <p>Vanilla's own block entity limit, which is what this used to be capped by for free.
+	 */
+	private static final int MARKER_VIEW_DISTANCE = 64;
+
 	public SpeedLimitRenderer(Context context) {
 		super(context);
+	}
+
+	/**
+	 * How far the sign is drawn.
+	 *
+	 * <p>Overridden because vanilla's answer is 64 blocks and everything about this sign is drawn
+	 * here — the plate as much as the number on it, since the block model is empty so that the plate
+	 * can be turned 22.5 degrees at a time. Past four chunks there would be nothing beside the track
+	 * at all.
+	 */
+	@Override
+	public int getViewDistance() {
+		return CreateTrainNextClient.signViewDistance();
 	}
 
 	@Override
@@ -141,6 +166,9 @@ public class SpeedLimitRenderer extends SmartBlockEntityRenderer<SpeedLimitBlock
 
 	private void renderTrackMarker(SpeedLimitBlockEntity be, Level level, PoseStack ms, MultiBufferSource buffer,
 		int light, int overlay) {
+		if (!CreateTrainNextClient.isWithin(be, MARKER_VIEW_DISTANCE))
+			return;
+
 		TrackTargetingBehaviour<?> target = be.edgePoint;
 		BlockPos targetPosition = target.getGlobalPosition();
 		BlockState trackState = level.getBlockState(targetPosition);
