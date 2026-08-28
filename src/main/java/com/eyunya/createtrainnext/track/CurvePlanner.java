@@ -230,18 +230,35 @@ public final class CurvePlanner {
 		if (!endpoint.mustPlace())
 			return;
 
-		// The spot was checked as replaceable, which covers grass and snow as well as air. Breaking
-		// it properly rather than overwriting it is what makes the wand behave like placing a block
-		// by hand: the flowers a curve is run through drop rather than ceasing to have existed.
 		BlockPos pos = endpoint.anchorPos();
-		if (!level.getBlockState(pos)
-			.isAir())
-			level.destroyBlock(pos, true);
+		clearFor(level, pos);
 
 		BlockState state = CTNRegistry.ANGLED_TRACK_ANCHOR.get()
 			.defaultBlockState()
 			.setValue(AngledTrackAnchorBlock.AXIS, AnchorAxis.nearestTo(heading));
 		level.setBlock(pos, state, Block.UPDATE_ALL);
+	}
+
+	/**
+	 * Empties a block so an anchor can go in it.
+	 *
+	 * <p>The spot was checked as replaceable, which covers grass and snow as well as air. Breaking
+	 * it properly rather than overwriting it is what makes the wand behave like placing a block by
+	 * hand: the flowers a curve is run through drop rather than ceasing to have existed.
+	 *
+	 * <p>A curve's own invisible floor is the exception, and is taken out silently. It has no
+	 * texture to break into, so destroying one would throw up a puff of missing-texture squares,
+	 * and it is this mod's own scaffolding rather than anything the player put there.
+	 */
+	private static void clearFor(Level level, BlockPos pos) {
+		BlockState existing = level.getBlockState(pos);
+		if (existing.isAir())
+			return;
+		if (existing.is(CTNRegistry.CURVE_FILLER.get())) {
+			level.removeBlock(pos, false);
+			return;
+		}
+		level.destroyBlock(pos, true);
 	}
 
 	// ----------------------------------------------------------- resolution
@@ -446,6 +463,141 @@ public final class CurvePlanner {
 			return "too_sharp";
 
 		return null;
+	}
+
+	// ---------------------------------------------------------------- split
+
+	/**
+	 * A point part way along an existing curve, and everything needed to put an anchor there.
+	 *
+	 * @param owner    the anchor that owns the curve, which is always the one behind it.
+	 * @param t        where along the curve, as a bezier parameter.
+	 * @param point    where that is in the world.
+	 * @param tangent  which way the route is going there, and so which way the new anchor points.
+	 * @param anchorPos the block the new anchor would occupy.
+	 * @param error    why it cannot be done there, or null if it can.
+	 */
+	public record SplitTarget(@Nullable AngledTrackAnchorBlockEntity owner, double t, Vec3 point, Vec3 tangent,
+		BlockPos anchorPos, @Nullable String error) {
+
+		public boolean valid() {
+			return error == null && owner != null;
+		}
+	}
+
+	/**
+	 * The point on a nearby curve closest to {@code near}, or null if there is no curve near it.
+	 *
+	 * <p>Sampling rather than solving. The closest point on a cubic bezier is a fifth degree
+	 * problem, and the answer only has to be good to about a block here — it decides which block an
+	 * anchor goes in, and blocks are a block wide.
+	 */
+	@Nullable
+	public static SplitTarget findCurveNear(Level level, Vec3 near, double maxDistance) {
+		AngledTrackAnchorBlockEntity bestOwner = null;
+		BezierConnection bestCurve = null;
+		double bestLength = 0;
+		double bestT = 0;
+		double bestDistance = maxDistance * maxDistance;
+
+		for (AngledTrackAnchorBlockEntity anchor : AnchorIndex.in(level)) {
+			BezierConnection curve = anchor.buildCurveToNext();
+			if (curve == null)
+				continue;
+			if (!curve.getBounds()
+				.inflate(maxDistance)
+				.contains(near))
+				continue;
+
+			double length = curve.getLength();
+			int samples = Math.max(8, (int) (length * 4));
+
+			for (int i = 0; i <= samples; i++) {
+				double t = i / (double) samples;
+				double distance = curve.getPosition(t)
+					.distanceToSqr(near);
+				if (distance >= bestDistance)
+					continue;
+
+				bestDistance = distance;
+				bestOwner = anchor;
+				bestCurve = curve;
+				bestLength = length;
+				bestT = t;
+			}
+		}
+
+		// Only the winner is described. Everything in describeSplit reads the world, and doing that
+		// for each sample that happened to be an improvement would mean hundreds of block lookups
+		// per tick for one answer.
+		return bestOwner == null ? null : describeSplit(level, bestOwner, bestCurve, bestT, bestLength);
+	}
+
+	private static SplitTarget describeSplit(Level level, AngledTrackAnchorBlockEntity owner, BezierConnection curve,
+		double t, double length) {
+
+		Vec3 point = curve.getPosition(t);
+
+		// The tangent as a difference across a short step rather than the bezier's derivative, so
+		// this needs nothing but the curve's public shape.
+		double step = 1.0 / Math.max(8, (int) (length * 4));
+		Vec3 tangent = flat(curve.getPosition(Math.min(1, t + step))
+			.subtract(curve.getPosition(Math.max(0, t - step))));
+		tangent = tangent.lengthSqr() < 1.0E-8 ? owner.heading() : tangent.normalize();
+
+		BlockPos anchorPos = BlockPos.containing(point);
+
+		// Both halves have to be a curve in their own right afterwards. The same MIN_SPAN the wand
+		// holds a new curve to, measured along this one.
+		if (t * length < MIN_SPAN + 1 || (1 - t) * length < MIN_SPAN + 1)
+			return new SplitTarget(owner, t, point, tangent, anchorPos, "split_too_close");
+		if (anchorPos.equals(owner.getBlockPos()) || anchorPos.equals(owner.getNext()))
+			return new SplitTarget(owner, t, point, tangent, anchorPos, "split_too_close");
+		if (level.getBlockEntity(anchorPos) instanceof AngledTrackAnchorBlockEntity)
+			return new SplitTarget(owner, t, point, tangent, anchorPos, "split_occupied");
+		if (!level.getBlockState(anchorPos)
+			.canBeReplaced())
+			return new SplitTarget(owner, t, point, tangent, anchorPos, "no_room");
+
+		return new SplitTarget(owner, t, point, tangent, anchorPos, null);
+	}
+
+	/**
+	 * Puts an anchor part way along a curve, leaving two curves where there was one.
+	 *
+	 * <p>What this is for is signals and stations. Create places those against a track block and a
+	 * direction, and an anchor is a track block, so an anchor part way along a route is a place one
+	 * can go — whereas the curve between two anchors is not, at least not without Create's own
+	 * curve targeting, which only recognises its own block entities.
+	 *
+	 * <p>The route moves slightly here, and it has to: an anchor with a curve on either side puts
+	 * its node at its block's centre, and the curve did not necessarily pass through the centre of
+	 * the block it was in. The tangent is kept exactly, so the two halves still meet smoothly and
+	 * the line either side of the new anchor is the shape it was.
+	 */
+	public static boolean split(Level level, SplitTarget target) {
+		if (!target.valid())
+			return false;
+
+		AngledTrackAnchorBlockEntity owner = target.owner();
+		BlockPos nextPos = owner.getNext();
+		if (nextPos == null || !(level.getBlockEntity(nextPos) instanceof AngledTrackAnchorBlockEntity ahead))
+			return false;
+
+		BlockPos pos = target.anchorPos();
+		clearFor(level, pos);
+		level.setBlock(pos, CTNRegistry.ANGLED_TRACK_ANCHOR.get()
+			.defaultBlockState()
+			.setValue(AngledTrackAnchorBlock.AXIS, AnchorAxis.nearestTo(target.tangent())), Block.UPDATE_ALL);
+
+		if (!(level.getBlockEntity(pos) instanceof AngledTrackAnchorBlockEntity inserted))
+			return false;
+
+		// The first link takes the far end off the owner, so the anchor ahead has to be caught
+		// before it, not looked up again after.
+		owner.linkTo(inserted, null, target.tangent());
+		inserted.linkTo(ahead, null, null);
+		return true;
 	}
 
 	// ----------------------------------------------------------------- math

@@ -39,6 +39,8 @@ import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.EntityBlock;
 import net.minecraft.world.level.block.entity.BlockEntity;
+import net.minecraft.world.level.block.entity.BlockEntityTicker;
+import net.minecraft.world.level.block.entity.BlockEntityType;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.block.state.StateDefinition;
 import net.minecraft.world.level.block.state.properties.BlockStateProperties;
@@ -61,9 +63,17 @@ import net.minecraft.world.phys.shapes.VoxelShape;
  * angle with a discrete axis, and the anchor's own span bends across its block to do it.
  *
  * <p>The block carries no interactions of its own. Everything a player does to a route — aiming an
- * anchor, joining two of them, taking a join apart — is done with the {@link CurveWandItem}, which
- * places anchors as a side effect of drawing a curve rather than asking anyone to place them first.
- * Breaking an anchor still undoes its links, because that is what breaking a piece of track means.
+ * anchor, joining two of them, taking a join apart, putting a new one part way along a curve — is
+ * done with the {@link CurveWandItem}, which places anchors as a side effect of drawing a curve
+ * rather than asking anyone to place them first. Breaking an anchor still undoes its links, because
+ * that is what breaking a piece of track means.
+ *
+ * <p>Being a real track block is also what makes an anchor somewhere a signal or a station can go:
+ * Create places those against a track block and a direction, and resolves them through
+ * {@code TrackGraphHelper}, which asks {@link #getTrackAxes} — see
+ * {@link AngledTrackAnchorBlockEntity#targetingAxis} for why that reports the heading rather than
+ * the block's discrete axis. The curve between two anchors is not such a place; Create's own
+ * mid-curve targeting recognises only its own block entities.
  */
 public class AngledTrackAnchorBlock extends Block implements EntityBlock, ITrackBlock {
 
@@ -141,13 +151,36 @@ public class AngledTrackAnchorBlock extends Block implements EntityBlock, ITrack
 	@Override
 	protected void tick(BlockState state, ServerLevel level, BlockPos pos, RandomSource random) {
 		TrackPropagator.onRailAdded(level, pos, state);
+		// Everything that moves a curve already schedules this tick to rebuild the graph, so the
+		// floor under the curve rides along with it rather than needing its own set of call sites.
+		if (level.getBlockEntity(pos) instanceof AngledTrackAnchorBlockEntity anchor)
+			anchor.updateOccupancy();
+	}
+
+	/**
+	 * Ticks only to renew the floor under the curve — see
+	 * {@link AngledTrackAnchorBlockEntity#serverTick}. Client side there is nothing to renew.
+	 */
+	@Override
+	@Nullable
+	public <T extends BlockEntity> BlockEntityTicker<T> getTicker(Level level, BlockState state,
+		BlockEntityType<T> type) {
+		if (level.isClientSide)
+			return null;
+		return (tickLevel, tickPos, tickState, blockEntity) -> {
+			if (blockEntity instanceof AngledTrackAnchorBlockEntity anchor)
+				anchor.serverTick();
+		};
 	}
 
 	@Override
 	protected void onRemove(BlockState state, Level level, BlockPos pos, BlockState newState, boolean isMoving) {
 		if (!state.is(newState.getBlock())) {
-			if (!level.isClientSide && level.getBlockEntity(pos) instanceof AngledTrackAnchorBlockEntity anchor)
+			if (!level.isClientSide && level.getBlockEntity(pos) instanceof AngledTrackAnchorBlockEntity anchor) {
+				// Before unlink, which drops the link this anchor's floor is derived from.
+				anchor.clearOccupancy();
 				anchor.unlink();
+			}
 			TrackPropagator.onRailRemoved(level, pos, state);
 		}
 		super.onRemove(state, level, pos, newState, isMoving);

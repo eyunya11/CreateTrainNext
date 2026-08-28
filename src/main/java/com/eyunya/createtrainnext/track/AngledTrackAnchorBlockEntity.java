@@ -40,6 +40,15 @@ import net.minecraft.world.phys.Vec3;
  */
 public class AngledTrackAnchorBlockEntity extends BlockEntity {
 
+	/**
+	 * How often the floor under this anchor's curve is renewed, in ticks.
+	 *
+	 * <p>Has to be well inside how long a {@link CurveFillerBlock} survives without being renewed,
+	 * and that is measured in random ticks, so five seconds is not close to the edge. It is also
+	 * what puts a floor back under a curve whose far half was in an unloaded chunk when it changed.
+	 */
+	private static final int OCCUPANCY_REFRESH_TICKS = 100;
+
 	private static final String TAG_YAW = "Yaw";
 	private static final String TAG_PREV = "Prev";
 	private static final String TAG_NEXT = "Next";
@@ -56,12 +65,21 @@ public class AngledTrackAnchorBlockEntity extends BlockEntity {
 	private BezierConnection cachedCurve = null;
 	private long cachedKey = Long.MIN_VALUE;
 
+	/** The curve this anchor last laid a floor along, so a floor that moves can be taken up. */
+	@Nullable
+	private BezierConnection occupied = null;
+
+	private int occupancyTimer;
+
 	public AngledTrackAnchorBlockEntity(BlockPos pos, BlockState state) {
 		super(CTNRegistry.ANGLED_TRACK_ANCHOR_ENTITY.get(), pos, state);
 		// Start the yaw already agreeing with the axis the block was placed on, so a fresh anchor
 		// is straight rather than bent until it is first turned.
 		yaw = state.getValue(AngledTrackAnchorBlock.AXIS)
 			.defaultYaw();
+		// Spread the refreshes out by position rather than having every anchor on a route come due
+		// on the same tick, which on a long line would be one very lumpy tick every five seconds.
+		occupancyTimer = Math.floorMod(pos.hashCode(), OCCUPANCY_REFRESH_TICKS) + 1;
 	}
 
 	// ---------------------------------------------------------------- state
@@ -545,6 +563,72 @@ public class AngledTrackAnchorBlockEntity extends BlockEntity {
 		// The curve's own bounds, sampled along the actual bezier and already padded by Create.
 		// More precise than boxing the two anchors, which would miss how far a curve bulges out.
 		return curve == null ? bounds : bounds.minmax(curve.getBounds());
+	}
+
+	// --------------------------------------------------------------- index
+
+	@Override
+	public void onLoad() {
+		super.onLoad();
+		if (level != null)
+			AnchorIndex.add(level, this);
+	}
+
+	@Override
+	public void setRemoved() {
+		super.setRemoved();
+		if (level != null)
+			AnchorIndex.remove(level, this);
+	}
+
+	// ----------------------------------------------------------- occupancy
+
+	/**
+	 * Counts down to the next renewal of this anchor's floor.
+	 *
+	 * <p>The only reason an anchor ticks at all. See {@link OCCUPANCY_REFRESH_TICKS}.
+	 */
+	public void serverTick() {
+		if (--occupancyTimer > 0)
+			return;
+		occupancyTimer = OCCUPANCY_REFRESH_TICKS;
+		updateOccupancy();
+	}
+
+	/**
+	 * Brings the floor under this anchor's curve up to date with where the curve now is.
+	 *
+	 * <p>Called from the scheduled tick the block already uses to rebuild the graph, so every path
+	 * that moves a curve refreshes its floor without having to remember to. Clearing runs before
+	 * placing, so a curve that shifted by a little does not take up the floor it has just put down.
+	 */
+	public void updateOccupancy() {
+		if (level == null || level.isClientSide)
+			return;
+
+		BezierConnection current = buildCurveToNext();
+		if (occupied != null && (current == null || !occupied.equalsSansMaterial(current)))
+			CurveOccupancy.clear(level, occupied);
+
+		occupied = current;
+		if (current != null)
+			CurveOccupancy.place(level, current);
+	}
+
+	/**
+	 * Takes up the floor entirely, for an anchor that is about to stop existing.
+	 *
+	 * <p>Falls back to rebuilding the curve when nothing has been recorded, which is the case for
+	 * an anchor broken in the same session it was loaded in but before its first refresh.
+	 */
+	public void clearOccupancy() {
+		if (level == null || level.isClientSide)
+			return;
+
+		BezierConnection current = occupied != null ? occupied : buildCurveToNext();
+		if (current != null)
+			CurveOccupancy.clear(level, current);
+		occupied = null;
 	}
 
 	// ----------------------------------------------------------------- nbt

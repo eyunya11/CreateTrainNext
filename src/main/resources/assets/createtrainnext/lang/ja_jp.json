@@ -8,6 +8,7 @@
   "item.createtrainnext.curve_wand": "曲線レール設置杖",
   "tooltip.createtrainnext.curve_wand.start": "線路を右クリック → 敷きたい場所を右クリック",
   "tooltip.createtrainnext.curve_wand.adjust": "スニーク＋ホイールで先端の向きを手動調整",
+  "tooltip.createtrainnext.curve_wand.split": "スニーク＋右クリックで曲線上に接続点を追加",
   "tooltip.createtrainnext.curve_wand.cancel": "スニーク＋右クリックで取り消し／アンカーの接続解除",
 
   "message.createtrainnext.wand.started": "ここから曲線を引きます。敷きたい場所を右クリックしてください。",
@@ -15,11 +16,15 @@
   "message.createtrainnext.wand.adjusted": "（手動で %s° 調整中）",
   "message.createtrainnext.wand.built": "曲線を設置しました — 長さ %s ブロック。続けて右クリックすると経路が伸びます。",
   "message.createtrainnext.wand.docked": "曲線を設置し、線路に接続しました — 長さ %s ブロック。",
+  "message.createtrainnext.wand.split_ready": "右クリックでこの曲線に接続点を追加します。",
+  "message.createtrainnext.wand.split_done": "接続点を追加しました。ここに信号機や駅を設置できます。",
   "message.createtrainnext.wand.cleared": "選択を解除しました。",
   "message.createtrainnext.wand.angle_reset": "角度を自動の円弧に戻しました。",
   "message.createtrainnext.wand.unlinked": "このアンカーの接続を解除しました。",
 
   "message.createtrainnext.wand.invalid_start": "始点の線路が失われています。",
+  "message.createtrainnext.wand.split_too_close": "曲線の端に近すぎます。",
+  "message.createtrainnext.wand.split_occupied": "そこにはすでに接続点があります。",
   "message.createtrainnext.wand.same_anchor": "始点と終点が同じアンカーになります。",
   "message.createtrainnext.wand.start_taken": "この端からはすでに曲線が伸びています。",
   "message.createtrainnext.wand.end_taken": "この端にはすでに曲線が接続されています。",

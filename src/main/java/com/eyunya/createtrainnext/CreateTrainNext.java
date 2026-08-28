@@ -11,6 +11,7 @@ import net.minecraft.resources.ResourceLocation;
 import net.neoforged.api.distmarker.Dist;
 import net.neoforged.bus.api.IEventBus;
 import net.neoforged.fml.ModContainer;
+import net.neoforged.fml.config.ModConfig;
 import net.neoforged.fml.common.Mod;
 import net.neoforged.fml.loading.FMLEnvironment;
 
@@ -36,6 +37,10 @@ public class CreateTrainNext {
 		// has to be poked by hand rather than deferred like the blocks above.
 		CTNEdgePointTypes.register();
 		CTNCommands.init(modEventBus);
+
+		// Server side because it decides what is in the world, not how it is drawn: a client that
+		// disagreed about whether a curve holds you up would predict falls that never happen.
+		modContainer.registerConfig(ModConfig.Type.SERVER, CTNConfig.SERVER_SPEC);
 
 		// The config is registered from the client branch because everything in it is client side.
 		if (FMLEnvironment.dist == Dist.CLIENT)

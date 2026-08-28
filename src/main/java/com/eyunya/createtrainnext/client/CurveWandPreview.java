@@ -67,6 +67,8 @@ public class CurveWandPreview {
 
 	private static final String ANCHOR_KEY = "createtrainnext:curve_wand_anchor";
 
+	private static final String SPLIT_KEY = "createtrainnext:curve_wand_split";
+
 	/**
 	 * The angle the player has dialled in, ahead of the server agreeing to it.
 	 *
@@ -170,10 +172,15 @@ public class CurveWandPreview {
 
 		CurveWandSelection selection = CurveWandItem.selectionIn(stack, mc.level);
 		if (selection == null) {
-			clear();
+			clearCurve();
+			Outliner.getInstance()
+				.remove(ANCHOR_KEY);
+			showSplitCandidate(mc, player);
 			return;
 		}
 
+		Outliner.getInstance()
+			.remove(SPLIT_KEY);
 		syncAngle(selection);
 
 		// Where the curve is coming from, drawn whether or not there is anywhere to take it. Being
@@ -205,6 +212,42 @@ public class CurveWandPreview {
 			return;
 		}
 		drawCurve(curve, Color.mixColors(INVALID_COLOUR, VALID_COLOUR, validity.getValue()), validity.getValue());
+	}
+
+	/**
+	 * Where a sneak click would put a point on an existing curve.
+	 *
+	 * <p>Shown only while sneaking, because that is the only time the click would do it, and a
+	 * marker that appeared whenever a player walked past their own railway holding the wand would
+	 * be noise. The block is outlined rather than the point on the curve, since the block is what
+	 * the anchor will occupy and the route will bend to its centre.
+	 */
+	private static void showSplitCandidate(Minecraft mc, LocalPlayer player) {
+		if (!player.isShiftKeyDown() || mc.hitResult == null || mc.hitResult.getType() != HitResult.Type.BLOCK) {
+			Outliner.getInstance()
+				.remove(SPLIT_KEY);
+			return;
+		}
+
+		CurvePlanner.SplitTarget target =
+			CurvePlanner.findCurveNear(mc.level, mc.hitResult.getLocation(), CurveWandItem.SPLIT_REACH);
+		if (target == null) {
+			Outliner.getInstance()
+				.remove(SPLIT_KEY);
+			return;
+		}
+
+		Outliner.getInstance()
+			.showAABB(SPLIT_KEY, new AABB(target.anchorPos()).inflate(0.02))
+			.colored(target.valid() ? VALID_COLOUR : INVALID_COLOUR)
+			.lineWidth(1 / 16f);
+
+		player.displayClientMessage(target.valid()
+			? Component.translatable("message.createtrainnext.wand.split_ready")
+				.withStyle(ChatFormatting.GREEN)
+			: Component.translatable("message.createtrainnext.wand." + target.error())
+				.withStyle(ChatFormatting.RED),
+			true);
 	}
 
 	private static void showStatus(LocalPlayer player, CurvePlanner.Plan plan) {
@@ -309,8 +352,9 @@ public class CurveWandPreview {
 
 	private static void clear() {
 		clearCurve();
-		Outliner.getInstance()
-			.remove(ANCHOR_KEY);
+		Outliner outliner = Outliner.getInstance();
+		outliner.remove(ANCHOR_KEY);
+		outliner.remove(SPLIT_KEY);
 	}
 
 	private CurveWandPreview() {}

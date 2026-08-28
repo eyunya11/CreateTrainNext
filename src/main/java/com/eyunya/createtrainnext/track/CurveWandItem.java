@@ -23,6 +23,7 @@ import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.TooltipFlag;
 import net.minecraft.world.item.context.UseOnContext;
 import net.minecraft.world.level.Level;
+import net.minecraft.world.phys.Vec3;
 
 /**
  * The tool a free-angle route is built with.
@@ -41,11 +42,24 @@ import net.minecraft.world.level.Level;
  * <li>Sneak and scroll to turn the far end of the curve by hand; right click the air to put it back
  * to the arc the tool picked.</li>
  * <li>Sneak and right click the air to drop the selection, or an anchor to take its curves apart.</li>
+ * <li>With nothing selected, sneak and right click beside a curve to put a point on it. That point
+ * is an anchor, and an anchor is a track block, so it is somewhere a signal or a station can go —
+ * which the stretch of curve between two anchors is not.</li>
  * </ul>
  *
  * @see CurvePlanner for how the curve itself is worked out.
  */
 public class CurveWandItem extends Item {
+
+	/**
+	 * How far from a click a curve may be and still be the one meant, in blocks.
+	 *
+	 * <p>A click lands on a block face, and the curve it is aimed at floats above the ground rather
+	 * than on it — the invisible floor under a curve has no outline of its own to click, on purpose.
+	 * Two blocks covers the gap between the ground and the rails without reaching a curve on the
+	 * level above.
+	 */
+	public static final double SPLIT_REACH = 2.0;
 
 	public CurveWandItem(Properties properties) {
 		super(properties.stacksTo(1));
@@ -64,7 +78,7 @@ public class CurveWandItem extends Item {
 		CurveWandSelection selection = selectionIn(stack, level);
 
 		if (player.isShiftKeyDown())
-			return sneakUseOn(level, player, stack, pos, selection);
+			return sneakUseOn(level, player, stack, pos, context.getClickLocation(), selection);
 		if (selection == null)
 			return startCurve(level, player, stack, pos);
 		return finishCurve(level, player, stack, selection, pos, context.getClickedFace());
@@ -167,13 +181,16 @@ public class CurveWandItem extends Item {
 	}
 
 	/**
-	 * Sneak plus a click on a block, which is either "undo this" or "never mind".
+	 * Sneak plus a click on a block: undo something, or put a point on a curve.
 	 *
-	 * <p>An anchor is the thing worth undoing, so it wins where the two could both apply. Breaking
-	 * an anchor does the same and is the more obvious gesture; this exists so that a route can be
-	 * taken apart without also removing the blocks that would be wanted for the replacement.
+	 * <p>Three things in one gesture, in a fixed order so that which one happens is predictable.
+	 * An anchor clicked directly is the most specific thing the player can be pointing at, so
+	 * taking its curves apart wins. Failing that, a curve being drawn is dropped — while a curve is
+	 * in progress, sneak always means cancel, which is worth more than the alternative reading. Only
+	 * with nothing in progress does a sneak click on empty ground mean "put a point on the curve
+	 * running past here".
 	 */
-	private InteractionResult sneakUseOn(Level level, Player player, ItemStack stack, BlockPos pos,
+	private InteractionResult sneakUseOn(Level level, Player player, ItemStack stack, BlockPos pos, Vec3 hit,
 		@Nullable CurveWandSelection selection) {
 
 		if (level.getBlockEntity(pos) instanceof AngledTrackAnchorBlockEntity anchor && anchor.isLinked()) {
@@ -185,15 +202,49 @@ public class CurveWandItem extends Item {
 			return InteractionResult.sidedSuccess(level.isClientSide);
 		}
 
-		if (selection == null)
+		if (selection != null) {
+			if (!level.isClientSide) {
+				stack.remove(CTNDataComponents.CURVE_SELECTION);
+				message(player, "cleared");
+			}
+			playSound(level, player, SoundEvents.ITEM_FRAME_REMOVE_ITEM);
+			return InteractionResult.sidedSuccess(level.isClientSide);
+		}
+
+		return splitCurve(level, player, hit);
+	}
+
+	/**
+	 * Puts an anchor part way along the curve running past where the player clicked.
+	 *
+	 * <p>The point of it is signals and stations. Those are placed against a track block, an anchor
+	 * is one, and the stretch of curve between two anchors is not — so before this, a signal could
+	 * only go where a route happened to already have a joint, and moving one meant laying the route
+	 * again. Now the joint goes where the signal is wanted.
+	 */
+	private InteractionResult splitCurve(Level level, Player player, Vec3 hit) {
+		CurvePlanner.SplitTarget target = CurvePlanner.findCurveNear(level, hit, SPLIT_REACH);
+		if (target == null)
 			return InteractionResult.PASS;
 
-		if (!level.isClientSide) {
-			stack.remove(CTNDataComponents.CURVE_SELECTION);
-			message(player, "cleared");
+		if (!target.valid()) {
+			if (!level.isClientSide)
+				message(player, target.error());
+			AllSoundEvents.DENY.playFrom(player, 1, 1);
+			return InteractionResult.FAIL;
 		}
-		playSound(level, player, SoundEvents.ITEM_FRAME_REMOVE_ITEM);
-		return InteractionResult.sidedSuccess(level.isClientSide);
+
+		if (level.isClientSide)
+			return InteractionResult.SUCCESS;
+
+		if (!CurvePlanner.split(level, target)) {
+			message(player, "no_room");
+			return InteractionResult.FAIL;
+		}
+
+		message(player, "split_done");
+		level.playSound(null, target.anchorPos(), SoundEvents.METAL_PLACE, SoundSource.BLOCKS, 1.0F, 1.1F);
+		return InteractionResult.SUCCESS;
 	}
 
 	// ------------------------------------------------------------------ misc
@@ -214,7 +265,7 @@ public class CurveWandItem extends Item {
 
 	@Override
 	public void appendHoverText(ItemStack stack, TooltipContext context, List<Component> tooltip, TooltipFlag flag) {
-		for (String line : new String[] { "start", "adjust", "cancel" })
+		for (String line : new String[] { "start", "adjust", "cancel", "split" })
 			tooltip.add(Component.translatable("tooltip.createtrainnext.curve_wand." + line)
 				.withStyle(ChatFormatting.GRAY));
 	}

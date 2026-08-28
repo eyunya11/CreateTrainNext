@@ -7,6 +7,8 @@ import com.eyunya.createtrainnext.speed.SpeedLimitBlock;
 import com.eyunya.createtrainnext.speed.SpeedLimitBlockEntity;
 import com.eyunya.createtrainnext.track.AngledTrackAnchorBlock;
 import com.eyunya.createtrainnext.track.AngledTrackAnchorBlockEntity;
+import com.eyunya.createtrainnext.track.CurveFillerBlock;
+import com.eyunya.createtrainnext.track.CurveFillerBlockEntity;
 import com.eyunya.createtrainnext.track.CurveWandItem;
 import com.simibubi.create.content.trains.track.TrackTargetingBlockItem;
 
@@ -59,6 +61,24 @@ public class CTNRegistry {
 	 * line goes.
 	 */
 	public static final DeferredItem<CurveWandItem> CURVE_WAND = ITEMS.registerItem("curve_wand", CurveWandItem::new);
+
+	/**
+	 * The invisible floor laid along a curve, so a curve is something to walk on rather than
+	 * something to fall through. Never in the creative tab: it is placed by the anchors, and an
+	 * item that put one down by hand would only be a way to leave one somewhere nothing renews it.
+	 */
+	public static final DeferredBlock<CurveFillerBlock> CURVE_FILLER = BLOCKS.registerBlock(
+		"curve_filler",
+		CurveFillerBlock::new,
+		BlockBehaviour.Properties.of()
+			.mapColor(MapColor.NONE)
+			.strength(0.1F)
+			.sound(SoundType.METAL));
+
+	public static final Supplier<BlockEntityType<CurveFillerBlockEntity>> CURVE_FILLER_ENTITY =
+		BLOCK_ENTITIES.register("curve_filler", () -> BlockEntityType.Builder
+			.of(CurveFillerBlockEntity::new, CURVE_FILLER.get())
+			.build(null));
 
 	// The BlockEntityType is what carries our renderer, so the block itself can stay a plain cube.
 	public static final Supplier<BlockEntityType<AngledTrackAnchorBlockEntity>> ANGLED_TRACK_ANCHOR_ENTITY =
