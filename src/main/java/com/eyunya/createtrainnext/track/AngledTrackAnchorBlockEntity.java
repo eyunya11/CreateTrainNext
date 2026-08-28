@@ -493,6 +493,27 @@ public class AngledTrackAnchorBlockEntity extends BlockEntity {
 	}
 
 	/**
+	 * Whether the span across this block is a straight line rather than a bend.
+	 *
+	 * <p>True at every anchor that docks onto Create's own track, because the wand aims those along
+	 * the track's own axis, and the span's other tangent follows that axis too. False where the
+	 * heading was chosen freely, since the span then has to turn from the heading to the nearest
+	 * lattice-safe axis across the block.
+	 *
+	 * <p>Worth telling apart because a straight span should be reported to the graph as a straight
+	 * edge, exactly as Create reports a stretch of its own track — see
+	 * {@link AngledTrackAnchorBlock#getConnected}.
+	 */
+	public boolean spanIsStraight() {
+		if (isInterior())
+			return false;
+		Vec3 along = exitNode().subtract(entryNode());
+		if (along.lengthSqr() < 1.0E-6)
+			return false;
+		return Math.abs(heading().dot(along.normalize())) > 1 - 1.0E-6;
+	}
+
+	/**
 	 * The span across the anchor's own block, from {@link #entryNode} to {@link #exitNode}.
 	 *
 	 * <p>In the middle of a chain both tangents are the heading, so the span carries the route

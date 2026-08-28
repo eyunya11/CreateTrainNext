@@ -239,18 +239,35 @@ public class AngledTrackAnchorBlock extends Block implements EntityBlock, ITrack
 	}
 
 	/**
-	 * Reports only the free-angle curve, as a {@code viaTurn} connection.
+	 * What this anchor contributes to the track graph: its own span across the block, and the
+	 * curves either side of it.
 	 *
-	 * <p>Note what is <em>not</em> here: a straight edge across the anchor's own block. An earlier
-	 * version reported one, so the anchor behaved like a one-block piece of track that a curve
-	 * happened to leave from. But that stub can only lie on a discrete axis — it has to, to keep
-	 * its nodes on the half-block lattice — while the curve leaves at whatever angle the player
-	 * chose, so the two met at an angle of up to 45 degrees. The graph was right and the curve was
-	 * right; the bend between them was what read as a train running beside its rails.
+	 * <p>The span is reported one of two ways, and which one matters more than it looks.
 	 *
-	 * <p>With one node per anchor there is nothing for the curve to disagree with. Docking to
-	 * Create's own track still works: that node sits on the block boundary, which is a lattice
-	 * point an adjacent Create track reports too, so the two merge into one node as before.
+	 * <p>Where the span <em>bends</em> — an anchor whose heading was chosen freely, so that the
+	 * route has to turn from that heading onto the nearest lattice-safe axis before it can hand
+	 * over to a discrete-axis neighbour — it is a {@code viaTurn} connection, because that is what
+	 * it is. Turning across the block rather than at a node is the whole reason the span exists:
+	 * {@code TrackEdge.canTravelTo} refuses a node where the direction changes by more than about
+	 * 29 degrees, and spreading the change over an edge keeps it under that.
+	 *
+	 * <p>Where the span is <em>straight</em> — which is every anchor docked onto Create's own
+	 * track, since the wand aims those along the track's axis — it is reported exactly the way
+	 * Create's own track block reports itself: a plain edge along {@link #AXIS}, no turn. This is
+	 * not cosmetic. {@code TrackPropagator.isValidGraphNodeLocation} keeps a location as a graph
+	 * node whenever anything continuing from it came {@code viaTurn}, and merges it away when the
+	 * continuation is straight and in line. Reported as a turn, a dock grew a node and a one block
+	 * bezier edge in the middle of what is physically a straight run of track — geometry Create
+	 * never produces for its own joins, and a shape trains had to negotiate for no reason.
+	 * Reported straight, the propagator folds the anchor's span into the run of Create track beside
+	 * it, and the junction stops being a junction at all.
+	 *
+	 * <p>Note what is <em>not</em> here in either case: a straight edge across a block whose span
+	 * bends. An early version reported one unconditionally, so the anchor behaved like a one-block
+	 * piece of track that a curve happened to leave from. But that stub can only lie on a discrete
+	 * axis, while the curve leaves at whatever angle the player chose, so the two met at an angle
+	 * of up to 45 degrees. The graph was right and the curve was right; the bend between them was
+	 * what read as a train running beside its rails.
 	 */
 	@Override
 	public Collection<DiscoveredLocation> getConnected(BlockGetter worldIn, BlockPos pos, BlockState state,
@@ -278,7 +295,16 @@ public class AngledTrackAnchorBlock extends Block implements EntityBlock, ITrack
 			b -> world instanceof Level l ? l.dimension() : Level.OVERWORLD;
 		Function<Vec3, Integer> yOffsetFactory = v -> getYOffsetAt(world, pos, state, v);
 
-		if (span != null) {
+		if (span != null && anchor.spanIsStraight()) {
+			// Straight, so reported straight — the same offsets, direction and material sampling
+			// Create's own track block uses, so that the propagator treats a docked anchor as one
+			// more block of the line it is docked to.
+			Vec3 axis = axisVector(state);
+			ITrackBlock.addToListIfConnected(connectedTo, list, (d, b) -> axis.scale(b ? d : -d)
+				.add(center), b -> getUpNormal(world, pos, state), dimensionFactory, yOffsetFactory, axis, null,
+				(b, v) -> ITrackBlock.getMaterialSimple(world, v, getMaterial()));
+
+		} else if (span != null) {
 			// The block's own stretch of route, bending across it to meet a discrete axis at
 			// whichever side is open.
 			ITrackBlock.addToListIfConnected(connectedTo, list,
