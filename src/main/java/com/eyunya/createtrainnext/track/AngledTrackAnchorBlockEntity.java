@@ -478,6 +478,11 @@ public class AngledTrackAnchorBlockEntity extends BlockEntity {
 	/**
 	 * The curve arriving from the anchor behind, which that anchor owns and builds.
 	 *
+	 * <p>Returned in its owner's orientation — running from the anchor behind into this one — which
+	 * is <em>not</em> the orientation this anchor needs when it reports the curve to the graph.
+	 * {@link AngledTrackAnchorBlock#getConnected} turns it around; see the note there on why the
+	 * direction a bezier is reported in decides whether a train can cross the node.
+	 *
 	 * <p>Reported here as well so the graph can be walked backwards. {@code walkConnectedTracks}
 	 * asks the blocks around a node, and a node at a block's centre reaches only its own block, so
 	 * an anchor that reported nothing but the curve ahead of it could be traversed in one direction

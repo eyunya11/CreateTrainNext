@@ -307,9 +307,10 @@ public class AngledTrackAnchorBlock extends Block implements EntityBlock, ITrack
 		} else if (span != null) {
 			// The block's own stretch of route, bending across it to meet a discrete axis at
 			// whichever side is open.
+			BezierConnection oriented = orientedAwayFrom(span, connectedTo);
 			ITrackBlock.addToListIfConnected(connectedTo, list,
-				(d, b) -> d == 1 ? Vec3.atLowerCornerOf(span.bePositions.get(b)) : span.starts.get(b),
-				b -> getUpNormal(world, pos, state), dimensionFactory, yOffsetFactory, null, span,
+				(d, b) -> d == 1 ? Vec3.atLowerCornerOf(oriented.bePositions.get(b)) : oriented.starts.get(b),
+				b -> getUpNormal(world, pos, state), dimensionFactory, yOffsetFactory, null, oriented,
 				(b, v) -> ITrackBlock.getMaterialSimple(world, v, getMaterial()));
 
 		} else if (linear) {
@@ -335,11 +336,12 @@ public class AngledTrackAnchorBlock extends Block implements EntityBlock, ITrack
 		// graph walkable in one direction — and rebuilding walks forward after deleting everything
 		// it can reach, which quietly dropped the curve behind. Reporting both makes it symmetric,
 		// the way Create's own track is by storing each bezier on both of its ends.
-		for (BezierConnection bc : new BezierConnection[] { anchor.buildCurveToNext(),
+		for (BezierConnection owned : new BezierConnection[] { anchor.buildCurveToNext(),
 			anchor.buildCurveFromPrev() }) {
-			if (bc == null)
+			if (owned == null)
 				continue;
 
+			BezierConnection bc = orientedAwayFrom(owned, connectedTo);
 			ITrackBlock.addToListIfConnected(connectedTo, list,
 				(d, b) -> d == 1 ? Vec3.atLowerCornerOf(bc.bePositions.get(b)) : bc.starts.get(b), bc.normals::get,
 				b -> world instanceof Level l ? l.dimension() : Level.OVERWORLD, bc::yOffsetAt, null, bc,
@@ -347,6 +349,43 @@ public class AngledTrackAnchorBlock extends Block implements EntityBlock, ITrack
 		}
 
 		return list;
+	}
+
+	/**
+	 * The same curve, turned around if need be so that it runs <em>away</em> from the node being
+	 * asked about.
+	 *
+	 * <p>This is not a detail. {@code TrackPropagator} turns a reported location into an edge with
+	 * {@code connectNodes(parentNode, currentNode, currentNode.getTurn())}, and
+	 * {@code TrackGraph.connectNodes} then takes the bezier to run from the first of those to the
+	 * second, building the reverse edge from {@code turn.secondary()}. So a bezier reported by the
+	 * end the walk arrived <em>at</em> is a bezier pointing the wrong way, and both edges across it
+	 * come out backwards — the graph says one thing and the geometry says the opposite.
+	 *
+	 * <p>What that looks like in game is a train stopping at a junction with "reached the end of
+	 * its track". {@code TrackEdge.canTravelTo} compares the direction it is leaving one edge by
+	 * against the direction of the next, and a reversed edge reports its direction as very nearly
+	 * the exact opposite of the truth — a dot product close to -1 where 7/8 was needed.
+	 *
+	 * <p>Create never hits this because each of its curves is stored twice, once on the block
+	 * entity at either end, the second already reversed by {@code secondary()}. An anchor builds
+	 * its curves on demand instead, and the one behind it is built by its predecessor, so both ends
+	 * would otherwise report the predecessor's orientation. Which of the two ends the propagator
+	 * happens to walk from decides whether that is right — and that is settled by which scheduled
+	 * tick ran last, which is why the fault came and went.
+	 */
+	private static BezierConnection orientedAwayFrom(BezierConnection curve,
+		@Nullable TrackNodeLocation connectedTo) {
+		if (connectedTo == null)
+			return curve;
+
+		// Whichever end the walk is standing on has to be the bezier's first. Nearest wins rather
+		// than an exact comparison, because the two ends are always far apart compared to the
+		// rounding the node lattice applies, and there is nothing to tune.
+		Vec3 from = connectedTo.getLocation();
+		return from.distanceToSqr(curve.starts.getSecond()) < from.distanceToSqr(curve.starts.getFirst())
+			? curve.secondary()
+			: curve;
 	}
 
 	@Override
