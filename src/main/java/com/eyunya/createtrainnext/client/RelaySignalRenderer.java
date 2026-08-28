@@ -10,7 +10,6 @@ import com.simibubi.create.content.trains.track.ITrackBlock;
 import com.simibubi.create.content.trains.track.TrackTargetingBehaviour;
 import com.simibubi.create.content.trains.track.TrackTargetingBehaviour.RenderedTrackOverlayType;
 import com.simibubi.create.foundation.blockEntity.renderer.SmartBlockEntityRenderer;
-import com.simibubi.create.foundation.render.RenderTypes;
 
 import dev.engine_room.flywheel.lib.model.baked.PartialModel;
 import dev.engine_room.flywheel.lib.transform.TransformStack;
@@ -49,7 +48,10 @@ public class RelaySignalRenderer extends SmartBlockEntityRenderer<RelaySignalBlo
 	/** As on the five-aspect head: enough to clear the bezel ringing each socket, which ends at 10.05. */
 	private static final float BEZEL_CLEARANCE = 0.1F / 16F;
 
-	/** In front of the bezel and of an enlarged lamp, and still behind the hood over each socket. */
+	/**
+	 * In front of the bezel and of an enlarged lamp, and still behind the hood over each socket.
+	 * Safe to be in front only because {@link CTNRenderTypes#glow()} does not write depth.
+	 */
 	private static final float GLOW_Z = 10.25F / 16F;
 
 	/** The lamps are white; the halo is the colour the lit lens texture is filled with. */
@@ -134,7 +136,7 @@ public class RelaySignalRenderer extends SmartBlockEntityRenderer<RelaySignalBlo
 			.light(LightTexture.FULL_BRIGHT)
 			.color(red, green, blue, 0xFF)
 			.disableDiffuse()
-			.renderInto(ms, buffer.getBuffer(RenderTypes.additive()));
+			.renderInto(ms, buffer.getBuffer(CTNRenderTypes.glow()));
 	}
 
 	private void renderTrackMarker(RelaySignalBlockEntity be, Level level, PoseStack ms, MultiBufferSource buffer,

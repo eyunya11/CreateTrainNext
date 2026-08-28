@@ -71,7 +71,9 @@ public class CTNConfig {
 					"Drawn additively, the way Create lights its nixie tubes and display links, so it",
 					"adds colour to whatever is behind it rather than covering it. This is what makes",
 					"an aspect readable at range: the halo is several times the width of the lamp, so",
-					"it survives being shrunk to a few pixels on screen when the lamp itself does not.")
+					"it survives being shrunk to a few pixels on screen when the lamp itself does not.",
+					"Turning this off is also the quickest way to tell whether something odd on the face",
+					"of a signal is the halo or the model underneath it.")
 				.define("glow", true);
 
 			signalGlowSize = builder

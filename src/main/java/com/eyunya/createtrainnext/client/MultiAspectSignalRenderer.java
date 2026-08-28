@@ -9,7 +9,6 @@ import com.simibubi.create.content.trains.track.ITrackBlock;
 import com.simibubi.create.content.trains.track.TrackTargetingBehaviour;
 import com.simibubi.create.content.trains.track.TrackTargetingBehaviour.RenderedTrackOverlayType;
 import com.simibubi.create.foundation.blockEntity.renderer.SmartBlockEntityRenderer;
-import com.simibubi.create.foundation.render.RenderTypes;
 
 import dev.engine_room.flywheel.lib.model.baked.PartialModel;
 import dev.engine_room.flywheel.lib.transform.TransformStack;
@@ -83,6 +82,11 @@ public class MultiAspectSignalRenderer extends SmartBlockEntityRenderer<MultiAsp
 	 * never the halo that loses the depth test to the thing it is meant to be surrounding. Still
 	 * well behind the hood over each socket, which should cut the halo off above the lamp exactly
 	 * as a real hood cuts off the glare.
+	 *
+	 * <p>Being in front is only safe because {@link CTNRenderTypes#glow()} does not write depth. A
+	 * halo that did would be a square hole in the depth buffer sitting over the lamp, and whether
+	 * the lamp survived it would come down to which render pass a given frame happened to flush
+	 * first.
 	 */
 	private static final float GLOW_Z = 10.25F / 16F;
 
@@ -161,7 +165,7 @@ public class MultiAspectSignalRenderer extends SmartBlockEntityRenderer<MultiAsp
 	/**
 	 * Draws the halo over one lit lamp.
 	 *
-	 * <p>Additively, through Create's own {@code RenderTypes.additive()}: the halo adds its colour
+	 * <p>Additively, through {@link CTNRenderTypes#glow()}: the halo adds its colour
 	 * to whatever is behind it instead of covering it, which is what makes it read as light coming
 	 * off the lamp rather than as a disc stuck to the front of the signal. It is white in the
 	 * texture and tinted here, and drawn at full brightness for the same reason the lit lamp is.
@@ -192,7 +196,7 @@ public class MultiAspectSignalRenderer extends SmartBlockEntityRenderer<MultiAsp
 			.light(LightTexture.FULL_BRIGHT)
 			.color(red, green, blue, 0xFF)
 			.disableDiffuse()
-			.renderInto(ms, buffer.getBuffer(RenderTypes.additive()));
+			.renderInto(ms, buffer.getBuffer(CTNRenderTypes.glow()));
 	}
 
 	private void renderTrackMarker(MultiAspectSignalBlockEntity be, Level level, PoseStack ms,
