@@ -109,28 +109,47 @@ public class AngledTrackAnchorBlock extends Block implements EntityBlock, ITrack
 
 	// ------------------------------------------------------------------ shape
 
-	// Reuse Create's own track shapes rather than approximating them, so an anchor selects and
-	// walks exactly like the track it sits in line with.
-
-	private VoxelShape outlineShape(BlockState state) {
-		return switch (state.getValue(AXIS)) {
-			case X_ORTHO -> AllShapes.TRACK_ORTHO.get(Direction.EAST);
-			case Z_ORTHO -> AllShapes.TRACK_ORTHO.get(Direction.SOUTH);
-			case DIAG -> AllShapes.TRACK_DIAG.get(Direction.EAST);
-			case DIAG_2 -> AllShapes.TRACK_DIAG.get(Direction.SOUTH);
-		};
+	/**
+	 * The outline, following the heading rather than the axis.
+	 *
+	 * <p>This used to be one of Create's four fixed track shapes, chosen off {@link #AXIS} — which
+	 * meant that everything about an anchor followed its real angle except the box you point at.
+	 * The rails are drawn from the same bezier the graph uses, the block's own model is empty, and
+	 * then a curve running at 17 degrees was highlighted as though it ran at 0 or 45.
+	 *
+	 * <p>See {@link AnchorShapes}: the band is built the way Create builds its own, by sliding a
+	 * block box along the track and taking the union, with the heading substituted for the axis.
+	 */
+	private static VoxelShape outlineShape(BlockGetter level, BlockPos pos, BlockState state) {
+		if (level.getBlockEntity(pos) instanceof AngledTrackAnchorBlockEntity anchor)
+			return AnchorShapes.outline(anchor.getYaw());
+		// No block entity to ask — a chunk still loading, or a state being asked about away from
+		// the world. The axis is where a fresh anchor points until something aims it.
+		return AnchorShapes.outline(state.getValue(AXIS)
+			.defaultYaw());
 	}
 
 	@Override
 	protected VoxelShape getShape(BlockState state, BlockGetter level, BlockPos pos, CollisionContext context) {
-		return outlineShape(state);
+		return outlineShape(level, pos, state);
 	}
 
 	@Override
 	protected VoxelShape getInteractionShape(BlockState state, BlockGetter level, BlockPos pos) {
-		return outlineShape(state);
+		return outlineShape(level, pos, state);
 	}
 
+	/**
+	 * A flat slab across the whole block, whatever way the anchor points.
+	 *
+	 * <p>Deliberately not swept along the heading like the outline above. Create's own track
+	 * answers the same way for every shape it has, diagonals included, and the reason holds here
+	 * too: a band narrow enough to show the angle is a band you can walk off the side of. An anchor
+	 * sits between two stretches of {@link CurveFillerBlock}, which hold up the whole block they
+	 * are in, so an angled slab here would be a notch in an otherwise continuous floor — felt
+	 * underfoot at every joint of a route, and gaining nothing, since the outline is what shows the
+	 * angle and this cannot be seen at all.
+	 */
 	@Override
 	protected VoxelShape getCollisionShape(BlockState state, BlockGetter level, BlockPos pos,
 		CollisionContext context) {
