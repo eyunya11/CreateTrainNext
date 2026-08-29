@@ -1,6 +1,7 @@
 {
   "itemGroup.createtrainnext": "Create Train Next",
   "block.createtrainnext.angled_track_anchor": "Angled Track Anchor",
+  "block.createtrainnext.curve_filler": "Curve Floor",
   "block.createtrainnext.track_speed_limit": "Track Speed Limit",
   "block.createtrainnext.signal_pole": "Signal Pole",
   "createtrainnext.speed_limit.limit": "Speed Limit",
@@ -18,11 +19,6 @@
   "createtrainnext.multi_aspect_signal.offset.right": "Right",
   "createtrainnext.multi_aspect_signal.offset.select": "Select",
 
-  "message.createtrainnext.angle": "Angle: %s°",
-  "message.createtrainnext.link_started": "Route starts here. Click the next anchor to link to it.",
-  "message.createtrainnext.link_done": "Linked. Click the next anchor to carry the route on.",
-  "message.createtrainnext.link_cancelled": "Selection cleared.",
-  "message.createtrainnext.link_cleared": "Cleared this anchor's links."
   "block.createtrainnext.survey_marker": "Survey Marker",
   "createtrainnext.survey_marker.title": "Survey Marker",
   "createtrainnext.survey_marker.length": "Length",
