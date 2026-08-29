@@ -1,0 +1,22 @@
+{
+	"credit": "The 2x2x2 centre of a signal pole, always drawn. traffic_pole_arm.json reaches out of it towards each side the pole connects to; traffic_pole.json replaces both when nothing branches across the run.",
+	"parent": "block/block",
+	"textures": {
+		"0": "createtrainnext:block/pole",
+		"particle": "createtrainnext:block/pole"
+	},
+	"elements": [
+		{
+			"from": [7, 7, 7],
+			"to": [9, 9, 9],
+			"faces": {
+				"north": {"uv": [0, 7, 2, 9], "texture": "#0"},
+				"east": {"uv": [2, 7, 4, 9], "texture": "#0"},
+				"south": {"uv": [4, 7, 6, 9], "texture": "#0"},
+				"west": {"uv": [6, 7, 8, 9], "texture": "#0"},
+				"up": {"uv": [8, 0, 10, 2], "texture": "#0"},
+				"down": {"uv": [8, 2, 10, 4], "texture": "#0"}
+			}
+		}
+	]
+}

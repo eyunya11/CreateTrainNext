@@ -1,0 +1,327 @@
+{
+  "multipart": [
+    {
+      "when": {
+        "axis": "y",
+        "east": "false",
+        "north": "false",
+        "south": "false",
+        "west": "false"
+      },
+      "apply": {
+        "model": "createtrainnext:block/traffic_pole"
+      }
+    },
+    {
+      "when": {
+        "axis": "z",
+        "down": "false",
+        "east": "false",
+        "up": "false",
+        "west": "false"
+      },
+      "apply": {
+        "model": "createtrainnext:block/traffic_pole",
+        "x": 90
+      }
+    },
+    {
+      "when": {
+        "axis": "x",
+        "down": "false",
+        "north": "false",
+        "south": "false",
+        "up": "false"
+      },
+      "apply": {
+        "model": "createtrainnext:block/traffic_pole",
+        "x": 90,
+        "y": 90
+      }
+    },
+    {
+      "when": {
+        "OR": [
+          {
+            "axis": "y",
+            "north": "true"
+          },
+          {
+            "axis": "y",
+            "east": "true"
+          },
+          {
+            "axis": "y",
+            "south": "true"
+          },
+          {
+            "axis": "y",
+            "west": "true"
+          },
+          {
+            "axis": "z",
+            "east": "true"
+          },
+          {
+            "axis": "z",
+            "west": "true"
+          },
+          {
+            "axis": "z",
+            "up": "true"
+          },
+          {
+            "axis": "z",
+            "down": "true"
+          },
+          {
+            "axis": "x",
+            "north": "true"
+          },
+          {
+            "axis": "x",
+            "south": "true"
+          },
+          {
+            "axis": "x",
+            "up": "true"
+          },
+          {
+            "axis": "x",
+            "down": "true"
+          }
+        ]
+      },
+      "apply": {
+        "model": "createtrainnext:block/traffic_pole_hub"
+      }
+    },
+    {
+      "when": {
+        "OR": [
+          {
+            "axis": "x",
+            "north": "true"
+          },
+          {
+            "axis": "y",
+            "north": "true"
+          },
+          {
+            "axis": "z",
+            "east": "true",
+            "north": "true"
+          },
+          {
+            "axis": "z",
+            "north": "true",
+            "west": "true"
+          },
+          {
+            "axis": "z",
+            "north": "true",
+            "up": "true"
+          },
+          {
+            "axis": "z",
+            "down": "true",
+            "north": "true"
+          }
+        ]
+      },
+      "apply": {
+        "model": "createtrainnext:block/traffic_pole_arm"
+      }
+    },
+    {
+      "when": {
+        "OR": [
+          {
+            "axis": "x",
+            "east": "true",
+            "north": "true"
+          },
+          {
+            "axis": "x",
+            "east": "true",
+            "south": "true"
+          },
+          {
+            "axis": "x",
+            "east": "true",
+            "up": "true"
+          },
+          {
+            "axis": "x",
+            "down": "true",
+            "east": "true"
+          },
+          {
+            "axis": "y",
+            "east": "true"
+          },
+          {
+            "axis": "z",
+            "east": "true"
+          }
+        ]
+      },
+      "apply": {
+        "model": "createtrainnext:block/traffic_pole_arm",
+        "y": 90
+      }
+    },
+    {
+      "when": {
+        "OR": [
+          {
+            "axis": "x",
+            "south": "true"
+          },
+          {
+            "axis": "y",
+            "south": "true"
+          },
+          {
+            "axis": "z",
+            "east": "true",
+            "south": "true"
+          },
+          {
+            "axis": "z",
+            "south": "true",
+            "west": "true"
+          },
+          {
+            "axis": "z",
+            "south": "true",
+            "up": "true"
+          },
+          {
+            "axis": "z",
+            "down": "true",
+            "south": "true"
+          }
+        ]
+      },
+      "apply": {
+        "model": "createtrainnext:block/traffic_pole_arm",
+        "y": 180
+      }
+    },
+    {
+      "when": {
+        "OR": [
+          {
+            "axis": "x",
+            "north": "true",
+            "west": "true"
+          },
+          {
+            "axis": "x",
+            "south": "true",
+            "west": "true"
+          },
+          {
+            "axis": "x",
+            "up": "true",
+            "west": "true"
+          },
+          {
+            "axis": "x",
+            "down": "true",
+            "west": "true"
+          },
+          {
+            "axis": "y",
+            "west": "true"
+          },
+          {
+            "axis": "z",
+            "west": "true"
+          }
+        ]
+      },
+      "apply": {
+        "model": "createtrainnext:block/traffic_pole_arm",
+        "y": 270
+      }
+    },
+    {
+      "when": {
+        "OR": [
+          {
+            "axis": "x",
+            "up": "true"
+          },
+          {
+            "axis": "y",
+            "north": "true",
+            "up": "true"
+          },
+          {
+            "axis": "y",
+            "east": "true",
+            "up": "true"
+          },
+          {
+            "axis": "y",
+            "south": "true",
+            "up": "true"
+          },
+          {
+            "axis": "y",
+            "up": "true",
+            "west": "true"
+          },
+          {
+            "axis": "z",
+            "up": "true"
+          }
+        ]
+      },
+      "apply": {
+        "model": "createtrainnext:block/traffic_pole_arm",
+        "x": 270
+      }
+    },
+    {
+      "when": {
+        "OR": [
+          {
+            "axis": "x",
+            "down": "true"
+          },
+          {
+            "axis": "y",
+            "down": "true",
+            "north": "true"
+          },
+          {
+            "axis": "y",
+            "down": "true",
+            "east": "true"
+          },
+          {
+            "axis": "y",
+            "down": "true",
+            "south": "true"
+          },
+          {
+            "axis": "y",
+            "down": "true",
+            "west": "true"
+          },
+          {
+            "axis": "z",
+            "down": "true"
+          }
+        ]
+      },
+      "apply": {
+        "model": "createtrainnext:block/traffic_pole_arm",
+        "x": 90
+      }
+    }
+  ]
+}

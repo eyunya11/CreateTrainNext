@@ -2,11 +2,17 @@ package com.eyunya.createtrainnext;
 
 import java.util.function.Supplier;
 
+import com.eyunya.createtrainnext.pole.SignalPoleBlock;
+import com.eyunya.createtrainnext.signal.MultiAspectSignalBlock;
+import com.eyunya.createtrainnext.signal.MultiAspectSignalBlockEntity;
+import com.eyunya.createtrainnext.signal.RelaySignalBlock;
+import com.eyunya.createtrainnext.signal.RelaySignalBlockEntity;
 import com.eyunya.createtrainnext.speed.CTNEdgePointTypes;
 import com.eyunya.createtrainnext.speed.SpeedLimitBlock;
 import com.eyunya.createtrainnext.speed.SpeedLimitBlockEntity;
 import com.eyunya.createtrainnext.track.AngledTrackAnchorBlock;
 import com.eyunya.createtrainnext.track.AngledTrackAnchorBlockEntity;
+import com.simibubi.create.content.trains.graph.EdgePointType;
 import com.eyunya.createtrainnext.track.CurveFillerBlock;
 import com.eyunya.createtrainnext.track.CurveFillerBlockEntity;
 import com.eyunya.createtrainnext.track.CurveWandItem;
@@ -134,6 +140,72 @@ public class CTNRegistry {
 			.of(SpeedLimitBlockEntity::new, TRACK_SPEED_LIMIT.get())
 			.build(null));
 
+	public static final DeferredBlock<SignalPoleBlock> SIGNAL_POLE = BLOCKS.registerBlock(
+		"signal_pole",
+		SignalPoleBlock::new,
+		// noOcclusion because a two pixel mast is nowhere near a full cube: without it the game
+		// culls the faces of everything it touches and the ground around a planted pole goes
+		// see-through.
+		BlockBehaviour.Properties.of()
+			.mapColor(MapColor.METAL)
+			.strength(0.8F)
+			.sound(SoundType.NETHERITE_BLOCK)
+			.noOcclusion());
+
+	public static final DeferredItem<BlockItem> SIGNAL_POLE_ITEM =
+		ITEMS.registerSimpleBlockItem("signal_pole", SIGNAL_POLE);
+
+	public static final DeferredBlock<MultiAspectSignalBlock> MULTI_ASPECT_SIGNAL = BLOCKS.registerBlock(
+		"multi_aspect_signal",
+		MultiAspectSignalBlock::new,
+		BlockBehaviour.Properties.of()
+			.mapColor(MapColor.PODZOL)
+			.strength(0.8F)
+			.sound(SoundType.NETHERITE_BLOCK)
+			.noOcclusion());
+
+	/**
+	 * Built on Create's own SIGNAL point type rather than one of this mod's. That is what makes
+	 * trains obey it: Create's navigation looks for {@code SignalBoundary} by its concrete class,
+	 * so a signal of any other type would be invisible to braking and block reservation alike.
+	 */
+	public static final DeferredItem<TrackTargetingBlockItem> MULTI_ASPECT_SIGNAL_ITEM =
+		ITEMS.registerItem("multi_aspect_signal", properties -> new TrackTargetingBlockItem(
+			MULTI_ASPECT_SIGNAL.get(), properties, EdgePointType.SIGNAL));
+
+	public static final Supplier<BlockEntityType<MultiAspectSignalBlockEntity>> MULTI_ASPECT_SIGNAL_ENTITY =
+		BLOCK_ENTITIES.register("multi_aspect_signal", () -> BlockEntityType.Builder
+			.of(MultiAspectSignalBlockEntity::new, MULTI_ASPECT_SIGNAL.get())
+			.build(null));
+
+	public static final DeferredBlock<RelaySignalBlock> RELAY_SIGNAL = BLOCKS.registerBlock(
+		"relay_signal",
+		RelaySignalBlock::new,
+		BlockBehaviour.Properties.of()
+			.mapColor(MapColor.PODZOL)
+			.strength(0.8F)
+			.sound(SoundType.NETHERITE_BLOCK)
+			.noOcclusion());
+
+	/**
+	 * Placed like a signal, and pointedly not one.
+	 *
+	 * <p>{@link TrackTargetingBlockItem} is used for the placement it gives — click the track, then
+	 * click where the block goes — and the point type handed to it decides nothing about the block:
+	 * {@code RelaySignalBlockEntity} never creates a point of any type, which is what keeps a relay
+	 * out of the track graph and therefore out of every train's way. SIGNAL is passed because it is
+	 * the type the item's own placement check should use, so a relay cannot be dropped on top of an
+	 * existing signal's spot.
+	 */
+	public static final DeferredItem<TrackTargetingBlockItem> RELAY_SIGNAL_ITEM =
+		ITEMS.registerItem("relay_signal", properties -> new TrackTargetingBlockItem(RELAY_SIGNAL.get(), properties,
+			EdgePointType.SIGNAL));
+
+	public static final Supplier<BlockEntityType<RelaySignalBlockEntity>> RELAY_SIGNAL_ENTITY =
+		BLOCK_ENTITIES.register("relay_signal", () -> BlockEntityType.Builder
+			.of(RelaySignalBlockEntity::new, RELAY_SIGNAL.get())
+			.build(null));
+
 	public static final DeferredHolder<CreativeModeTab, CreativeModeTab> TAB =
 		CREATIVE_TABS.register("main", () -> CreativeModeTab.builder()
 			.title(Component.translatable("itemGroup." + CreateTrainNext.ID))
@@ -144,6 +216,9 @@ public class CTNRegistry {
 				output.accept(ANGLED_TRACK_ANCHOR_ITEM.get());
 				output.accept(SURVEY_MARKER_ITEM.get());
 				output.accept(TRACK_SPEED_LIMIT_ITEM.get());
+				output.accept(SIGNAL_POLE_ITEM.get());
+				output.accept(MULTI_ASPECT_SIGNAL_ITEM.get());
+				output.accept(RELAY_SIGNAL_ITEM.get());
 			})
 			.build());
 

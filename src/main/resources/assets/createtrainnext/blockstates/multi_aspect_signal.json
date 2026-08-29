@@ -1,0 +1,14 @@
+{
+	"__comment": "The mast only, keyed on offset alone: the mast is the same box whichever of the sixteen angles the head is turned to, so each entry matches all sixteen rotations. The offsets still need three entries because the offset housings carry their own collars around the mast rather than sharing one. The head is drawn by MultiAspectSignalRenderer, because a blockstate y only turns in quarters and this block turns in 22.5 degree steps - see SignalRotation. All six halves are generated from housing.json, housing_left.json and housing_right.json; the item model still parents the whole centred housing so the item looks complete.",
+	"variants": {
+		"offset=center": {
+			"model": "createtrainnext:block/multi_aspect_signal/housing_post"
+		},
+		"offset=left": {
+			"model": "createtrainnext:block/multi_aspect_signal/housing_left_post"
+		},
+		"offset=right": {
+			"model": "createtrainnext:block/multi_aspect_signal/housing_right_post"
+		}
+	}
+}

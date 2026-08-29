@@ -2,9 +2,27 @@
   "itemGroup.createtrainnext": "Create Train Next",
   "block.createtrainnext.angled_track_anchor": "自由角度レールアンカー",
   "block.createtrainnext.track_speed_limit": "速度制限標識",
+  "block.createtrainnext.signal_pole": "信号柱",
   "createtrainnext.speed_limit.limit": "制限速度",
   "createtrainnext.speed_limit.row": "速度",
 
+  "block.createtrainnext.multi_aspect_signal": "5灯式信号機",
+  "message.createtrainnext.signal.restricted_on": "進行 → 減速 → 注意 → 警戒 → 停止",
+  "message.createtrainnext.signal.restricted_off": "進行 → 減速 → 注意 → 停止",
+
+  "block.createtrainnext.relay_signal": "中継信号機",
+
+  "createtrainnext.multi_aspect_signal.offset": "寄せ",
+  "createtrainnext.multi_aspect_signal.offset.center": "中央",
+  "createtrainnext.multi_aspect_signal.offset.left": "左",
+  "createtrainnext.multi_aspect_signal.offset.right": "右",
+  "createtrainnext.multi_aspect_signal.offset.select": "選択",
+
+  "message.createtrainnext.angle": "角度: %s°",
+  "message.createtrainnext.link_started": "ここから経路を開始します。次のアンカーをクリックすると繋がります。",
+  "message.createtrainnext.link_done": "接続しました。続けて次のアンカーをクリックすると経路が伸びます。",
+  "message.createtrainnext.link_cancelled": "選択を解除しました。",
+  "message.createtrainnext.link_cleared": "このアンカーの接続を解除しました。"
   "block.createtrainnext.survey_marker": "測量標",
   "createtrainnext.survey_marker.title": "測量標",
   "createtrainnext.survey_marker.length": "長さ",

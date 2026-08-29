@@ -1,0 +1,8 @@
+{
+	"__comment": "The mast only, and no variant key at all: it is the same box whichever of the sixteen angles the head is turned to, so every rotation matches this one entry. The head is drawn by RelaySignalRenderer, because a blockstate y only turns in quarters and this block turns in 22.5 degree steps - see SignalRotation. Both halves are generated from housing.json; the item model still parents the whole thing so the item looks complete.",
+	"variants": {
+		"": {
+			"model": "createtrainnext:block/relay_signal/housing_post"
+		}
+	}
+}

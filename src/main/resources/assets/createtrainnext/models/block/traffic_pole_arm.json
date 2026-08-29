@@ -1,0 +1,21 @@
+{
+	"credit": "One arm of a signal pole, drawn reaching north; the blockstate rotates it to each of the six sides. The south face is deliberately missing - it would sit exactly on the hub's north face and z-fight with it, and nothing can see it anyway.",
+	"parent": "block/block",
+	"textures": {
+		"0": "createtrainnext:block/pole",
+		"particle": "createtrainnext:block/pole"
+	},
+	"elements": [
+		{
+			"from": [7, 7, 0],
+			"to": [9, 9, 7],
+			"faces": {
+				"north": {"uv": [8, 0, 10, 2], "texture": "#0"},
+				"east": {"uv": [0, 7, 7, 9], "texture": "#0"},
+				"west": {"uv": [0, 7, 7, 9], "texture": "#0"},
+				"up": {"uv": [0, 0, 2, 7], "texture": "#0"},
+				"down": {"uv": [0, 0, 2, 7], "texture": "#0"}
+			}
+		}
+	]
+}

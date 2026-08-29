@@ -1,0 +1,16 @@
+{
+	"credit": "CreateTrainNext 5-light signal — the halo drawn over a lit lamp. One voxel square and centred on the model origin rather than on a lamp socket, because the renderer scales it about that origin: at origin the scale factor is the halo's width in voxels, and the renderer then moves it onto whichever socket is lit. Flat, single-faced and thin; the additive render type it is drawn with does not cull, so the one face is enough.",
+	"textures": {
+		"0": "createtrainnext:block/signal_lamp_glow",
+		"particle": "createtrainnext:block/signal_lamp_glow"
+	},
+	"elements": [
+		{
+			"from": [-0.5, -0.5, -0.01],
+			"to": [0.5, 0.5, 0.01],
+			"faces": {
+				"south": {"uv": [0, 0, 16, 16], "texture": "#0"}
+			}
+		}
+	]
+}
