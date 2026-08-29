@@ -344,22 +344,16 @@ public class AngledTrackAnchorBlock extends Block implements EntityBlock, ITrack
 			b -> world instanceof Level l ? l.dimension() : Level.OVERWORLD;
 		Function<Vec3, Integer> yOffsetFactory = v -> getYOffsetAt(world, pos, state, v);
 
-		if (span != null && anchor.spanIsStraight()) {
-			// Straight, so reported straight — the same offsets, direction and material sampling
-			// Create's own track block uses, so that the propagator treats a docked anchor as one
-			// more block of the line it is docked to.
+		if (span != null) {
+			// A span only exists on an anchor whose heading lies along its axis — see
+			// AngledTrackAnchorBlockEntity.usesCentreNode — so it is always a straight line, and it
+			// is reported the way Create's own track block reports itself: the same offsets from
+			// the block centre, the same axis as its direction, the same material sampling, and no
+			// turn. The propagator then folds the anchor's span into the run of track it is docked
+			// to, and the junction stops being a junction.
 			Vec3 axis = axisVector(state);
 			ITrackBlock.addToListIfConnected(connectedTo, list, (d, b) -> axis.scale(b ? d : -d)
 				.add(center), b -> getUpNormal(world, pos, state), dimensionFactory, yOffsetFactory, axis, null,
-				(b, v) -> ITrackBlock.getMaterialSimple(world, v, getMaterial()));
-
-		} else if (span != null) {
-			// The block's own stretch of route, bending across it to meet a discrete axis at
-			// whichever side is open.
-			BezierConnection oriented = orientedAwayFrom(span, connectedTo);
-			ITrackBlock.addToListIfConnected(connectedTo, list,
-				(d, b) -> d == 1 ? Vec3.atLowerCornerOf(oriented.bePositions.get(b)) : oriented.starts.get(b),
-				b -> getUpNormal(world, pos, state), dimensionFactory, yOffsetFactory, null, oriented,
 				(b, v) -> ITrackBlock.getMaterialSimple(world, v, getMaterial()));
 
 		} else if (linear) {

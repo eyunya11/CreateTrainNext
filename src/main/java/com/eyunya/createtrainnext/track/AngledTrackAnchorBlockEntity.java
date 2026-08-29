@@ -318,7 +318,7 @@ public class AngledTrackAnchorBlockEntity extends BlockEntity {
 		// axis. Reporting the heading there had it refused at every angle where the two differ,
 		// which is why only multiples of 45 worked. Both directions already work there, because the
 		// span runs both ways out of the block's centre and each way matches the axis exactly.
-		if (!isInterior())
+		if (!usesCentreNode(heading(), isInterior()))
 			return AngledTrackAnchorBlock.axisVector(getBlockState());
 
 		// The two directions leaving this node, measured the way Create measures them.
@@ -442,16 +442,50 @@ public class AngledTrackAnchorBlockEntity extends BlockEntity {
 		return forward(AnchorAxis.nearestTo(heading), heading);
 	}
 
+	/**
+	 * Whether an anchor's two nodes collapse onto its block's centre, leaving it no span.
+	 *
+	 * <p>True in the middle of a chain, which is what {@code interior} says, and true of any anchor
+	 * whose heading does not lie along one of the four lattice-safe axes — which is what stops a
+	 * route being visibly forced onto 45 degrees at its ends.
+	 *
+	 * <p>The reasoning is the same in both cases. A span exists to carry the route across the
+	 * anchor's own block, and its two ends have to be offsets from the centre that land back on the
+	 * half-block lattice. Only the four axes do, so a span can only ever run along one of those
+	 * four — and a route running at 30 degrees that is made to pass through a 45 degree span has a
+	 * 45 degree piece of track sitting in the middle of it. A block's centre is on the lattice too,
+	 * and unlike the boundary it is on the lattice from every direction, so an anchor with no span
+	 * has no angle imposed on it at all.
+	 *
+	 * <p>Which leaves the question of what the span was for. It was for handing the route over to
+	 * Create's own track, which runs on those same four axes — and an anchor doing that is aimed
+	 * along the axis by the wand, so its heading is one of the four and it keeps its span. An
+	 * anchor pointing anywhere else has nothing to hand over to: no piece of Create track could
+	 * meet it squarely whatever it did. The bend the span used to carry, from the heading round to
+	 * the nearest axis, was never reconciling anything.
+	 */
+	public static boolean usesCentreNode(Vec3 heading, boolean interior) {
+		if (interior)
+			return true;
+		if (heading.lengthSqr() < 1.0E-8)
+			return true;
+		Vec3 axis = AnchorAxis.nearestTo(heading)
+			.axis()
+			.normalize();
+		return Math.abs(heading.normalize()
+			.dot(axis)) <= 1 - 1.0E-6;
+	}
+
 	/** Where {@link #entryNode} would fall for an anchor at {@code pos} pointed along {@code heading}. */
 	public static Vec3 entryNode(BlockPos pos, Vec3 heading, boolean interior) {
 		Vec3 centre = Vec3.atBottomCenterOf(pos);
-		return interior ? centre : centre.subtract(forwardOffset(heading));
+		return usesCentreNode(heading, interior) ? centre : centre.subtract(forwardOffset(heading));
 	}
 
 	/** Where {@link #exitNode} would fall for an anchor at {@code pos} pointed along {@code heading}. */
 	public static Vec3 exitNode(BlockPos pos, Vec3 heading, boolean interior) {
 		Vec3 centre = Vec3.atBottomCenterOf(pos);
-		return interior ? centre : centre.add(forwardOffset(heading));
+		return usesCentreNode(heading, interior) ? centre : centre.add(forwardOffset(heading));
 	}
 
 	/**
@@ -558,65 +592,42 @@ public class AngledTrackAnchorBlockEntity extends BlockEntity {
 	}
 
 	/**
-	 * Whether the span across this block is a straight line rather than a bend.
+	 * The span across the anchor's own block, from {@link #entryNode} to {@link #exitNode}, or null
+	 * where the anchor has no span at all.
 	 *
-	 * <p>True at every anchor that docks onto Create's own track, because the wand aims those along
-	 * the track's own axis, and the span's other tangent follows that axis too. False where the
-	 * heading was chosen freely, since the span then has to turn from the heading to the nearest
-	 * lattice-safe axis across the block.
+	 * <p>Only an anchor whose heading lies along one of the four lattice-safe axes has one, which
+	 * means only one that is handing the route over to Create's own track — see
+	 * {@link #usesCentreNode}. So a span is always a straight line along the heading, and the
+	 * tangents below are the heading either way round rather than anything reconciling.
 	 *
-	 * <p>Worth telling apart because a straight span should be reported to the graph as a straight
-	 * edge, exactly as Create reports a stretch of its own track — see
-	 * {@link AngledTrackAnchorBlock#getConnected}.
-	 */
-	public boolean spanIsStraight() {
-		if (isInterior())
-			return false;
-		Vec3 along = exitNode().subtract(entryNode());
-		if (along.lengthSqr() < 1.0E-6)
-			return false;
-		return Math.abs(heading().dot(along.normalize())) > 1 - 1.0E-6;
-	}
-
-	/**
-	 * The span across the anchor's own block, from {@link #entryNode} to {@link #exitNode}.
-	 *
-	 * <p>In the middle of a chain both tangents are the heading, so the span carries the route
-	 * straight through and the joints either side of it are smooth. At the ends of a chain the
-	 * outward tangent instead follows the block's discrete axis, so Create's own track can dock
-	 * against it squarely.
-	 *
-	 * <p>That end-of-chain bend is the whole reason the span is a curve and not a straight edge.
-	 * {@code TrackEdge.canTravelTo} refuses a node where the direction changes by more than about
-	 * 29 degrees, measured across a quarter of each edge rather than at the node itself. Turning
-	 * across the block spreads that change over an edge; turning at its end concentrates it at a
-	 * node, and past the threshold the track stops being passable at all.
+	 * <p>It used to be more than that. Every end of a chain kept a span, and the outward tangent
+	 * followed the block's nearest discrete axis whatever the heading was, on the reasoning that
+	 * turning across a block spreads a direction change over an edge rather than concentrating it
+	 * at a node — which matters, because {@code TrackEdge.canTravelTo} refuses a node where the
+	 * direction changes by more than about 29 degrees. What that missed is that an end pointing
+	 * between the axes has nothing on the far side to change direction <em>to</em>. There was no
+	 * handover to spread; there was just a piece of track lying at up to 22.5 degrees off the route
+	 * it belonged to, plainly visible at the end of every line that did not happen to finish on a
+	 * multiple of 45.
 	 */
 	@Nullable
 	public BezierConnection buildSpan() {
 		Vec3 entry = entryNode();
 		Vec3 exit = exitNode();
 
-		// Nothing to span in the middle of a chain: both sides use the centre, and the curves
-		// either side of it meet there directly. This is what removes the roughness — there is no
-		// longer a stretch of route pinned between two quantised points.
+		// Nothing to span wherever both nodes are the block's centre, which is the middle of a
+		// chain and every end that is not squared up to Create's track. The curves either side
+		// meet at the centre directly, at exactly the angle the route runs.
 		if (entry.distanceToSqr(exit) < 1.0E-6)
 			return null;
 
-		// The line the two nodes actually lie on, which an open end hands to whatever docks there.
-		Vec3 axisForward = exit.subtract(entry)
+		Vec3 along = exit.subtract(entry)
 			.normalize();
-
-		// Into the span from each end. A linked side follows the heading so it stays collinear
-		// with the curve there; an open side follows the axis so plain track can meet it.
-		Vec3 tangentAtEntry = prev != null ? heading() : axisForward;
-		Vec3 tangentAtExit = next != null ? heading().scale(-1) : axisForward.scale(-1);
 
 		Vec3 up = new Vec3(0, 1, 0);
 
 		return new BezierConnection(Couple.create(worldPosition, worldPosition), Couple.create(entry, exit),
-			Couple.create(tangentAtEntry, tangentAtExit), Couple.create(up, up), true, false,
-			TrackMaterial.ANDESITE);
+			Couple.create(along, along.scale(-1)), Couple.create(up, up), true, false, TrackMaterial.ANDESITE);
 	}
 
 	/** Client-side accessor for the curve ahead. Caches until something it depends on moves. */
