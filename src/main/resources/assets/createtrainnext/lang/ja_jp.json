@@ -43,6 +43,7 @@
   "message.createtrainnext.wand.invalid_start": "始点の線路が失われています。",
   "message.createtrainnext.wand.split_too_close": "曲線の端に近すぎます。",
   "message.createtrainnext.wand.split_occupied": "そこにはすでに接続点があります。",
+  "message.createtrainnext.wand.crossed_ends": "両端とも同じ向きに伸びているため繋げられません。どちらかの経路を逆向きにする必要があります。",
   "message.createtrainnext.wand.same_anchor": "始点と終点が同じアンカーになります。",
   "message.createtrainnext.wand.start_taken": "この端からはすでに曲線が伸びています。",
   "message.createtrainnext.wand.end_taken": "この端にはすでに曲線が接続されています。",

@@ -43,6 +43,7 @@
   "message.createtrainnext.wand.invalid_start": "The track this curve started from is gone.",
   "message.createtrainnext.wand.split_too_close": "Too near the end of the curve.",
   "message.createtrainnext.wand.split_occupied": "There is already a point there.",
+  "message.createtrainnext.wand.crossed_ends": "Both ends continue the same way round. One of the routes would have to be reversed.",
   "message.createtrainnext.wand.same_anchor": "Both ends would be the same anchor.",
   "message.createtrainnext.wand.start_taken": "This end already continues into a curve.",
   "message.createtrainnext.wand.end_taken": "A curve already arrives at this end.",

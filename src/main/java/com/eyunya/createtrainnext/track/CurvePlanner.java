@@ -56,6 +56,25 @@ public final class CurvePlanner {
 		END
 	}
 
+	/**
+	 * Which of an anchor's two sides a new curve may attach to.
+	 *
+	 * <p>An anchor holds one link in each direction — a curve arriving and a curve leaving — so it
+	 * has two sides and a new curve takes one of them. Which one is not a matter of taste: an
+	 * anchor already carrying a curve has that side spoken for, and the free side is the only
+	 * answer. An anchor carrying nothing yet can take either, and lets the other end of the curve
+	 * decide.
+	 */
+	public enum Side {
+		NEXT,
+		PREV,
+		EITHER;
+
+		boolean allows(Side wanted) {
+			return this == EITHER || this == wanted;
+		}
+	}
+
 	private static final Vec3 UP = new Vec3(0, 1, 0);
 
 	/**
@@ -122,12 +141,13 @@ public final class CurvePlanner {
 	 *                     its boundary.
 	 * @param docked       whether this end shares its node with a piece of Create's own track, which
 	 *                     is a thing the route must not later be extended through.
+	 * @param side         which of the anchor's two sides this curve may attach to.
 	 */
 	public record Endpoint(@Nullable String error, BlockPos anchorPos, boolean mustPlace,
-		@Nullable Vec3 fixedHeading, boolean interior, boolean docked) {
+		@Nullable Vec3 fixedHeading, boolean interior, boolean docked, Side side) {
 
 		static Endpoint failed(String error) {
-			return new Endpoint(error, BlockPos.ZERO, false, null, false, false);
+			return new Endpoint(error, BlockPos.ZERO, false, null, false, false, Side.EITHER);
 		}
 
 		/** Whether this end's heading has to be written to the anchor when the curve is built. */
@@ -145,14 +165,15 @@ public final class CurvePlanner {
 	 */
 	public record Plan(@Nullable String error, @Nullable Endpoint start, @Nullable Endpoint end,
 		@Nullable Vec3 startHeading, @Nullable Vec3 endHeading, @Nullable BezierConnection curve,
-		boolean adjustable, double turnDegrees) {
+		boolean adjustable, double turnDegrees, boolean forward) {
 
 		static Plan failed(String error) {
-			return new Plan(error, null, null, null, null, null, false, 0);
+			return new Plan(error, null, null, null, null, null, false, 0, true);
 		}
 
 		Plan withError(String newError) {
-			return new Plan(newError, start, end, startHeading, endHeading, curve, adjustable, turnDegrees);
+			return new Plan(newError, start, end, startHeading, endHeading, curve, adjustable, turnDegrees,
+				forward);
 		}
 
 		public boolean valid() {
@@ -211,7 +232,28 @@ public final class CurvePlanner {
 			.equals(end.anchorPos()))
 			return Plan.failed("same_anchor");
 
-		return solve(level, start, end, angleOffsetDegrees);
+		// A curve is one link, and a link runs from somebody's next to somebody's prev. So one end
+		// has to give up its next and the other its prev, and which way round that falls out of
+		// which sides are still free rather than out of which end was clicked first. That is what
+		// lets a route be continued backwards out of the anchor it started from: that anchor's next
+		// is spoken for, its prev is not, so the new curve runs into it instead of out of it.
+		boolean forward;
+		if (start.side()
+			.allows(Side.NEXT)
+			&& end.side()
+				.allows(Side.PREV))
+			forward = true;
+		else if (start.side()
+			.allows(Side.PREV)
+			&& end.side()
+				.allows(Side.NEXT))
+			forward = false;
+		else
+			// Both ends want the same slot, which happens joining two routes that were laid away
+			// from each other. Nothing here can fix that without reversing one of them end to end.
+			return Plan.failed("crossed_ends");
+
+		return solve(level, start, end, angleOffsetDegrees, forward);
 	}
 
 	/** Builds what {@code plan} described. Server side only; the client draws it instead. */
@@ -223,18 +265,30 @@ public final class CurvePlanner {
 		place(level, plan.end(), plan.endHeading());
 
 		if (!(level.getBlockEntity(plan.start()
-			.anchorPos()) instanceof AngledTrackAnchorBlockEntity from))
+			.anchorPos()) instanceof AngledTrackAnchorBlockEntity startAnchor))
 			return;
 		if (!(level.getBlockEntity(plan.end()
-			.anchorPos()) instanceof AngledTrackAnchorBlockEntity to))
+			.anchorPos()) instanceof AngledTrackAnchorBlockEntity endAnchor))
 			return;
+
+		// Anchors store their heading pointing downstream, and downstream is whichever way the link
+		// runs. Drawn backwards, the two headings are the negatives of the curve's own directions —
+		// and for the anchor being continued backwards out of, that negation lands exactly on the
+		// heading it already had, which is what leaves the curve on its other side undisturbed.
+		AngledTrackAnchorBlockEntity from = plan.forward() ? startAnchor : endAnchor;
+		AngledTrackAnchorBlockEntity to = plan.forward() ? endAnchor : startAnchor;
+		Vec3 fromHeading = plan.forward() ? plan.startHeading()
+			: plan.endHeading()
+				.scale(-1);
+		Vec3 toHeading = plan.forward() ? plan.endHeading()
+			: plan.startHeading()
+				.scale(-1);
+		Endpoint fromEnd = plan.forward() ? plan.start() : plan.end();
+		Endpoint toEnd = plan.forward() ? plan.end() : plan.start();
 
 		// Aiming an end that was already aimed would only feed its own heading back through a yaw
 		// and out again, losing a little of it to float each time a route was extended.
-		from.linkTo(to, plan.start()
-			.needsAiming() ? plan.startHeading() : null,
-			plan.end()
-				.needsAiming() ? plan.endHeading() : null);
+		from.linkTo(to, fromEnd.needsAiming() ? fromHeading : null, toEnd.needsAiming() ? toHeading : null);
 	}
 
 	private static void place(Level level, Endpoint endpoint, Vec3 heading) {
@@ -319,7 +373,7 @@ public final class CurvePlanner {
 			// Headings always point downstream, so a route leaving a track points away from it and
 			// one arriving points into it. Both put the anchor's shared node on the track's side.
 			Vec3 heading = (role == Role.START ? side : side.scale(-1)).normalize();
-			return new Endpoint(null, anchorPos, true, heading, false, true);
+			return new Endpoint(null, anchorPos, true, heading, false, true, Side.EITHER);
 		}
 
 		// Open ground: the anchor goes where a block would have gone. Only ever the far end of a
@@ -336,7 +390,7 @@ public final class CurvePlanner {
 			.canBeReplaced())
 			return Endpoint.failed("no_room");
 
-		return new Endpoint(null, placePos, true, null, false, false);
+		return new Endpoint(null, placePos, true, null, false, false, Side.EITHER);
 	}
 
 	/**
@@ -347,19 +401,34 @@ public final class CurvePlanner {
 	 * that is taken is what fixes the heading: it belongs to the curve already there.
 	 */
 	private static Endpoint fromExisting(AngledTrackAnchorBlockEntity anchor, Role role) {
-		BlockPos pos = anchor.getBlockPos();
-		boolean taken = role == Role.START ? anchor.getNext() != null : anchor.getPrev() != null;
-		if (taken)
+		boolean nextFree = anchor.getNext() == null;
+		boolean prevFree = anchor.getPrev() == null;
+
+		if (!nextFree && !prevFree)
 			return Endpoint.failed(role == Role.START ? "start_taken" : "end_taken");
 
-		// Linked on the far side, so the route will pass through rather than end here.
-		boolean interior = role == Role.START ? anchor.getPrev() != null : anchor.getNext() != null;
-		return new Endpoint(null, pos, false, interior ? anchor.heading() : null, interior, false);
+		Side side = nextFree && prevFree ? Side.EITHER : nextFree ? Side.NEXT : Side.PREV;
+
+		// Which way a new curve leaves this anchor. An anchor already carrying one has its
+		// direction settled — the route runs through it, so the new curve continues the line, and
+		// whether that is forwards or backwards is decided by which side was left free rather than
+		// by which of the two clicks landed here first.
+		Vec3 outward = side == Side.EITHER ? null
+			: side == Side.NEXT ? anchor.heading()
+				: anchor.heading()
+					.scale(-1);
+
+		// solve() wants the curve's own direction of travel at each end: leaving it at the start,
+		// carrying on past it at the end. Those are opposite ways round from "outward".
+		Vec3 fixed = outward == null ? null : role == Role.START ? outward : outward.scale(-1);
+
+		return new Endpoint(null, anchor.getBlockPos(), false, fixed, anchor.isLinked(), false, side);
 	}
 
 	// ------------------------------------------------------------- geometry
 
-	private static Plan solve(Level level, Endpoint start, Endpoint end, float angleOffsetDegrees) {
+	private static Plan solve(Level level, Endpoint start, Endpoint end, float angleOffsetDegrees,
+		boolean forward) {
 		Vec3 fixedStart = start.fixedHeading() == null ? null : flatUnit(start.fixedHeading());
 		Vec3 fixedEnd = end.fixedHeading() == null ? null : flatUnit(end.fixedHeading());
 
@@ -418,7 +487,7 @@ public final class CurvePlanner {
 			Couple.create(startPoint, endPoint), Couple.create(startHeading, endHeading.scale(-1)),
 			Couple.create(UP, UP), true, false, TrackMaterial.ANDESITE);
 
-		Plan plan = new Plan(null, start, end, startHeading, endHeading, curve, adjustable, turn);
+		Plan plan = new Plan(null, start, end, startHeading, endHeading, curve, adjustable, turn, forward);
 		String error = validate(level, plan, startPoint, endPoint, startHeading, endHeading, turn);
 		return error == null ? plan : plan.withError(error);
 	}
@@ -505,39 +574,42 @@ public final class CurvePlanner {
 		if (!(level.getBlockEntity(endpoint.anchorPos()) instanceof AngledTrackAnchorBlockEntity anchor))
 			return null;
 
-		BlockPos neighbourPos = role == Role.START ? anchor.getPrev() : anchor.getNext();
+		// Whichever side is already spoken for is the one with a curve on it. Exactly one is, or
+		// the endpoint would not have got this far.
+		boolean neighbourIsNext = anchor.getNext() != null;
+		BlockPos neighbourPos = neighbourIsNext ? anchor.getNext() : anchor.getPrev();
 		if (neighbourPos == null
 			|| !(level.getBlockEntity(neighbourPos) instanceof AngledTrackAnchorBlockEntity neighbour))
 			return null;
 
 		BlockPos pos = endpoint.anchorPos();
-		boolean start = role == Role.START;
+		Vec3 anchorHeading = anchor.heading();
 
-		// The curve as it will be once this anchor has a route running through it. For a start the
-		// neighbour is behind, so the curve runs into this node; for an end it is ahead, and the
-		// curve runs out of it.
-		Vec3 here = start ? AngledTrackAnchorBlockEntity.entryNode(pos, heading, true)
-			: AngledTrackAnchorBlockEntity.exitNode(pos, heading, true);
-		Vec3 there = start ? neighbour.exitNode() : neighbour.entryNode();
+		// The existing curve, written from this node outwards, so both it and the new curve are
+		// measured leaving the same place and the comparison is between like and like.
+		Vec3 here = neighbourIsNext ? AngledTrackAnchorBlockEntity.exitNode(pos, anchorHeading, true)
+			: AngledTrackAnchorBlockEntity.entryNode(pos, anchorHeading, true);
+		Vec3 there = neighbourIsNext ? neighbour.entryNode() : neighbour.exitNode();
 		if (here.distanceToSqr(there) < 1.0E-6)
 			return null;
 
-		BezierConnection adjoining = start
-			? new BezierConnection(Couple.create(neighbourPos, pos), Couple.create(there, here),
-				Couple.create(neighbour.heading(), heading.scale(-1)), Couple.create(UP, UP), true, false,
-				TrackMaterial.ANDESITE)
-			: new BezierConnection(Couple.create(pos, neighbourPos), Couple.create(here, there),
-				Couple.create(heading, neighbour.heading()
-					.scale(-1)),
-				Couple.create(UP, UP), true, false, TrackMaterial.ANDESITE);
+		Vec3 outward = neighbourIsNext ? anchorHeading : anchorHeading.scale(-1);
+		Vec3 farTangent = neighbourIsNext ? neighbour.heading()
+			.scale(-1) : neighbour.heading();
 
-		// Arriving at this node for a start, leaving it for an end — the two halves of what
-		// TrackEdge.canTravelTo compares.
-		Vec3 chord = start ? adjoining.getPosition(1)
-			.subtract(adjoining.getPosition(0.75))
-			: adjoining.getPosition(0.25)
-				.subtract(adjoining.getPosition(0));
-		return chord.lengthSqr() < 1.0E-8 ? null : chord.normalize();
+		BezierConnection adjoining = new BezierConnection(Couple.create(pos, neighbourPos),
+			Couple.create(here, there), Couple.create(outward, farTangent), Couple.create(UP, UP), true, false,
+			TrackMaterial.ANDESITE);
+
+		Vec3 chord = adjoining.getPosition(0.25)
+			.subtract(adjoining.getPosition(0));
+		if (chord.lengthSqr() < 1.0E-8)
+			return null;
+
+		// Negated, because the caller compares against the new curve leaving this node too, and two
+		// edges that continue one another leave it in opposite directions.
+		return chord.normalize()
+			.scale(-1);
 	}
 
 	// ------------------------------------------------------------- straight
