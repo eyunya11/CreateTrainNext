@@ -59,22 +59,33 @@ public final class CurvePlanner {
 	private static final Vec3 UP = new Vec3(0, 1, 0);
 
 	/**
-	 * How far a curve's chord may deviate from the tangent at its own end, as a dot product.
+	 * How closely a curve has to line up with whatever it meets at its ends, as a dot product.
 	 *
-	 * <p>Create refuses to let a train cross a node where the two edges differ in direction by more
-	 * than {@code 7/8} — about 29 degrees — and it measures each edge's direction as the chord over
-	 * a quarter of it rather than as the tangent. Two edges meeting tangentially can therefore
-	 * still be refused, purely because each bends away from the shared tangent.
+	 * <p>This is Create's own rule for whether a train may cross a node — {@code TrackEdge}
+	 * refuses one where the two edges differ in direction by more than {@code 7/8}, about 29
+	 * degrees — with a little headroom on top, since the curve shifts very slightly between being
+	 * previewed and being built.
 	 *
-	 * <p>Holding each end of our curve to half of Create's allowance, about 14.5 degrees, means any
-	 * two of them that meet tangentially are inside it together, whatever they are. That is what
-	 * makes "the wand placed it" and "a train can drive it" the same thing rather than two
-	 * questions.
+	 * <p>The subtlety is that Create measures an edge's direction as the chord over a quarter of
+	 * it, not as the tangent at its end, so two edges meeting perfectly tangentially can still be
+	 * refused because each bends away from the shared tangent. An earlier version answered that by
+	 * holding every end of every curve to half the allowance, on the grounds that two such halves
+	 * always fit. They do, but it is far too careful: it assumes the neighbour uses its whole half,
+	 * and it spends the same budget against a dead straight piece of Create track as against
+	 * another long curve. Curves that a train could take perfectly well were refused for it.
+	 *
+	 * <p>So the neighbour is measured instead of assumed. See {@link #adjoiningDirection}.
 	 */
-	private static final double MAX_END_DEVIATION = 0.968;
+	private static final double MIN_JOINT_DOT = 0.90;
 
-	/** The most the route may turn across one curve. Kept in step with {@link #MAX_END_DEVIATION}. */
-	private static final double MAX_TURN_DEGREES = 110;
+	/**
+	 * The most the route may turn across one curve.
+	 *
+	 * <p>More than Create manages on its own, which tops out at 90 — its track only meets at
+	 * multiples of 45. Past this a single curve is a hairpin, and {@link #MIN_RADIUS} is the check
+	 * that decides whether it is a buildable one.
+	 */
+	private static final double MAX_TURN_DEGREES = 135;
 
 	/** Below this the curve has no room to be a curve, and the two anchors would overlap. */
 	private static final double MIN_SPAN = 1.5;
@@ -82,7 +93,7 @@ public final class CurvePlanner {
 	/**
 	 * The tightest arc a curve may be, in blocks.
 	 *
-	 * <p>Not the same question as {@link #MAX_END_DEVIATION}, and the reason is worth spelling out:
+	 * <p>Not the same question as {@link #MIN_JOINT_DOT}, and the reason is worth spelling out:
 	 * how far a bezier's chord strays from its tangent depends only on how far the curve turns, not
 	 * on how long it is, so a quarter turn taken over two blocks and one taken over twenty are
 	 * identical by that measure. Only the radius tells them apart.
@@ -200,7 +211,7 @@ public final class CurvePlanner {
 			.equals(end.anchorPos()))
 			return Plan.failed("same_anchor");
 
-		return solve(start, end, angleOffsetDegrees);
+		return solve(level, start, end, angleOffsetDegrees);
 	}
 
 	/** Builds what {@code plan} described. Server side only; the client draws it instead. */
@@ -346,7 +357,7 @@ public final class CurvePlanner {
 
 	// ------------------------------------------------------------- geometry
 
-	private static Plan solve(Endpoint start, Endpoint end, float angleOffsetDegrees) {
+	private static Plan solve(Level level, Endpoint start, Endpoint end, float angleOffsetDegrees) {
 		Vec3 fixedStart = start.fixedHeading() == null ? null : flatUnit(start.fixedHeading());
 		Vec3 fixedEnd = end.fixedHeading() == null ? null : flatUnit(end.fixedHeading());
 
@@ -406,13 +417,13 @@ public final class CurvePlanner {
 			Couple.create(UP, UP), true, false, TrackMaterial.ANDESITE);
 
 		Plan plan = new Plan(null, start, end, startHeading, endHeading, curve, adjustable, turn);
-		String error = validate(plan, startPoint, endPoint, startHeading, endHeading, turn);
+		String error = validate(level, plan, startPoint, endPoint, startHeading, endHeading, turn);
 		return error == null ? plan : plan.withError(error);
 	}
 
 	@Nullable
-	private static String validate(Plan plan, Vec3 startPoint, Vec3 endPoint, Vec3 startHeading, Vec3 endHeading,
-		double turn) {
+	private static String validate(Level level, Plan plan, Vec3 startPoint, Vec3 endPoint, Vec3 startHeading,
+		Vec3 endHeading, double turn) {
 
 		Vec3 span = endPoint.subtract(startPoint);
 		double horizontal = flat(span).length();
@@ -448,21 +459,83 @@ public final class CurvePlanner {
 		if (radius > 0 && radius < MIN_RADIUS)
 			return "too_sharp";
 
-		// The bend within each half of the curve, which is what decides whether a train may cross
-		// the nodes at its ends. See MAX_END_DEVIATION.
+		// Whether a train may cross the nodes at either end, asked the way Create asks it: the
+		// direction this curve leaves by against the direction of whatever is already there.
 		Vec3 startChord = curve.getPosition(0.25)
 			.subtract(curve.getPosition(0));
 		Vec3 endChord = curve.getPosition(1)
 			.subtract(curve.getPosition(0.75));
 		if (startChord.lengthSqr() < 1.0E-8 || endChord.lengthSqr() < 1.0E-8)
 			return "too_sharp";
+
+		Vec3 arriving = adjoiningDirection(level, plan.start(), startHeading, Role.START);
 		if (startChord.normalize()
-			.dot(startHeading) < MAX_END_DEVIATION
-			|| endChord.normalize()
-				.dot(endHeading) < MAX_END_DEVIATION)
+			.dot(arriving == null ? startHeading : arriving) < MIN_JOINT_DOT)
+			return "too_sharp";
+
+		Vec3 leaving = adjoiningDirection(level, plan.end(), endHeading, Role.END);
+		if (endChord.normalize()
+			.dot(leaving == null ? endHeading : leaving) < MIN_JOINT_DOT)
 			return "too_sharp";
 
 		return null;
+	}
+
+	/**
+	 * Which way the track already at one end of this curve is running, measured as Create measures
+	 * it, or null where there is nothing there yet.
+	 *
+	 * <p>Null means the anchor's own span will be what meets the curve here, and a span is aimed
+	 * along the heading by construction — so the heading is the honest thing to compare against,
+	 * and the caller does. That covers every end that docks onto Create's track, which is exactly
+	 * the case the old fixed allowance was hardest on: it spent half its budget guarding against a
+	 * neighbour that is dead straight.
+	 *
+	 * <p>Otherwise the neighbour is another of this mod's curves, and it is rebuilt here rather
+	 * than read off the anchor. Linking is about to move this end of it: an anchor with a curve on
+	 * both sides puts its node at its block's centre, and the one being asked about has a curve on
+	 * one side so far. Reading it would measure the shape it is about to stop having.
+	 */
+	@Nullable
+	private static Vec3 adjoiningDirection(Level level, Endpoint endpoint, Vec3 heading, Role role) {
+		if (!endpoint.interior())
+			return null;
+		if (!(level.getBlockEntity(endpoint.anchorPos()) instanceof AngledTrackAnchorBlockEntity anchor))
+			return null;
+
+		BlockPos neighbourPos = role == Role.START ? anchor.getPrev() : anchor.getNext();
+		if (neighbourPos == null
+			|| !(level.getBlockEntity(neighbourPos) instanceof AngledTrackAnchorBlockEntity neighbour))
+			return null;
+
+		BlockPos pos = endpoint.anchorPos();
+		boolean start = role == Role.START;
+
+		// The curve as it will be once this anchor has a route running through it. For a start the
+		// neighbour is behind, so the curve runs into this node; for an end it is ahead, and the
+		// curve runs out of it.
+		Vec3 here = start ? AngledTrackAnchorBlockEntity.entryNode(pos, heading, true)
+			: AngledTrackAnchorBlockEntity.exitNode(pos, heading, true);
+		Vec3 there = start ? neighbour.exitNode() : neighbour.entryNode();
+		if (here.distanceToSqr(there) < 1.0E-6)
+			return null;
+
+		BezierConnection adjoining = start
+			? new BezierConnection(Couple.create(neighbourPos, pos), Couple.create(there, here),
+				Couple.create(neighbour.heading(), heading.scale(-1)), Couple.create(UP, UP), true, false,
+				TrackMaterial.ANDESITE)
+			: new BezierConnection(Couple.create(pos, neighbourPos), Couple.create(here, there),
+				Couple.create(heading, neighbour.heading()
+					.scale(-1)),
+				Couple.create(UP, UP), true, false, TrackMaterial.ANDESITE);
+
+		// Arriving at this node for a start, leaving it for an end — the two halves of what
+		// TrackEdge.canTravelTo compares.
+		Vec3 chord = start ? adjoining.getPosition(1)
+			.subtract(adjoining.getPosition(0.75))
+			: adjoining.getPosition(0.25)
+				.subtract(adjoining.getPosition(0));
+		return chord.lengthSqr() < 1.0E-8 ? null : chord.normalize();
 	}
 
 	// ---------------------------------------------------------------- split
