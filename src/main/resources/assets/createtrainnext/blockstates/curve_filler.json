@@ -1,0 +1,9 @@
+{
+  "multipart": [
+    {
+      "apply": {
+        "model": "createtrainnext:block/curve_filler"
+      }
+    }
+  ]
+}

@@ -2,11 +2,7 @@ package com.eyunya.createtrainnext.track;
 
 import java.util.ArrayList;
 import java.util.Collection;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
-import java.util.UUID;
-import java.util.function.BiFunction;
 import java.util.function.Function;
 
 import org.jetbrains.annotations.Nullable;
@@ -34,27 +30,21 @@ import net.createmod.catnip.math.AngleHelper;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.core.Direction.AxisDirection;
-import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceKey;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.util.RandomSource;
-import net.minecraft.world.InteractionHand;
-import net.minecraft.world.InteractionResult;
-import net.minecraft.world.ItemInteractionResult;
-import net.minecraft.world.entity.player.Player;
-import net.minecraft.world.item.ItemStack;
-import net.minecraft.world.item.Items;
 import net.minecraft.world.item.context.BlockPlaceContext;
 import net.minecraft.world.level.BlockGetter;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.EntityBlock;
 import net.minecraft.world.level.block.entity.BlockEntity;
+import net.minecraft.world.level.block.entity.BlockEntityTicker;
+import net.minecraft.world.level.block.entity.BlockEntityType;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.block.state.StateDefinition;
 import net.minecraft.world.level.block.state.properties.BlockStateProperties;
 import net.minecraft.world.level.block.state.properties.EnumProperty;
-import net.minecraft.world.phys.BlockHitResult;
 import net.minecraft.world.phys.Vec3;
 import net.minecraft.world.phys.shapes.CollisionContext;
 import net.minecraft.world.phys.shapes.VoxelShape;
@@ -72,21 +62,22 @@ import net.minecraft.world.phys.shapes.VoxelShape;
  * headings either side of them are the same vector; only the two ends of a chain reconcile a free
  * angle with a discrete axis, and the anchor's own span bends across its block to do it.
  *
- * <p>Controls:
- * <ul>
- * <li>Right click with an empty hand turns the anchor by 15 degrees (sneak to go back).</li>
- * <li>Right click with a stick on one anchor then another continues the route from the first to
- * the second. Using a stick on an anchor that is already linked clears both of its links.</li>
- * </ul>
+ * <p>The block carries no interactions of its own. Everything a player does to a route — aiming an
+ * anchor, joining two of them, taking a join apart, putting a new one part way along a curve — is
+ * done with the {@link CurveWandItem}, which places anchors as a side effect of drawing a curve
+ * rather than asking anyone to place them first. Breaking an anchor still undoes its links, because
+ * that is what breaking a piece of track means.
+ *
+ * <p>Being a real track block is also what makes an anchor somewhere a signal or a station can go:
+ * Create places those against a track block and a direction, and resolves them through
+ * {@code TrackGraphHelper}, which asks {@link #getTrackAxes} — see
+ * {@link AngledTrackAnchorBlockEntity#targetingAxis} for why that reports the heading rather than
+ * the block's discrete axis. The curve between two anchors is not such a place; Create's own
+ * mid-curve targeting recognises only its own block entities.
  */
 public class AngledTrackAnchorBlock extends Block implements EntityBlock, ITrackBlock {
 
 	public static final EnumProperty<AnchorAxis> AXIS = EnumProperty.create("axis", AnchorAxis.class);
-
-	private static final float STEP_DEGREES = 15.0F;
-
-	/** Server-side scratch state: which anchor each player picked first. */
-	private static final Map<UUID, BlockPos> PENDING_LINKS = new HashMap<>();
 
 	public AngledTrackAnchorBlock(Properties properties) {
 		super(properties);
@@ -118,28 +109,47 @@ public class AngledTrackAnchorBlock extends Block implements EntityBlock, ITrack
 
 	// ------------------------------------------------------------------ shape
 
-	// Reuse Create's own track shapes rather than approximating them, so an anchor selects and
-	// walks exactly like the track it sits in line with.
-
-	private VoxelShape outlineShape(BlockState state) {
-		return switch (state.getValue(AXIS)) {
-			case X_ORTHO -> AllShapes.TRACK_ORTHO.get(Direction.EAST);
-			case Z_ORTHO -> AllShapes.TRACK_ORTHO.get(Direction.SOUTH);
-			case DIAG -> AllShapes.TRACK_DIAG.get(Direction.EAST);
-			case DIAG_2 -> AllShapes.TRACK_DIAG.get(Direction.SOUTH);
-		};
+	/**
+	 * The outline, following the heading rather than the axis.
+	 *
+	 * <p>This used to be one of Create's four fixed track shapes, chosen off {@link #AXIS} — which
+	 * meant that everything about an anchor followed its real angle except the box you point at.
+	 * The rails are drawn from the same bezier the graph uses, the block's own model is empty, and
+	 * then a curve running at 17 degrees was highlighted as though it ran at 0 or 45.
+	 *
+	 * <p>See {@link AnchorShapes}: the band is built the way Create builds its own, by sliding a
+	 * block box along the track and taking the union, with the heading substituted for the axis.
+	 */
+	private static VoxelShape outlineShape(BlockGetter level, BlockPos pos, BlockState state) {
+		if (level.getBlockEntity(pos) instanceof AngledTrackAnchorBlockEntity anchor)
+			return AnchorShapes.outline(anchor.getYaw());
+		// No block entity to ask — a chunk still loading, or a state being asked about away from
+		// the world. The axis is where a fresh anchor points until something aims it.
+		return AnchorShapes.outline(state.getValue(AXIS)
+			.defaultYaw());
 	}
 
 	@Override
 	protected VoxelShape getShape(BlockState state, BlockGetter level, BlockPos pos, CollisionContext context) {
-		return outlineShape(state);
+		return outlineShape(level, pos, state);
 	}
 
 	@Override
 	protected VoxelShape getInteractionShape(BlockState state, BlockGetter level, BlockPos pos) {
-		return outlineShape(state);
+		return outlineShape(level, pos, state);
 	}
 
+	/**
+	 * A flat slab across the whole block, whatever way the anchor points.
+	 *
+	 * <p>Deliberately not swept along the heading like the outline above. Create's own track
+	 * answers the same way for every shape it has, diagonals included, and the reason holds here
+	 * too: a band narrow enough to show the angle is a band you can walk off the side of. An anchor
+	 * sits between two stretches of {@link CurveFillerBlock}, which hold up the whole block they
+	 * are in, so an angled slab here would be a notch in an otherwise continuous floor — felt
+	 * underfoot at every joint of a route, and gaining nothing, since the outline is what shows the
+	 * angle and this cannot be seen at all.
+	 */
 	@Override
 	protected VoxelShape getCollisionShape(BlockState state, BlockGetter level, BlockPos pos,
 		CollisionContext context) {
@@ -160,13 +170,36 @@ public class AngledTrackAnchorBlock extends Block implements EntityBlock, ITrack
 	@Override
 	protected void tick(BlockState state, ServerLevel level, BlockPos pos, RandomSource random) {
 		TrackPropagator.onRailAdded(level, pos, state);
+		// Everything that moves a curve already schedules this tick to rebuild the graph, so the
+		// floor under the curve rides along with it rather than needing its own set of call sites.
+		if (level.getBlockEntity(pos) instanceof AngledTrackAnchorBlockEntity anchor)
+			anchor.updateOccupancy();
+	}
+
+	/**
+	 * Ticks only to renew the floor under the curve — see
+	 * {@link AngledTrackAnchorBlockEntity#serverTick}. Client side there is nothing to renew.
+	 */
+	@Override
+	@Nullable
+	public <T extends BlockEntity> BlockEntityTicker<T> getTicker(Level level, BlockState state,
+		BlockEntityType<T> type) {
+		if (level.isClientSide)
+			return null;
+		return (tickLevel, tickPos, tickState, blockEntity) -> {
+			if (blockEntity instanceof AngledTrackAnchorBlockEntity anchor)
+				anchor.serverTick();
+		};
 	}
 
 	@Override
 	protected void onRemove(BlockState state, Level level, BlockPos pos, BlockState newState, boolean isMoving) {
 		if (!state.is(newState.getBlock())) {
-			if (!level.isClientSide && level.getBlockEntity(pos) instanceof AngledTrackAnchorBlockEntity anchor)
+			if (!level.isClientSide && level.getBlockEntity(pos) instanceof AngledTrackAnchorBlockEntity anchor) {
+				// Before unlink, which drops the link this anchor's floor is derived from.
+				anchor.clearOccupancy();
 				anchor.unlink();
+			}
 			TrackPropagator.onRailRemoved(level, pos, state);
 		}
 		super.onRemove(state, level, pos, newState, isMoving);
@@ -200,10 +233,40 @@ public class AngledTrackAnchorBlock extends Block implements EntityBlock, ITrack
 		return ImmutableList.of(axisVector(state));
 	}
 
+	/**
+	 * Where a curve leaving this block would start, for Create's own track wand.
+	 *
+	 * <p>Deliberately ignores the length of the axis it is handed. Create passes back whatever
+	 * {@link #getTrackAxes} reported, and what an anchor reports there is aimed at the directions of
+	 * its edges rather than at the node lattice — and at an anchor with a curve on either side it is
+	 * short on purpose, since its length is what widens the placement tolerance. Half of that vector
+	 * would be a point somewhere inside the block, which is nowhere Create can put a node.
+	 *
+	 * <p>So only the side of the block it picked is taken from the argument. The step itself is
+	 * along {@link #AXIS}, which is where an anchor's nodes actually are.
+	 */
 	@Override
 	public Vec3 getCurveStart(BlockGetter world, BlockPos pos, BlockState state, Vec3 axis) {
+		Vec3 discrete = axisVector(state);
 		return Vec3.atBottomCenterOf(pos)
-			.add(axis.scale(0.5));
+			.add(discrete.scale(discrete.dot(axis) < 0 ? -0.5 : 0.5));
+	}
+
+	/**
+	 * Never, whatever the route is doing overhead.
+	 *
+	 * <p>The default answer is {@code getTrackAxes().get(0).y != 0}, and an anchor's reported axis
+	 * is measured off its curves, so one on a climbing route reports an axis that rises. That would
+	 * be read as a sloped block, and a sloped block has {@code getElevationAtCenter} of half a block
+	 * — which is where {@code TrackGraphHelper} then looks for the node at this block's centre, and
+	 * finds nothing.
+	 *
+	 * <p>An anchor is flat in every case. A route climbs by having its anchors at different heights,
+	 * exactly as Create's own ascending curves run between two flat track blocks.
+	 */
+	@Override
+	public boolean isSlope(BlockGetter world, BlockPos pos, BlockState state) {
+		return false;
 	}
 
 	@Override
@@ -225,18 +288,35 @@ public class AngledTrackAnchorBlock extends Block implements EntityBlock, ITrack
 	}
 
 	/**
-	 * Reports only the free-angle curve, as a {@code viaTurn} connection.
+	 * What this anchor contributes to the track graph: its own span across the block, and the
+	 * curves either side of it.
 	 *
-	 * <p>Note what is <em>not</em> here: a straight edge across the anchor's own block. An earlier
-	 * version reported one, so the anchor behaved like a one-block piece of track that a curve
-	 * happened to leave from. But that stub can only lie on a discrete axis — it has to, to keep
-	 * its nodes on the half-block lattice — while the curve leaves at whatever angle the player
-	 * chose, so the two met at an angle of up to 45 degrees. The graph was right and the curve was
-	 * right; the bend between them was what read as a train running beside its rails.
+	 * <p>The span is reported one of two ways, and which one matters more than it looks.
 	 *
-	 * <p>With one node per anchor there is nothing for the curve to disagree with. Docking to
-	 * Create's own track still works: that node sits on the block boundary, which is a lattice
-	 * point an adjacent Create track reports too, so the two merge into one node as before.
+	 * <p>Where the span <em>bends</em> — an anchor whose heading was chosen freely, so that the
+	 * route has to turn from that heading onto the nearest lattice-safe axis before it can hand
+	 * over to a discrete-axis neighbour — it is a {@code viaTurn} connection, because that is what
+	 * it is. Turning across the block rather than at a node is the whole reason the span exists:
+	 * {@code TrackEdge.canTravelTo} refuses a node where the direction changes by more than about
+	 * 29 degrees, and spreading the change over an edge keeps it under that.
+	 *
+	 * <p>Where the span is <em>straight</em> — which is every anchor docked onto Create's own
+	 * track, since the wand aims those along the track's axis — it is reported exactly the way
+	 * Create's own track block reports itself: a plain edge along {@link #AXIS}, no turn. This is
+	 * not cosmetic. {@code TrackPropagator.isValidGraphNodeLocation} keeps a location as a graph
+	 * node whenever anything continuing from it came {@code viaTurn}, and merges it away when the
+	 * continuation is straight and in line. Reported as a turn, a dock grew a node and a one block
+	 * bezier edge in the middle of what is physically a straight run of track — geometry Create
+	 * never produces for its own joins, and a shape trains had to negotiate for no reason.
+	 * Reported straight, the propagator folds the anchor's span into the run of Create track beside
+	 * it, and the junction stops being a junction at all.
+	 *
+	 * <p>Note what is <em>not</em> here in either case: a straight edge across a block whose span
+	 * bends. An early version reported one unconditionally, so the anchor behaved like a one-block
+	 * piece of track that a curve happened to leave from. But that stub can only lie on a discrete
+	 * axis, while the curve leaves at whatever angle the player chose, so the two met at an angle
+	 * of up to 45 degrees. The graph was right and the curve was right; the bend between them was
+	 * what read as a train running beside its rails.
 	 */
 	@Override
 	public Collection<DiscoveredLocation> getConnected(BlockGetter worldIn, BlockPos pos, BlockState state,
@@ -265,11 +345,15 @@ public class AngledTrackAnchorBlock extends Block implements EntityBlock, ITrack
 		Function<Vec3, Integer> yOffsetFactory = v -> getYOffsetAt(world, pos, state, v);
 
 		if (span != null) {
-			// The block's own stretch of route, bending across it to meet a discrete axis at
-			// whichever side is open.
-			ITrackBlock.addToListIfConnected(connectedTo, list,
-				(d, b) -> d == 1 ? Vec3.atLowerCornerOf(span.bePositions.get(b)) : span.starts.get(b),
-				b -> getUpNormal(world, pos, state), dimensionFactory, yOffsetFactory, null, span,
+			// A span only exists on an anchor whose heading lies along its axis — see
+			// AngledTrackAnchorBlockEntity.usesCentreNode — so it is always a straight line, and it
+			// is reported the way Create's own track block reports itself: the same offsets from
+			// the block centre, the same axis as its direction, the same material sampling, and no
+			// turn. The propagator then folds the anchor's span into the run of track it is docked
+			// to, and the junction stops being a junction.
+			Vec3 axis = axisVector(state);
+			ITrackBlock.addToListIfConnected(connectedTo, list, (d, b) -> axis.scale(b ? d : -d)
+				.add(center), b -> getUpNormal(world, pos, state), dimensionFactory, yOffsetFactory, axis, null,
 				(b, v) -> ITrackBlock.getMaterialSimple(world, v, getMaterial()));
 
 		} else if (linear) {
@@ -295,11 +379,12 @@ public class AngledTrackAnchorBlock extends Block implements EntityBlock, ITrack
 		// graph walkable in one direction — and rebuilding walks forward after deleting everything
 		// it can reach, which quietly dropped the curve behind. Reporting both makes it symmetric,
 		// the way Create's own track is by storing each bezier on both of its ends.
-		for (BezierConnection bc : new BezierConnection[] { anchor.buildCurveToNext(),
+		for (BezierConnection owned : new BezierConnection[] { anchor.buildCurveToNext(),
 			anchor.buildCurveFromPrev() }) {
-			if (bc == null)
+			if (owned == null)
 				continue;
 
+			BezierConnection bc = orientedAwayFrom(owned, connectedTo);
 			ITrackBlock.addToListIfConnected(connectedTo, list,
 				(d, b) -> d == 1 ? Vec3.atLowerCornerOf(bc.bePositions.get(b)) : bc.starts.get(b), bc.normals::get,
 				b -> world instanceof Level l ? l.dimension() : Level.OVERWORLD, bc::yOffsetAt, null, bc,
@@ -307,6 +392,43 @@ public class AngledTrackAnchorBlock extends Block implements EntityBlock, ITrack
 		}
 
 		return list;
+	}
+
+	/**
+	 * The same curve, turned around if need be so that it runs <em>away</em> from the node being
+	 * asked about.
+	 *
+	 * <p>This is not a detail. {@code TrackPropagator} turns a reported location into an edge with
+	 * {@code connectNodes(parentNode, currentNode, currentNode.getTurn())}, and
+	 * {@code TrackGraph.connectNodes} then takes the bezier to run from the first of those to the
+	 * second, building the reverse edge from {@code turn.secondary()}. So a bezier reported by the
+	 * end the walk arrived <em>at</em> is a bezier pointing the wrong way, and both edges across it
+	 * come out backwards — the graph says one thing and the geometry says the opposite.
+	 *
+	 * <p>What that looks like in game is a train stopping at a junction with "reached the end of
+	 * its track". {@code TrackEdge.canTravelTo} compares the direction it is leaving one edge by
+	 * against the direction of the next, and a reversed edge reports its direction as very nearly
+	 * the exact opposite of the truth — a dot product close to -1 where 7/8 was needed.
+	 *
+	 * <p>Create never hits this because each of its curves is stored twice, once on the block
+	 * entity at either end, the second already reversed by {@code secondary()}. An anchor builds
+	 * its curves on demand instead, and the one behind it is built by its predecessor, so both ends
+	 * would otherwise report the predecessor's orientation. Which of the two ends the propagator
+	 * happens to walk from decides whether that is right — and that is settled by which scheduled
+	 * tick ran last, which is why the fault came and went.
+	 */
+	private static BezierConnection orientedAwayFrom(BezierConnection curve,
+		@Nullable TrackNodeLocation connectedTo) {
+		if (connectedTo == null)
+			return curve;
+
+		// Whichever end the walk is standing on has to be the bezier's first. Nearest wins rather
+		// than an exact comparison, because the two ends are always far apart compared to the
+		// rounding the node lattice applies, and there is nothing to tune.
+		Vec3 from = connectedTo.getLocation();
+		return from.distanceToSqr(curve.starts.getSecond()) < from.distanceToSqr(curve.starts.getFirst())
+			? curve.secondary()
+			: curve;
 	}
 
 	@Override
@@ -338,63 +460,5 @@ public class AngledTrackAnchorBlock extends Block implements EntityBlock, ITrack
 		TransformStack.of(ms)
 			.rotateCentered(AngleHelper.rad(AngleHelper.horizontalAngle(direction)), Direction.UP);
 		return AllPartialModels.TRACK_ASSEMBLING_OVERLAY;
-	}
-
-	// ----------------------------------------------------------- interaction
-
-	@Override
-	protected InteractionResult useWithoutItem(BlockState state, Level level, BlockPos pos, Player player,
-		BlockHitResult hit) {
-		if (!(level.getBlockEntity(pos) instanceof AngledTrackAnchorBlockEntity anchor))
-			return InteractionResult.PASS;
-		if (level.isClientSide)
-			return InteractionResult.SUCCESS;
-
-		anchor.rotateYaw(player.isShiftKeyDown() ? -STEP_DEGREES : STEP_DEGREES);
-		player.displayClientMessage(
-			Component.translatable("message.createtrainnext.angle", String.format("%.1f", anchor.getYaw())), true);
-		return InteractionResult.CONSUME;
-	}
-
-	@Override
-	protected ItemInteractionResult useItemOn(ItemStack stack, BlockState state, Level level, BlockPos pos,
-		Player player, InteractionHand hand, BlockHitResult hit) {
-		if (!stack.is(Items.STICK))
-			return ItemInteractionResult.PASS_TO_DEFAULT_BLOCK_INTERACTION;
-		if (!(level.getBlockEntity(pos) instanceof AngledTrackAnchorBlockEntity anchor))
-			return ItemInteractionResult.PASS_TO_DEFAULT_BLOCK_INTERACTION;
-		if (level.isClientSide)
-			return ItemInteractionResult.SUCCESS;
-
-		UUID playerId = player.getUUID();
-		BlockPos pending = PENDING_LINKS.get(playerId);
-
-		// Clicking the anchor you are already holding just puts it down. This used to unlink it,
-		// which sat badly with the flow: right after linking into an anchor it is the held one, so
-		// clicking it again — the obvious way to say "carry on from here" — tore up the link that
-		// had just been made. Breaking the block is the way to undo a link; onRemove handles it.
-		if (pos.equals(pending)) {
-			PENDING_LINKS.remove(playerId);
-			player.displayClientMessage(Component.translatable("message.createtrainnext.link_cancelled"), true);
-			return ItemInteractionResult.CONSUME;
-		}
-
-		AngledTrackAnchorBlockEntity from =
-			pending != null && level.getBlockEntity(pending) instanceof AngledTrackAnchorBlockEntity f ? f : null;
-
-		if (from == null) {
-			PENDING_LINKS.put(playerId, pos);
-			player.displayClientMessage(Component.translatable("message.createtrainnext.link_started"), true);
-			return ItemInteractionResult.CONSUME;
-		}
-
-		from.linkTo(anchor);
-
-		// Carry on from the anchor just reached, so a whole route is laid by clicking each anchor
-		// along it in turn. Stopping here instead would make every segment a separate two-click
-		// gesture, and an anchor could never become the start of the next one.
-		PENDING_LINKS.put(playerId, pos);
-		player.displayClientMessage(Component.translatable("message.createtrainnext.link_done"), true);
-		return ItemInteractionResult.CONSUME;
 	}
 }

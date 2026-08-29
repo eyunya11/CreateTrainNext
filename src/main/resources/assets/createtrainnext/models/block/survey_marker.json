@@ -1,0 +1,145 @@
+{
+  "parent": "block/block",
+  "textures": {
+    "post": "create:block/andesite_casing",
+    "particle": "create:block/andesite_casing"
+  },
+  "elements": [
+    {
+      "from": [
+        6,
+        0,
+        6
+      ],
+      "to": [
+        10,
+        12,
+        10
+      ],
+      "faces": {
+        "north": {
+          "uv": [
+            6,
+            4,
+            10,
+            16
+          ],
+          "texture": "#post"
+        },
+        "south": {
+          "uv": [
+            6,
+            4,
+            10,
+            16
+          ],
+          "texture": "#post"
+        },
+        "east": {
+          "uv": [
+            6,
+            4,
+            10,
+            16
+          ],
+          "texture": "#post"
+        },
+        "west": {
+          "uv": [
+            6,
+            4,
+            10,
+            16
+          ],
+          "texture": "#post"
+        },
+        "up": {
+          "uv": [
+            6,
+            4,
+            10,
+            16
+          ],
+          "texture": "#post"
+        },
+        "down": {
+          "uv": [
+            6,
+            4,
+            10,
+            16
+          ],
+          "texture": "#post"
+        }
+      }
+    },
+    {
+      "from": [
+        4,
+        12,
+        4
+      ],
+      "to": [
+        12,
+        15,
+        12
+      ],
+      "faces": {
+        "north": {
+          "uv": [
+            4,
+            1,
+            12,
+            4
+          ],
+          "texture": "#post"
+        },
+        "south": {
+          "uv": [
+            4,
+            1,
+            12,
+            4
+          ],
+          "texture": "#post"
+        },
+        "east": {
+          "uv": [
+            4,
+            1,
+            12,
+            4
+          ],
+          "texture": "#post"
+        },
+        "west": {
+          "uv": [
+            4,
+            1,
+            12,
+            4
+          ],
+          "texture": "#post"
+        },
+        "up": {
+          "uv": [
+            4,
+            1,
+            12,
+            4
+          ],
+          "texture": "#post"
+        },
+        "down": {
+          "uv": [
+            4,
+            1,
+            12,
+            4
+          ],
+          "texture": "#post"
+        }
+      }
+    }
+  ]
+}

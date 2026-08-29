@@ -13,6 +13,11 @@ import com.eyunya.createtrainnext.speed.SpeedLimitBlockEntity;
 import com.eyunya.createtrainnext.track.AngledTrackAnchorBlock;
 import com.eyunya.createtrainnext.track.AngledTrackAnchorBlockEntity;
 import com.simibubi.create.content.trains.graph.EdgePointType;
+import com.eyunya.createtrainnext.track.CurveFillerBlock;
+import com.eyunya.createtrainnext.track.CurveFillerBlockEntity;
+import com.eyunya.createtrainnext.track.CurveWandItem;
+import com.eyunya.createtrainnext.track.SurveyMarkerBlock;
+import com.eyunya.createtrainnext.track.SurveyMarkerBlockEntity;
 import com.simibubi.create.content.trains.track.TrackTargetingBlockItem;
 
 import net.minecraft.core.registries.Registries;
@@ -55,10 +60,59 @@ public class CTNRegistry {
 	public static final DeferredItem<BlockItem> ANGLED_TRACK_ANCHOR_ITEM =
 		ITEMS.registerSimpleBlockItem("angled_track_anchor", ANGLED_TRACK_ANCHOR);
 
+	/**
+	 * The tool the whole feature is actually used through.
+	 *
+	 * <p>The anchor above is still an item, and still placeable by hand, but it is no longer how a
+	 * route is built — the wand places one wherever a curve needs an end. Keeping it around is for
+	 * the case the wand is bad at: putting an anchor on an exact block, before deciding where the
+	 * line goes.
+	 */
+	public static final DeferredItem<CurveWandItem> CURVE_WAND = ITEMS.registerItem("curve_wand", CurveWandItem::new);
+
+	/**
+	 * The invisible floor laid along a curve, so a curve is something to walk on rather than
+	 * something to fall through. Never in the creative tab: it is placed by the anchors, and an
+	 * item that put one down by hand would only be a way to leave one somewhere nothing renews it.
+	 */
+	public static final DeferredBlock<CurveFillerBlock> CURVE_FILLER = BLOCKS.registerBlock(
+		"curve_filler",
+		CurveFillerBlock::new,
+		BlockBehaviour.Properties.of()
+			.mapColor(MapColor.NONE)
+			.strength(0.1F)
+			.sound(SoundType.METAL));
+
+	public static final Supplier<BlockEntityType<CurveFillerBlockEntity>> CURVE_FILLER_ENTITY =
+		BLOCK_ENTITIES.register("curve_filler", () -> BlockEntityType.Builder
+			.of(CurveFillerBlockEntity::new, CURVE_FILLER.get())
+			.build(null));
+
 	// The BlockEntityType is what carries our renderer, so the block itself can stay a plain cube.
 	public static final Supplier<BlockEntityType<AngledTrackAnchorBlockEntity>> ANGLED_TRACK_ANCHOR_ENTITY =
 		BLOCK_ENTITIES.register("angled_track_anchor", () -> BlockEntityType.Builder
 			.of(AngledTrackAnchorBlockEntity::new, ANGLED_TRACK_ANCHOR.get())
+			.build(null));
+
+	/**
+	 * The post that lays a straight run at a stated bearing, for the half of railway building the
+	 * wand is bad at: a line that has to leave at an angle rather than towards a place.
+	 */
+	public static final DeferredBlock<SurveyMarkerBlock> SURVEY_MARKER = BLOCKS.registerBlock(
+		"survey_marker",
+		SurveyMarkerBlock::new,
+		BlockBehaviour.Properties.of()
+			.mapColor(MapColor.METAL)
+			.strength(0.8F)
+			.sound(SoundType.NETHERITE_BLOCK)
+			.noOcclusion());
+
+	public static final DeferredItem<BlockItem> SURVEY_MARKER_ITEM =
+		ITEMS.registerSimpleBlockItem("survey_marker", SURVEY_MARKER);
+
+	public static final Supplier<BlockEntityType<SurveyMarkerBlockEntity>> SURVEY_MARKER_ENTITY =
+		BLOCK_ENTITIES.register("survey_marker", () -> BlockEntityType.Builder
+			.of(SurveyMarkerBlockEntity::new, SURVEY_MARKER.get())
 			.build(null));
 
 	public static final DeferredBlock<SpeedLimitBlock> TRACK_SPEED_LIMIT = BLOCKS.registerBlock(
@@ -155,10 +209,12 @@ public class CTNRegistry {
 	public static final DeferredHolder<CreativeModeTab, CreativeModeTab> TAB =
 		CREATIVE_TABS.register("main", () -> CreativeModeTab.builder()
 			.title(Component.translatable("itemGroup." + CreateTrainNext.ID))
-			.icon(() -> ANGLED_TRACK_ANCHOR_ITEM.get()
+			.icon(() -> CURVE_WAND.get()
 				.getDefaultInstance())
 			.displayItems((params, output) -> {
+				output.accept(CURVE_WAND.get());
 				output.accept(ANGLED_TRACK_ANCHOR_ITEM.get());
+				output.accept(SURVEY_MARKER_ITEM.get());
 				output.accept(TRACK_SPEED_LIMIT_ITEM.get());
 				output.accept(SIGNAL_POLE_ITEM.get());
 				output.accept(MULTI_ASPECT_SIGNAL_ITEM.get());
