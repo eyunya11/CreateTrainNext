@@ -49,6 +49,15 @@ public class AngledTrackAnchorBlockEntity extends BlockEntity {
 	 */
 	private static final int OCCUPANCY_REFRESH_TICKS = 100;
 
+	/**
+	 * Slack added on top of the disagreement the two edges at a node actually show, so the
+	 * comparison is not sitting exactly on its own limit once float error is added to it.
+	 */
+	private static final double TARGETING_MARGIN = Math.toRadians(2);
+
+	/** The most a node may be forgiven. See {@link #reachFor}. */
+	private static final double MAX_TARGETING_SLACK = Math.toRadians(60);
+
 	private static final String TAG_YAW = "Yaw";
 	private static final String TAG_PREV = "Prev";
 	private static final String TAG_NEXT = "Next";
@@ -298,36 +307,87 @@ public class AngledTrackAnchorBlockEntity extends BlockEntity {
 	 * and the comparison allows about 0.9, so reporting the heading has placement refused anywhere
 	 * the route is actually curving. Measuring the same chord here makes the two agree by
 	 * construction.
+	 *
+	 * <p>The vector reported by an anchor with a curve on either side is deliberately <em>short</em>.
+	 * See {@link #reachFor}: its length is what buys the slack that lets a signal or a station be
+	 * placed facing either way along the route rather than only one.
 	 */
 	public Vec3 targetingAxis() {
 		// An end resolves through the helper's second case, which compares against the direction of
 		// this block's own linear span rather than any edge — and that span lies on the discrete
 		// axis. Reporting the heading there had it refused at every angle where the two differ,
-		// which is why only multiples of 45 worked.
+		// which is why only multiples of 45 worked. Both directions already work there, because the
+		// span runs both ways out of the block's centre and each way matches the axis exactly.
 		if (!isInterior())
 			return AngledTrackAnchorBlock.axisVector(getBlockState());
 
-		// Matched to the curve ahead exactly, which means placement works from one side only.
-		//
-		// The comparison is against this axis negated, so which of the two edges at the node it
-		// runs against depends on which way the player faces, and reporting two axes is not an
-		// option — more than one is read as a junction and refused. A bisector was tried, on the
-		// assumption the two edges were nearly collinear here: the tangents are, exactly, but
-		// getDirection measures the chord across a quarter of an <em>entire</em> curve, and on a
-		// long one that came out 18 and 26 degrees off the tangent, the two edges 45 degrees from
-		// collinear. Split between them and neither is within the 0.9 degrees allowed; matched to
-		// one and that one is exact.
-		//
-		// The underlying limit is Create's, not this mod's: that tolerance assumes a block with a
-		// straight edge, and an interior anchor is mid-curve by construction. Create places its own
-		// stations and signals on straight track for the same reason.
-		Vec3 ahead = chordOf(buildCurveToNext());
-		if (ahead != null)
-			return ahead;
-
+		// The two directions leaving this node, measured the way Create measures them.
+		Vec3 forwards = chordOf(buildCurveToNext());
 		BezierConnection behind = buildCurveFromPrev();
-		Vec3 back = behind == null ? null : chordOf(behind.secondary());
-		return back == null ? heading() : back.scale(-1);
+		Vec3 backwards = behind == null ? null : chordOf(behind.secondary());
+
+		if (forwards == null && backwards == null)
+			return heading();
+		if (backwards == null)
+			return forwards;
+		if (forwards == null)
+			return backwards.scale(-1);
+
+		// These two ought to be exact opposites and are not. The tangents are — a route runs
+		// through an interior anchor along one heading, so the curve ahead leaves along it and the
+		// curve behind arrives along it — but getDirection measures a chord across a quarter of an
+		// <em>entire</em> curve, and on a long one that lands 18 or 26 degrees off the tangent it
+		// belongs to. Two curves of different lengths therefore disagree about which way the route
+		// runs here by as much as 45 degrees.
+		//
+		// Matching one of them exactly is what the earlier version did, and it is exactly why a
+		// signal could only be placed facing one way: the comparison is against the reported axis
+		// negated, so which of the two edges a placement runs against depends on which way the
+		// player faces, and only the matched one was ever inside the tolerance. Reporting both as
+		// two axes is not an option either — more than one is read as a junction and refused.
+		Vec3 bisector = forwards.subtract(backwards);
+		if (bisector.lengthSqr() < 1.0E-6)
+			return heading();
+		bisector = bisector.normalize();
+
+		// So: split the difference, then widen the tolerance until the difference fits inside it.
+		double worst = Math.max(angleBetween(bisector, forwards), angleBetween(bisector.scale(-1), backwards));
+		return bisector.scale(reachFor(worst));
+	}
+
+	/**
+	 * How long the reported axis has to be for Create to accept an edge {@code deviation} radians
+	 * away from it.
+	 *
+	 * <p>The check in {@code getGraphLocationAt} is
+	 * {@code direction.scale(length).distanceToSqr(axis.scale(-1)) > 1/4096}, where {@code length}
+	 * is the reported axis's own length and {@code direction} is a unit vector. Both sides of that
+	 * comparison are therefore vectors of the same length L, so the squared distance between them
+	 * is {@code 2L^2 (1 - cos t)} and the whole test reduces to an angle:
+	 *
+	 * <pre>2 L^2 (1 - cos t) &lt;= 1/4096   &lt;=&gt;   L &lt;= sqrt(1 / (8192 (1 - cos t)))</pre>
+	 *
+	 * <p>The tolerance is written as an absolute distance, so <em>the length of the axis is what
+	 * decides how much angle it forgives</em>. A unit axis — which is what Create's own orthogonal
+	 * track reports — allows about 0.9 degrees, and that is right for a block whose edges are
+	 * straight and whose direction is therefore exact. An anchor mid-curve has no such exactness to
+	 * offer, so it reports a shorter axis and asks for the slack it actually needs.
+	 *
+	 * <p>Bounded at both ends. Never longer than a unit vector, so this can only loosen the
+	 * comparison, never tighten it past what Create already allows. And never loose enough to reach
+	 * the <em>other</em> edge at the node, which sits close to 180 degrees away: past
+	 * {@link #MAX_TARGETING_SLACK} a node this bent is better refused than resolved to whichever of
+	 * its two edges happened to be iterated first.
+	 */
+	private static double reachFor(double deviation) {
+		double allowed = Math.min(MAX_TARGETING_SLACK, deviation + TARGETING_MARGIN);
+		double spread = 1 - Math.cos(allowed);
+		return spread < 1.0E-9 ? 1 : Math.min(1, Math.sqrt(1 / (8192 * spread)));
+	}
+
+	/** The angle between two unit vectors, in radians. */
+	private static double angleBetween(Vec3 a, Vec3 b) {
+		return Math.acos(Math.max(-1, Math.min(1, a.dot(b))));
 	}
 
 	/**

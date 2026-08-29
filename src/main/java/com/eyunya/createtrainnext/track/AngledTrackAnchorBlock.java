@@ -214,10 +214,40 @@ public class AngledTrackAnchorBlock extends Block implements EntityBlock, ITrack
 		return ImmutableList.of(axisVector(state));
 	}
 
+	/**
+	 * Where a curve leaving this block would start, for Create's own track wand.
+	 *
+	 * <p>Deliberately ignores the length of the axis it is handed. Create passes back whatever
+	 * {@link #getTrackAxes} reported, and what an anchor reports there is aimed at the directions of
+	 * its edges rather than at the node lattice — and at an anchor with a curve on either side it is
+	 * short on purpose, since its length is what widens the placement tolerance. Half of that vector
+	 * would be a point somewhere inside the block, which is nowhere Create can put a node.
+	 *
+	 * <p>So only the side of the block it picked is taken from the argument. The step itself is
+	 * along {@link #AXIS}, which is where an anchor's nodes actually are.
+	 */
 	@Override
 	public Vec3 getCurveStart(BlockGetter world, BlockPos pos, BlockState state, Vec3 axis) {
+		Vec3 discrete = axisVector(state);
 		return Vec3.atBottomCenterOf(pos)
-			.add(axis.scale(0.5));
+			.add(discrete.scale(discrete.dot(axis) < 0 ? -0.5 : 0.5));
+	}
+
+	/**
+	 * Never, whatever the route is doing overhead.
+	 *
+	 * <p>The default answer is {@code getTrackAxes().get(0).y != 0}, and an anchor's reported axis
+	 * is measured off its curves, so one on a climbing route reports an axis that rises. That would
+	 * be read as a sloped block, and a sloped block has {@code getElevationAtCenter} of half a block
+	 * — which is where {@code TrackGraphHelper} then looks for the node at this block's centre, and
+	 * finds nothing.
+	 *
+	 * <p>An anchor is flat in every case. A route climbs by having its anchors at different heights,
+	 * exactly as Create's own ascending curves run between two flat track blocks.
+	 */
+	@Override
+	public boolean isSlope(BlockGetter world, BlockPos pos, BlockState state) {
+		return false;
 	}
 
 	@Override
