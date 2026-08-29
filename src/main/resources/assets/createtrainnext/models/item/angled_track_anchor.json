@@ -1,3 +1,6 @@
 {
-  "parent": "createtrainnext:block/angled_track_anchor_z"
+  "parent": "item/handheld",
+  "textures": {
+    "layer0": "createtrainnext:item/angled_track_anchor"
+  }
 }

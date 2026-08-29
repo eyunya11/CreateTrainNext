@@ -1,11 +1,15 @@
 package com.eyunya.createtrainnext;
 
 import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 
 import com.eyunya.createtrainnext.track.AngledTrackAnchorBlockEntity;
 import com.mojang.brigadier.CommandDispatcher;
+import com.mojang.brigadier.arguments.IntegerArgumentType;
 import com.simibubi.create.Create;
 import com.simibubi.create.content.trains.GlobalRailwayManager;
 import com.simibubi.create.content.trains.graph.TrackEdge;
@@ -61,7 +65,15 @@ public class CTNCommands {
 			.then(Commands.literal("probe")
 				.then(Commands.argument("pos", BlockPosArgument.blockPos())
 					.executes(context -> probe(context.getSource(),
-						BlockPosArgument.getLoadedBlockPos(context, "pos"))))));
+						BlockPosArgument.getLoadedBlockPos(context, "pos")))))
+			.then(Commands.literal("junction")
+				.then(Commands.argument("pos", BlockPosArgument.blockPos())
+					.executes(context -> junction(context.getSource(),
+						BlockPosArgument.getLoadedBlockPos(context, "pos"), 2))
+					.then(Commands.argument("radius", IntegerArgumentType.integer(0, 8))
+						.executes(context -> junction(context.getSource(),
+							BlockPosArgument.getLoadedBlockPos(context, "pos"),
+							IntegerArgumentType.getInteger(context, "radius")))))));
 	}
 
 	/**
@@ -138,6 +150,107 @@ public class CTNCommands {
 		}
 
 		return 1;
+	}
+
+	/**
+	 * Prints the track graph around a position, and every decision a train makes crossing it.
+	 *
+	 * <p>For when a train stops with "reached the end of its track" and the track plainly carries
+	 * on. That message means one thing: standing on some edge, arriving at some node, Create found
+	 * no edge leaving it that it was willing to turn onto — either because there is no edge, or
+	 * because {@code TrackEdge.canTravelTo} refused the turn. Those are very different faults with
+	 * the same symptom, and nothing in game distinguishes them.
+	 *
+	 * <p>So this prints both halves. First what the blocks say: every track block in range and the
+	 * node locations it reports, with whether the graph actually holds a node there — a block
+	 * reporting a location the graph does not have is a graph that never got built. Then what the
+	 * graph says: every edge at each node, and for each way through it the dot product Create
+	 * compares against 7/8, marked OK or BLOCKED.
+	 */
+	private static int junction(CommandSourceStack source, BlockPos pos, int radius) {
+		ServerLevel level = source.getLevel();
+
+		say(source, "== blocks around " + pos.toShortString() + " (radius " + radius + ")");
+		Set<TrackNodeLocation> reported = new LinkedHashSet<>();
+
+		for (BlockPos cursor : BlockPos.betweenClosed(pos.offset(-radius, -radius, -radius),
+			pos.offset(radius, radius, radius))) {
+			BlockState state = level.getBlockState(cursor);
+			if (!(state.getBlock() instanceof ITrackBlock track))
+				continue;
+
+			BlockPos at = cursor.immutable();
+			say(source, " " + at.toShortString() + "  " + state);
+
+			for (DiscoveredLocation location : track.getConnected(level, at, state, false, null)) {
+				reported.add(location);
+				say(source, "    reports " + fmt(location.getLocation()) + "  turn="
+					+ (location.getTurn() != null) + "  force=" + location.shouldForceNode() + "  dir="
+					+ (location.getDirection() == null ? "none" : fmt(location.getDirection())) + "  -> "
+					+ nodeSummary(level, location));
+			}
+		}
+
+		say(source, "== ways through each node");
+		for (TrackNodeLocation location : reported) {
+			TrackGraph graph = Create.RAILWAYS.sided(level)
+				.getGraph(level, location);
+			TrackNode node = graph == null ? null : graph.locateNode(location);
+			if (node == null)
+				continue;
+
+			Map<TrackNode, TrackEdge> leaving = graph.getConnectionsFrom(node);
+			say(source, " " + fmt(location.getLocation()) + "  graph#" + System.identityHashCode(graph) + "  "
+				+ leaving.size() + " edge(s)");
+
+			for (Map.Entry<TrackNode, TrackEdge> arrivingFrom : leaving.entrySet()) {
+				// The edge coming in is the far node's edge back to this one, which is the one
+				// canTravelTo is asked about — not the one leaving towards it.
+				TrackEdge arriving = graph.getConnectionsFrom(arrivingFrom.getKey())
+					.get(node);
+				if (arriving == null) {
+					say(source, "    ONE WAY: no edge back from " + fmt(arrivingFrom.getKey()
+						.getLocation()
+						.getLocation()));
+					continue;
+				}
+
+				for (Map.Entry<TrackNode, TrackEdge> onwards : leaving.entrySet()) {
+					if (onwards.getKey() == arrivingFrom.getKey())
+						continue;
+					double dot = arriving.getDirection(false)
+						.dot(onwards.getValue()
+							.getDirection(true));
+					say(source, "    " + fmt(arrivingFrom.getKey()
+						.getLocation()
+						.getLocation()) + " -> here -> "
+						+ fmt(onwards.getKey()
+							.getLocation()
+							.getLocation())
+						+ "   dot=" + fmt(dot) + (dot > 7 / 8f ? "  OK" : "  BLOCKED (needs > 0.875)")
+						+ "   [in turn=" + arriving.isTurn() + " len=" + fmt(arriving.getLength())
+						+ ", out turn=" + onwards.getValue()
+							.isTurn()
+						+ " len=" + fmt(onwards.getValue()
+							.getLength())
+						+ "]");
+				}
+			}
+		}
+
+		return 1;
+	}
+
+	private static String nodeSummary(ServerLevel level, TrackNodeLocation location) {
+		TrackGraph graph = Create.RAILWAYS.sided(level)
+			.getGraph(level, location);
+		if (graph == null)
+			return "NO GRAPH";
+		TrackNode node = graph.locateNode(location);
+		if (node == null)
+			return "NO NODE";
+		return graph.getConnectionsFrom(node)
+			.size() + " edge(s) in graph#" + System.identityHashCode(graph);
 	}
 
 	/** Reports whether the graph has a node at one position, and how many edges leave it. */

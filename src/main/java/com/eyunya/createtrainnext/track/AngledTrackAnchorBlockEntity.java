@@ -14,7 +14,6 @@ import net.minecraft.nbt.CompoundTag;
 import net.minecraft.network.protocol.Packet;
 import net.minecraft.network.protocol.game.ClientGamePacketListener;
 import net.minecraft.network.protocol.game.ClientboundBlockEntityDataPacket;
-import net.minecraft.util.Mth;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.entity.BlockEntity;
@@ -41,6 +40,24 @@ import net.minecraft.world.phys.Vec3;
  */
 public class AngledTrackAnchorBlockEntity extends BlockEntity {
 
+	/**
+	 * How often the floor under this anchor's curve is renewed, in ticks.
+	 *
+	 * <p>Has to be well inside how long a {@link CurveFillerBlock} survives without being renewed,
+	 * and that is measured in random ticks, so five seconds is not close to the edge. It is also
+	 * what puts a floor back under a curve whose far half was in an unloaded chunk when it changed.
+	 */
+	private static final int OCCUPANCY_REFRESH_TICKS = 100;
+
+	/**
+	 * Slack added on top of the disagreement the two edges at a node actually show, so the
+	 * comparison is not sitting exactly on its own limit once float error is added to it.
+	 */
+	private static final double TARGETING_MARGIN = Math.toRadians(2);
+
+	/** The most a node may be forgiven. See {@link #reachFor}. */
+	private static final double MAX_TARGETING_SLACK = Math.toRadians(60);
+
 	private static final String TAG_YAW = "Yaw";
 	private static final String TAG_PREV = "Prev";
 	private static final String TAG_NEXT = "Next";
@@ -57,12 +74,21 @@ public class AngledTrackAnchorBlockEntity extends BlockEntity {
 	private BezierConnection cachedCurve = null;
 	private long cachedKey = Long.MIN_VALUE;
 
+	/** The curve this anchor last laid a floor along, so a floor that moves can be taken up. */
+	@Nullable
+	private BezierConnection occupied = null;
+
+	private int occupancyTimer;
+
 	public AngledTrackAnchorBlockEntity(BlockPos pos, BlockState state) {
 		super(CTNRegistry.ANGLED_TRACK_ANCHOR_ENTITY.get(), pos, state);
 		// Start the yaw already agreeing with the axis the block was placed on, so a fresh anchor
 		// is straight rather than bent until it is first turned.
 		yaw = state.getValue(AngledTrackAnchorBlock.AXIS)
 			.defaultYaw();
+		// Spread the refreshes out by position rather than having every anchor on a route come due
+		// on the same tick, which on a long line would be one very lumpy tick every five seconds.
+		occupancyTimer = Math.floorMod(pos.hashCode(), OCCUPANCY_REFRESH_TICKS) + 1;
 	}
 
 	// ---------------------------------------------------------------- state
@@ -85,14 +111,6 @@ public class AngledTrackAnchorBlockEntity extends BlockEntity {
 		return prev != null || next != null;
 	}
 
-	public void rotateYaw(float degrees) {
-		detachNeighbourhood();
-		yaw = Mth.wrapDegrees(yaw + degrees);
-		alignAxisToYaw();
-		invalidateNeighbourhood();
-		attachNeighbourhood();
-	}
-
 	/**
 	 * Points the span at whichever of the four lattice-safe axes sits closest to the heading.
 	 *
@@ -113,8 +131,20 @@ public class AngledTrackAnchorBlockEntity extends BlockEntity {
 		level.setBlock(worldPosition, state.setValue(AngledTrackAnchorBlock.AXIS, wanted), Block.UPDATE_ALL);
 	}
 
-	/** Continues the route from this anchor to {@code other}. */
-	public void linkTo(AngledTrackAnchorBlockEntity other) {
+	/**
+	 * Continues the route from this anchor to {@code other}, aiming both ends as it goes.
+	 *
+	 * <p>Aiming happens here rather than through separate calls either side of the link because
+	 * each of those would tear the neighbourhood out of the track graph and queue it to be rebuilt.
+	 * Doing all three at once means one teardown and one rebuild, and — more to the point — no
+	 * intermediate state where one end has been turned and the other has not, which is a shape the
+	 * graph would have had to accept as real for a tick.
+	 *
+	 * @param thisHeading  where this anchor should point afterwards, or null to leave it.
+	 * @param otherHeading where {@code other} should point afterwards, or null to leave it.
+	 */
+	public void linkTo(AngledTrackAnchorBlockEntity other, @Nullable Vec3 thisHeading,
+		@Nullable Vec3 otherHeading) {
 		if (other == this)
 			return;
 
@@ -124,6 +154,15 @@ public class AngledTrackAnchorBlockEntity extends BlockEntity {
 		// Whatever used to follow this anchor, or lead into the other, loses its half of the link.
 		clearNextOfThis();
 		other.clearPrevOfThis();
+
+		if (thisHeading != null) {
+			yaw = yawOf(thisHeading);
+			alignAxisToYaw();
+		}
+		if (otherHeading != null) {
+			other.yaw = yawOf(otherHeading);
+			other.alignAxisToYaw();
+		}
 
 		next = other.getBlockPos();
 		other.prev = worldPosition;
@@ -249,6 +288,11 @@ public class AngledTrackAnchorBlockEntity extends BlockEntity {
 		return new Vec3(-Math.sin(radians), 0, Math.cos(radians));
 	}
 
+	/** The inverse of {@link #directionFromYaw}, so a heading can be stored as one. */
+	public static float yawOf(Vec3 heading) {
+		return (float) Math.toDegrees(Math.atan2(-heading.x, heading.z));
+	}
+
 	/** Which way the route runs through this anchor. */
 	public Vec3 heading() {
 		return directionFromYaw(yaw);
@@ -263,36 +307,87 @@ public class AngledTrackAnchorBlockEntity extends BlockEntity {
 	 * and the comparison allows about 0.9, so reporting the heading has placement refused anywhere
 	 * the route is actually curving. Measuring the same chord here makes the two agree by
 	 * construction.
+	 *
+	 * <p>The vector reported by an anchor with a curve on either side is deliberately <em>short</em>.
+	 * See {@link #reachFor}: its length is what buys the slack that lets a signal or a station be
+	 * placed facing either way along the route rather than only one.
 	 */
 	public Vec3 targetingAxis() {
 		// An end resolves through the helper's second case, which compares against the direction of
 		// this block's own linear span rather than any edge — and that span lies on the discrete
 		// axis. Reporting the heading there had it refused at every angle where the two differ,
-		// which is why only multiples of 45 worked.
-		if (!isInterior())
+		// which is why only multiples of 45 worked. Both directions already work there, because the
+		// span runs both ways out of the block's centre and each way matches the axis exactly.
+		if (!usesCentreNode(heading(), isInterior()))
 			return AngledTrackAnchorBlock.axisVector(getBlockState());
 
-		// Matched to the curve ahead exactly, which means placement works from one side only.
-		//
-		// The comparison is against this axis negated, so which of the two edges at the node it
-		// runs against depends on which way the player faces, and reporting two axes is not an
-		// option — more than one is read as a junction and refused. A bisector was tried, on the
-		// assumption the two edges were nearly collinear here: the tangents are, exactly, but
-		// getDirection measures the chord across a quarter of an <em>entire</em> curve, and on a
-		// long one that came out 18 and 26 degrees off the tangent, the two edges 45 degrees from
-		// collinear. Split between them and neither is within the 0.9 degrees allowed; matched to
-		// one and that one is exact.
-		//
-		// The underlying limit is Create's, not this mod's: that tolerance assumes a block with a
-		// straight edge, and an interior anchor is mid-curve by construction. Create places its own
-		// stations and signals on straight track for the same reason.
-		Vec3 ahead = chordOf(buildCurveToNext());
-		if (ahead != null)
-			return ahead;
-
+		// The two directions leaving this node, measured the way Create measures them.
+		Vec3 forwards = chordOf(buildCurveToNext());
 		BezierConnection behind = buildCurveFromPrev();
-		Vec3 back = behind == null ? null : chordOf(behind.secondary());
-		return back == null ? heading() : back.scale(-1);
+		Vec3 backwards = behind == null ? null : chordOf(behind.secondary());
+
+		if (forwards == null && backwards == null)
+			return heading();
+		if (backwards == null)
+			return forwards;
+		if (forwards == null)
+			return backwards.scale(-1);
+
+		// These two ought to be exact opposites and are not. The tangents are — a route runs
+		// through an interior anchor along one heading, so the curve ahead leaves along it and the
+		// curve behind arrives along it — but getDirection measures a chord across a quarter of an
+		// <em>entire</em> curve, and on a long one that lands 18 or 26 degrees off the tangent it
+		// belongs to. Two curves of different lengths therefore disagree about which way the route
+		// runs here by as much as 45 degrees.
+		//
+		// Matching one of them exactly is what the earlier version did, and it is exactly why a
+		// signal could only be placed facing one way: the comparison is against the reported axis
+		// negated, so which of the two edges a placement runs against depends on which way the
+		// player faces, and only the matched one was ever inside the tolerance. Reporting both as
+		// two axes is not an option either — more than one is read as a junction and refused.
+		Vec3 bisector = forwards.subtract(backwards);
+		if (bisector.lengthSqr() < 1.0E-6)
+			return heading();
+		bisector = bisector.normalize();
+
+		// So: split the difference, then widen the tolerance until the difference fits inside it.
+		double worst = Math.max(angleBetween(bisector, forwards), angleBetween(bisector.scale(-1), backwards));
+		return bisector.scale(reachFor(worst));
+	}
+
+	/**
+	 * How long the reported axis has to be for Create to accept an edge {@code deviation} radians
+	 * away from it.
+	 *
+	 * <p>The check in {@code getGraphLocationAt} is
+	 * {@code direction.scale(length).distanceToSqr(axis.scale(-1)) > 1/4096}, where {@code length}
+	 * is the reported axis's own length and {@code direction} is a unit vector. Both sides of that
+	 * comparison are therefore vectors of the same length L, so the squared distance between them
+	 * is {@code 2L^2 (1 - cos t)} and the whole test reduces to an angle:
+	 *
+	 * <pre>2 L^2 (1 - cos t) &lt;= 1/4096   &lt;=&gt;   L &lt;= sqrt(1 / (8192 (1 - cos t)))</pre>
+	 *
+	 * <p>The tolerance is written as an absolute distance, so <em>the length of the axis is what
+	 * decides how much angle it forgives</em>. A unit axis — which is what Create's own orthogonal
+	 * track reports — allows about 0.9 degrees, and that is right for a block whose edges are
+	 * straight and whose direction is therefore exact. An anchor mid-curve has no such exactness to
+	 * offer, so it reports a shorter axis and asks for the slack it actually needs.
+	 *
+	 * <p>Bounded at both ends. Never longer than a unit vector, so this can only loosen the
+	 * comparison, never tighten it past what Create already allows. And never loose enough to reach
+	 * the <em>other</em> edge at the node, which sits close to 180 degrees away: past
+	 * {@link #MAX_TARGETING_SLACK} a node this bent is better refused than resolved to whichever of
+	 * its two edges happened to be iterated first.
+	 */
+	private static double reachFor(double deviation) {
+		double allowed = Math.min(MAX_TARGETING_SLACK, deviation + TARGETING_MARGIN);
+		double spread = 1 - Math.cos(allowed);
+		return spread < 1.0E-9 ? 1 : Math.min(1, Math.sqrt(1 / (8192 * spread)));
+	}
+
+	/** The angle between two unit vectors, in radians. */
+	private static double angleBetween(Vec3 a, Vec3 b) {
+		return Math.acos(Math.max(-1, Math.min(1, a.dot(b))));
 	}
 
 	/**
@@ -330,7 +425,67 @@ public class AngledTrackAnchorBlockEntity extends BlockEntity {
 	 * order, putting the nodes on edge midpoints where Create's diagonals never have any.
 	 */
 	private Vec3 forwardOffset() {
-		return forward(getBlockState().getValue(AngledTrackAnchorBlock.AXIS), heading());
+		return forwardOffset(heading());
+	}
+
+	/**
+	 * Half a step along the lattice-safe axis nearest {@code heading}, pointing the way the route
+	 * is going.
+	 *
+	 * <p>Derived from the heading rather than read off {@code AXIS}, even though
+	 * {@link #alignAxisToYaw} keeps the two in step. The point is that the curve wand has to work
+	 * out where a node <em>would</em> land for an anchor that does not exist yet, or that is about
+	 * to be turned, and it can only do that from a heading. Sharing one function with the live
+	 * anchor is what makes the preview the same geometry as the result rather than a lookalike.
+	 */
+	public static Vec3 forwardOffset(Vec3 heading) {
+		return forward(AnchorAxis.nearestTo(heading), heading);
+	}
+
+	/**
+	 * Whether an anchor's two nodes collapse onto its block's centre, leaving it no span.
+	 *
+	 * <p>True in the middle of a chain, which is what {@code interior} says, and true of any anchor
+	 * whose heading does not lie along one of the four lattice-safe axes — which is what stops a
+	 * route being visibly forced onto 45 degrees at its ends.
+	 *
+	 * <p>The reasoning is the same in both cases. A span exists to carry the route across the
+	 * anchor's own block, and its two ends have to be offsets from the centre that land back on the
+	 * half-block lattice. Only the four axes do, so a span can only ever run along one of those
+	 * four — and a route running at 30 degrees that is made to pass through a 45 degree span has a
+	 * 45 degree piece of track sitting in the middle of it. A block's centre is on the lattice too,
+	 * and unlike the boundary it is on the lattice from every direction, so an anchor with no span
+	 * has no angle imposed on it at all.
+	 *
+	 * <p>Which leaves the question of what the span was for. It was for handing the route over to
+	 * Create's own track, which runs on those same four axes — and an anchor doing that is aimed
+	 * along the axis by the wand, so its heading is one of the four and it keeps its span. An
+	 * anchor pointing anywhere else has nothing to hand over to: no piece of Create track could
+	 * meet it squarely whatever it did. The bend the span used to carry, from the heading round to
+	 * the nearest axis, was never reconciling anything.
+	 */
+	public static boolean usesCentreNode(Vec3 heading, boolean interior) {
+		if (interior)
+			return true;
+		if (heading.lengthSqr() < 1.0E-8)
+			return true;
+		Vec3 axis = AnchorAxis.nearestTo(heading)
+			.axis()
+			.normalize();
+		return Math.abs(heading.normalize()
+			.dot(axis)) <= 1 - 1.0E-6;
+	}
+
+	/** Where {@link #entryNode} would fall for an anchor at {@code pos} pointed along {@code heading}. */
+	public static Vec3 entryNode(BlockPos pos, Vec3 heading, boolean interior) {
+		Vec3 centre = Vec3.atBottomCenterOf(pos);
+		return usesCentreNode(heading, interior) ? centre : centre.subtract(forwardOffset(heading));
+	}
+
+	/** Where {@link #exitNode} would fall for an anchor at {@code pos} pointed along {@code heading}. */
+	public static Vec3 exitNode(BlockPos pos, Vec3 heading, boolean interior) {
+		Vec3 centre = Vec3.atBottomCenterOf(pos);
+		return usesCentreNode(heading, interior) ? centre : centre.add(forwardOffset(heading));
 	}
 
 	/**
@@ -346,14 +501,12 @@ public class AngledTrackAnchorBlockEntity extends BlockEntity {
 	 * puts its nodes and sharing one is what lets the two dock.
 	 */
 	public Vec3 entryNode() {
-		Vec3 centre = Vec3.atBottomCenterOf(worldPosition);
-		return isInterior() ? centre : centre.subtract(forwardOffset());
+		return entryNode(worldPosition, heading(), isInterior());
 	}
 
 	/** The node the curve to {@link #next} leaves from. The block's centre when interior. */
 	public Vec3 exitNode() {
-		Vec3 centre = Vec3.atBottomCenterOf(worldPosition);
-		return isInterior() ? centre : centre.add(forwardOffset());
+		return exitNode(worldPosition, heading(), isInterior());
 	}
 
 	/**
@@ -419,6 +572,11 @@ public class AngledTrackAnchorBlockEntity extends BlockEntity {
 	/**
 	 * The curve arriving from the anchor behind, which that anchor owns and builds.
 	 *
+	 * <p>Returned in its owner's orientation — running from the anchor behind into this one — which
+	 * is <em>not</em> the orientation this anchor needs when it reports the curve to the graph.
+	 * {@link AngledTrackAnchorBlock#getConnected} turns it around; see the note there on why the
+	 * direction a bezier is reported in decides whether a train can cross the node.
+	 *
 	 * <p>Reported here as well so the graph can be walked backwards. {@code walkConnectedTracks}
 	 * asks the blocks around a node, and a node at a block's centre reaches only its own block, so
 	 * an anchor that reported nothing but the curve ahead of it could be traversed in one direction
@@ -434,44 +592,42 @@ public class AngledTrackAnchorBlockEntity extends BlockEntity {
 	}
 
 	/**
-	 * The span across the anchor's own block, from {@link #entryNode} to {@link #exitNode}.
+	 * The span across the anchor's own block, from {@link #entryNode} to {@link #exitNode}, or null
+	 * where the anchor has no span at all.
 	 *
-	 * <p>In the middle of a chain both tangents are the heading, so the span carries the route
-	 * straight through and the joints either side of it are smooth. At the ends of a chain the
-	 * outward tangent instead follows the block's discrete axis, so Create's own track can dock
-	 * against it squarely.
+	 * <p>Only an anchor whose heading lies along one of the four lattice-safe axes has one, which
+	 * means only one that is handing the route over to Create's own track — see
+	 * {@link #usesCentreNode}. So a span is always a straight line along the heading, and the
+	 * tangents below are the heading either way round rather than anything reconciling.
 	 *
-	 * <p>That end-of-chain bend is the whole reason the span is a curve and not a straight edge.
-	 * {@code TrackEdge.canTravelTo} refuses a node where the direction changes by more than about
-	 * 29 degrees, measured across a quarter of each edge rather than at the node itself. Turning
-	 * across the block spreads that change over an edge; turning at its end concentrates it at a
-	 * node, and past the threshold the track stops being passable at all.
+	 * <p>It used to be more than that. Every end of a chain kept a span, and the outward tangent
+	 * followed the block's nearest discrete axis whatever the heading was, on the reasoning that
+	 * turning across a block spreads a direction change over an edge rather than concentrating it
+	 * at a node — which matters, because {@code TrackEdge.canTravelTo} refuses a node where the
+	 * direction changes by more than about 29 degrees. What that missed is that an end pointing
+	 * between the axes has nothing on the far side to change direction <em>to</em>. There was no
+	 * handover to spread; there was just a piece of track lying at up to 22.5 degrees off the route
+	 * it belonged to, plainly visible at the end of every line that did not happen to finish on a
+	 * multiple of 45.
 	 */
 	@Nullable
 	public BezierConnection buildSpan() {
 		Vec3 entry = entryNode();
 		Vec3 exit = exitNode();
 
-		// Nothing to span in the middle of a chain: both sides use the centre, and the curves
-		// either side of it meet there directly. This is what removes the roughness — there is no
-		// longer a stretch of route pinned between two quantised points.
+		// Nothing to span wherever both nodes are the block's centre, which is the middle of a
+		// chain and every end that is not squared up to Create's track. The curves either side
+		// meet at the centre directly, at exactly the angle the route runs.
 		if (entry.distanceToSqr(exit) < 1.0E-6)
 			return null;
 
-		// The line the two nodes actually lie on, which an open end hands to whatever docks there.
-		Vec3 axisForward = exit.subtract(entry)
+		Vec3 along = exit.subtract(entry)
 			.normalize();
-
-		// Into the span from each end. A linked side follows the heading so it stays collinear
-		// with the curve there; an open side follows the axis so plain track can meet it.
-		Vec3 tangentAtEntry = prev != null ? heading() : axisForward;
-		Vec3 tangentAtExit = next != null ? heading().scale(-1) : axisForward.scale(-1);
 
 		Vec3 up = new Vec3(0, 1, 0);
 
 		return new BezierConnection(Couple.create(worldPosition, worldPosition), Couple.create(entry, exit),
-			Couple.create(tangentAtEntry, tangentAtExit), Couple.create(up, up), true, false,
-			TrackMaterial.ANDESITE);
+			Couple.create(along, along.scale(-1)), Couple.create(up, up), true, false, TrackMaterial.ANDESITE);
 	}
 
 	/** Client-side accessor for the curve ahead. Caches until something it depends on moves. */
@@ -504,6 +660,72 @@ public class AngledTrackAnchorBlockEntity extends BlockEntity {
 		// The curve's own bounds, sampled along the actual bezier and already padded by Create.
 		// More precise than boxing the two anchors, which would miss how far a curve bulges out.
 		return curve == null ? bounds : bounds.minmax(curve.getBounds());
+	}
+
+	// --------------------------------------------------------------- index
+
+	@Override
+	public void onLoad() {
+		super.onLoad();
+		if (level != null)
+			AnchorIndex.add(level, this);
+	}
+
+	@Override
+	public void setRemoved() {
+		super.setRemoved();
+		if (level != null)
+			AnchorIndex.remove(level, this);
+	}
+
+	// ----------------------------------------------------------- occupancy
+
+	/**
+	 * Counts down to the next renewal of this anchor's floor.
+	 *
+	 * <p>The only reason an anchor ticks at all. See {@link OCCUPANCY_REFRESH_TICKS}.
+	 */
+	public void serverTick() {
+		if (--occupancyTimer > 0)
+			return;
+		occupancyTimer = OCCUPANCY_REFRESH_TICKS;
+		updateOccupancy();
+	}
+
+	/**
+	 * Brings the floor under this anchor's curve up to date with where the curve now is.
+	 *
+	 * <p>Called from the scheduled tick the block already uses to rebuild the graph, so every path
+	 * that moves a curve refreshes its floor without having to remember to. Clearing runs before
+	 * placing, so a curve that shifted by a little does not take up the floor it has just put down.
+	 */
+	public void updateOccupancy() {
+		if (level == null || level.isClientSide)
+			return;
+
+		BezierConnection current = buildCurveToNext();
+		if (occupied != null && (current == null || !occupied.equalsSansMaterial(current)))
+			CurveOccupancy.clear(level, occupied);
+
+		occupied = current;
+		if (current != null)
+			CurveOccupancy.place(level, current);
+	}
+
+	/**
+	 * Takes up the floor entirely, for an anchor that is about to stop existing.
+	 *
+	 * <p>Falls back to rebuilding the curve when nothing has been recorded, which is the case for
+	 * an anchor broken in the same session it was loaded in but before its first refresh.
+	 */
+	public void clearOccupancy() {
+		if (level == null || level.isClientSide)
+			return;
+
+		BezierConnection current = occupied != null ? occupied : buildCurveToNext();
+		if (current != null)
+			CurveOccupancy.clear(level, current);
+		occupied = null;
 	}
 
 	// ----------------------------------------------------------------- nbt
