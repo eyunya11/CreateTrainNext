@@ -11,8 +11,17 @@
   "tooltip.createtrainnext.curve_wand.split": "スニーク＋右クリックで曲線上に接続点を追加",
   "tooltip.createtrainnext.curve_wand.cancel": "スニーク＋右クリックで取り消し／アンカーの接続解除",
 
+  "createtrainnext.compass.n": "北",
+  "createtrainnext.compass.ne": "北東",
+  "createtrainnext.compass.e": "東",
+  "createtrainnext.compass.se": "南東",
+  "createtrainnext.compass.s": "南",
+  "createtrainnext.compass.sw": "南西",
+  "createtrainnext.compass.w": "西",
+  "createtrainnext.compass.nw": "北西",
+
   "message.createtrainnext.wand.started": "ここから曲線を引きます。敷きたい場所を右クリックしてください。",
-  "message.createtrainnext.wand.ready": "設置できます — 長さ %s ブロック、曲がり %s°",
+  "message.createtrainnext.wand.ready": "設置できます — 長さ %s ブロック ・ 曲がり %s° ・ 方位 %s°（%s）",
   "message.createtrainnext.wand.adjusted": "（手動で %s° 調整中）",
   "message.createtrainnext.wand.built": "曲線を設置しました — 長さ %s ブロック。続けて右クリックすると経路が伸びます。",
   "message.createtrainnext.wand.docked": "曲線を設置し、線路に接続しました — 長さ %s ブロック。",

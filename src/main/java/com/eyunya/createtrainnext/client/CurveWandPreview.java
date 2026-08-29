@@ -1,5 +1,6 @@
 package com.eyunya.createtrainnext.client;
 
+import com.eyunya.createtrainnext.track.AngledTrackAnchorBlockEntity;
 import com.eyunya.createtrainnext.track.CurvePlanner;
 import com.eyunya.createtrainnext.track.CurveWandItem;
 import com.eyunya.createtrainnext.track.CurveWandSelection;
@@ -250,14 +251,37 @@ public class CurveWandPreview {
 			true);
 	}
 
+	/**
+	 * The eight-point compass name for a heading.
+	 *
+	 * <p>Worth printing beside the number rather than leaving the number to speak for itself.
+	 * Minecraft's yaw has zero pointing south and grows clockwise, which is the convention the
+	 * anchors store and F3 reports, so it is the right one to show — but it is not the one a
+	 * compass bearing usually means, and "0 degrees" with no other clue reads as north to most
+	 * people. The name settles it without having to explain it.
+	 */
+	private static Component compass(float yaw) {
+		String[] points = { "s", "sw", "w", "nw", "n", "ne", "e", "se" };
+		return Component.translatable("createtrainnext.compass." + points[Math.floorMod(Math.round(yaw / 45f), 8)]);
+	}
+
 	private static void showStatus(LocalPlayer player, CurvePlanner.Plan plan) {
 		Component message;
 		if (!plan.valid()) {
 			message = Component.translatable("message.createtrainnext.wand." + plan.error())
 				.withStyle(ChatFormatting.RED);
 		} else {
+			// Two angles, because they answer different questions. The turn is how far this one
+			// curve bends, which is what says whether it is a gentle sweep or a hairpin; the
+			// bearing is which way the route will be pointing once it arrives, which is what says
+			// whether it is going where the rest of the railway needs it to.
+			float bearing = AngledTrackAnchorBlockEntity.yawOf(plan.endHeading());
+			// Shown over a full turn rather than as Minecraft's signed yaw: a bearing that reads
+			// -150 where the one beside it reads 150 is two numbers to compare, not one.
+			float shown = (Mth.wrapDegrees(bearing) + 360) % 360;
 			Component detail = Component.translatable("message.createtrainnext.wand.ready",
-				String.format("%.1f", plan.length()), String.format("%.0f", plan.turnDegrees()))
+				String.format("%.1f", plan.length()), String.format("%.0f", plan.turnDegrees()),
+				String.format("%.0f", shown), compass(bearing))
 				.withStyle(ChatFormatting.GREEN);
 			// The dialled-in angle is only shown once it is not zero, so the common case — two
 			// clicks and no adjustment at all — says nothing about a control the player never used.

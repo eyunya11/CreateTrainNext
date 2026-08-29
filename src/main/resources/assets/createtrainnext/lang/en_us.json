@@ -11,8 +11,17 @@
   "tooltip.createtrainnext.curve_wand.split": "Sneak + right click a curve to put a point on it",
   "tooltip.createtrainnext.curve_wand.cancel": "Sneak + right click to cancel, or to unlink an anchor",
 
+  "createtrainnext.compass.n": "N",
+  "createtrainnext.compass.ne": "NE",
+  "createtrainnext.compass.e": "E",
+  "createtrainnext.compass.se": "SE",
+  "createtrainnext.compass.s": "S",
+  "createtrainnext.compass.sw": "SW",
+  "createtrainnext.compass.w": "W",
+  "createtrainnext.compass.nw": "NW",
+
   "message.createtrainnext.wand.started": "Curve starts here. Right click where it should go.",
-  "message.createtrainnext.wand.ready": "Curve ready — %s blocks, turning %s°",
+  "message.createtrainnext.wand.ready": "Curve ready — %s blocks · turn %s° · heading %s° %s",
   "message.createtrainnext.wand.adjusted": " (turned %s° by hand)",
   "message.createtrainnext.wand.built": "Curve built — %s blocks. Right click on to carry the route on.",
   "message.createtrainnext.wand.docked": "Curve built — %s blocks, joined onto the track.",
