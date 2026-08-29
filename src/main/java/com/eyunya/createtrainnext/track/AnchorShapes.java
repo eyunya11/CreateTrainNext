@@ -15,10 +15,15 @@ import net.minecraft.world.phys.shapes.VoxelShape;
  * the track plainly visible inside it.
  *
  * <p>The construction is Create's, generalised. {@code TrackVoxelShapes} builds its bands by
- * sliding a whole block box along the track's axis in two pixel steps and taking the union — the
- * orthogonal one along x or z, the diagonal one corner to corner. The only thing tying that to 45
- * degrees is the direction it slides in. Sliding along the heading gives the same band at any
- * angle, and at exactly 0 or 45 it reproduces Create's own shape.
+ * sliding a whole block box in two pixel steps and taking the union, and the direction it slides in
+ * is <em>across</em> the track rather than along it — {@code TRACK_ORTHO.get(SOUTH)}, which
+ * {@code TrackBlock} uses for track running along z, comes out long in x. That is not a quirk to
+ * be copied blindly: track is four pixels tall, so what makes it clickable is being able to aim a
+ * little to the side of the rails and still hit them. Reaching further along the track would buy
+ * nothing, since the next block of it is already there covering that ground.
+ *
+ * <p>So the box slides along the perpendicular of the heading, and at exactly 0 or 90 degrees this
+ * reproduces Create's own shape.
  *
  * <p>Bands are cached one per degree. {@code getShape} is asked on the render thread for every
  * block in view, so building a union of boxes per call would be paid for continuously; a band is
@@ -32,9 +37,9 @@ public final class AnchorShapes {
 	/**
 	 * How far past its own block the band reaches, in pixels.
 	 *
-	 * <p>Create's own track does this and it is worth keeping: track is four pixels tall, so
-	 * without the reach it could only be clicked by aiming at the ground it lies on. Fourteen is
-	 * the figure {@code TrackVoxelShapes} uses.
+	 * <p>Sideways, across the rails. Create's own track does this and it is worth keeping: track is
+	 * four pixels tall, so without the reach it could only be clicked by aiming at the ground it
+	 * lies on. Fourteen is the figure {@code TrackVoxelShapes} uses.
 	 */
 	private static final double REACH = 14;
 
@@ -58,11 +63,12 @@ public final class AnchorShapes {
 	}
 
 	private static VoxelShape build(int bucket) {
-		// The same mapping AngledTrackAnchorBlockEntity.directionFromYaw uses, so the band lies
-		// along the heading rather than across it.
+		// The perpendicular of the heading. AngledTrackAnchorBlockEntity.directionFromYaw gives
+		// (-sin, cos); turning that a quarter turn gives (-cos, -sin), which is the direction the
+		// box slides in — so the band comes out lying across the rails, the way Create's does.
 		double radians = Math.toRadians(bucket);
-		double dx = -Math.sin(radians) * STEP;
-		double dz = Math.cos(radians) * STEP;
+		double dx = -Math.cos(radians) * STEP;
+		double dz = -Math.sin(radians) * STEP;
 
 		VoxelShape shape = Block.box(0, 0, 0, 16, HEIGHT, 16);
 		for (int step = 1; step * STEP <= REACH; step++) {
