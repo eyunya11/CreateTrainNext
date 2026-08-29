@@ -1,6 +1,7 @@
 package com.eyunya.createtrainnext;
 
 import com.eyunya.createtrainnext.track.SetCurveAnglePacket;
+import com.eyunya.createtrainnext.track.SetSurveyMarkerPacket;
 
 import net.neoforged.bus.api.IEventBus;
 import net.neoforged.neoforge.network.event.RegisterPayloadHandlersEvent;
@@ -31,6 +32,8 @@ public class CTNNetwork {
 		PayloadRegistrar registrar = event.registrar(VERSION);
 		registrar.playToServer(SetCurveAnglePacket.TYPE, SetCurveAnglePacket.STREAM_CODEC,
 			SetCurveAnglePacket::handle);
+		registrar.playToServer(SetSurveyMarkerPacket.TYPE, SetSurveyMarkerPacket.STREAM_CODEC,
+			SetSurveyMarkerPacket::handle);
 	}
 
 	private CTNNetwork() {}

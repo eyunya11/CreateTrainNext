@@ -10,6 +10,8 @@ import com.eyunya.createtrainnext.track.AngledTrackAnchorBlockEntity;
 import com.eyunya.createtrainnext.track.CurveFillerBlock;
 import com.eyunya.createtrainnext.track.CurveFillerBlockEntity;
 import com.eyunya.createtrainnext.track.CurveWandItem;
+import com.eyunya.createtrainnext.track.SurveyMarkerBlock;
+import com.eyunya.createtrainnext.track.SurveyMarkerBlockEntity;
 import com.simibubi.create.content.trains.track.TrackTargetingBlockItem;
 
 import net.minecraft.core.registries.Registries;
@@ -86,6 +88,27 @@ public class CTNRegistry {
 			.of(AngledTrackAnchorBlockEntity::new, ANGLED_TRACK_ANCHOR.get())
 			.build(null));
 
+	/**
+	 * The post that lays a straight run at a stated bearing, for the half of railway building the
+	 * wand is bad at: a line that has to leave at an angle rather than towards a place.
+	 */
+	public static final DeferredBlock<SurveyMarkerBlock> SURVEY_MARKER = BLOCKS.registerBlock(
+		"survey_marker",
+		SurveyMarkerBlock::new,
+		BlockBehaviour.Properties.of()
+			.mapColor(MapColor.METAL)
+			.strength(0.8F)
+			.sound(SoundType.NETHERITE_BLOCK)
+			.noOcclusion());
+
+	public static final DeferredItem<BlockItem> SURVEY_MARKER_ITEM =
+		ITEMS.registerSimpleBlockItem("survey_marker", SURVEY_MARKER);
+
+	public static final Supplier<BlockEntityType<SurveyMarkerBlockEntity>> SURVEY_MARKER_ENTITY =
+		BLOCK_ENTITIES.register("survey_marker", () -> BlockEntityType.Builder
+			.of(SurveyMarkerBlockEntity::new, SURVEY_MARKER.get())
+			.build(null));
+
 	public static final DeferredBlock<SpeedLimitBlock> TRACK_SPEED_LIMIT = BLOCKS.registerBlock(
 		"track_speed_limit",
 		SpeedLimitBlock::new,
@@ -119,6 +142,7 @@ public class CTNRegistry {
 			.displayItems((params, output) -> {
 				output.accept(CURVE_WAND.get());
 				output.accept(ANGLED_TRACK_ANCHOR_ITEM.get());
+				output.accept(SURVEY_MARKER_ITEM.get());
 				output.accept(TRACK_SPEED_LIMIT_ITEM.get());
 			})
 			.build());

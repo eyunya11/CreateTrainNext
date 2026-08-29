@@ -3,13 +3,19 @@ package com.eyunya.createtrainnext.client;
 import com.eyunya.createtrainnext.CTNConfig;
 import com.eyunya.createtrainnext.CTNRegistry;
 import com.eyunya.createtrainnext.CreateTrainNext;
+import com.eyunya.createtrainnext.track.SurveyMarkerBlockEntity;
 
 import dev.engine_room.flywheel.lib.model.baked.PartialModel;
+
+import net.minecraft.client.Minecraft;
+import net.minecraft.world.InteractionHand;
 
 import net.neoforged.bus.api.IEventBus;
 import net.neoforged.fml.ModContainer;
 import net.neoforged.fml.config.ModConfig;
 import net.neoforged.neoforge.client.event.EntityRenderersEvent;
+import net.neoforged.neoforge.common.NeoForge;
+import net.neoforged.neoforge.event.entity.player.PlayerInteractEvent;
 
 /**
  * Client-only setup.
@@ -41,6 +47,30 @@ public class CreateTrainNextClient {
 		modContainer.registerConfig(ModConfig.Type.CLIENT, CTNConfig.CLIENT_SPEC);
 		modEventBus.addListener(CreateTrainNextClient::onRegisterRenderers);
 		CurveWandPreview.init();
+		NeoForge.EVENT_BUS.addListener(CreateTrainNextClient::onRightClickBlock);
+	}
+
+	/**
+	 * Opens a survey marker's screen when it is right clicked with nothing in hand.
+	 *
+	 * <p>Handled here rather than from the block so that no client class is named anywhere the
+	 * server can reach. Empty hand only: a wrench belongs to the scroll box on the block and the
+	 * curve wand lays the line, and neither should be interrupted by a dialog.
+	 */
+	private static void onRightClickBlock(PlayerInteractEvent.RightClickBlock event) {
+		if (!event.getLevel().isClientSide || event.getHand() != InteractionHand.MAIN_HAND)
+			return;
+		if (!event.getItemStack()
+			.isEmpty() || event.getEntity()
+				.isShiftKeyDown())
+			return;
+		if (!(event.getLevel()
+			.getBlockEntity(event.getPos()) instanceof SurveyMarkerBlockEntity marker))
+			return;
+
+		Minecraft.getInstance()
+			.setScreen(new SurveyMarkerScreen(event.getPos(), marker.getBearing(), marker.getLength()));
+		event.setCanceled(true);
 	}
 
 	private static void onRegisterRenderers(EntityRenderersEvent.RegisterRenderers event) {

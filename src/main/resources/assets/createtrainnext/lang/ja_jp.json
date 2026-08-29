@@ -5,6 +5,14 @@
   "createtrainnext.speed_limit.limit": "制限速度",
   "createtrainnext.speed_limit.row": "速度",
 
+  "block.createtrainnext.survey_marker": "測量標",
+  "createtrainnext.survey_marker.title": "測量標",
+  "createtrainnext.survey_marker.length": "長さ",
+  "createtrainnext.survey_marker.apply": "適用",
+  "createtrainnext.survey_marker.hint": "曲線レール設置杖で敷設します",
+  "createtrainnext.survey_marker.bearing": "方位",
+  "message.createtrainnext.survey.laid": "直線を敷設しました — 方位 %s°、長さ %s ブロック",
+
   "item.createtrainnext.curve_wand": "曲線レール設置杖",
   "tooltip.createtrainnext.curve_wand.start": "線路を右クリック → 敷きたい場所を右クリック",
   "tooltip.createtrainnext.curve_wand.adjust": "スニーク＋ホイールで先端の向きを手動調整",

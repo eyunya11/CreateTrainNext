@@ -241,13 +241,15 @@ public final class CurvePlanner {
 		if (!endpoint.mustPlace())
 			return;
 
-		BlockPos pos = endpoint.anchorPos();
-		clearFor(level, pos);
+		placeAnchor(level, endpoint.anchorPos(), heading);
+	}
 
-		BlockState state = CTNRegistry.ANGLED_TRACK_ANCHOR.get()
+	/** Puts an anchor at {@code pos}, clearing whatever was there first. */
+	private static void placeAnchor(Level level, BlockPos pos, Vec3 heading) {
+		clearFor(level, pos);
+		level.setBlock(pos, CTNRegistry.ANGLED_TRACK_ANCHOR.get()
 			.defaultBlockState()
-			.setValue(AngledTrackAnchorBlock.AXIS, AnchorAxis.nearestTo(heading));
-		level.setBlock(pos, state, Block.UPDATE_ALL);
+			.setValue(AngledTrackAnchorBlock.AXIS, AnchorAxis.nearestTo(heading)), Block.UPDATE_ALL);
 	}
 
 	/**
@@ -536,6 +538,131 @@ public final class CurvePlanner {
 			: adjoining.getPosition(0.25)
 				.subtract(adjoining.getPosition(0));
 		return chord.lengthSqr() < 1.0E-8 ? null : chord.normalize();
+	}
+
+	// ------------------------------------------------------------- straight
+
+	/**
+	 * How far either side of the ideal endpoint to look for a block to finish on.
+	 *
+	 * <p>Three is enough to find a block centre within about a tenth of a block of the line at any
+	 * useful length, which is a tenth of a degree over sixteen blocks. Widening it further only
+	 * trades bearing accuracy the player cannot see for length they asked for and can.
+	 */
+	private static final int STRAIGHT_SEARCH = 3;
+
+	/**
+	 * How far the line may come out from the length asked for, in blocks.
+	 *
+	 * <p>A block and a half. Within that the search is free to pick whichever block centre sits
+	 * closest to the bearing, which at sixteen blocks brings the average bearing error under half a
+	 * degree and at thirty-two under a quarter. Allowing more length drift buys a little more
+	 * bearing accuracy and costs a line that is visibly not the length that was typed.
+	 */
+	private static final double STRAIGHT_LENGTH_TOLERANCE = 1.5;
+
+	/**
+	 * A dead straight route at a bearing, and what that bearing turned out to be.
+	 *
+	 * <p>{@link #bearing} and {@link #length} are what was actually achieved, not what was asked
+	 * for. Both anchors put their node at their block's centre, so the line can only run between
+	 * two of those — and the one nearest the bearing asked for is rarely exactly on it. Aiming both
+	 * ends at the line between the two centres is what keeps the track perfectly straight; the
+	 * price is a bearing off by a fraction of a degree, which is reported rather than hidden.
+	 */
+	public record StraightPlan(@Nullable String error, BlockPos endPos, Vec3 heading, double bearing,
+		double length) {
+
+		static StraightPlan failed(String error) {
+			return new StraightPlan(error, BlockPos.ZERO, Vec3.ZERO, 0, 0);
+		}
+
+		public boolean valid() {
+			return error == null;
+		}
+	}
+
+	/**
+	 * The straightest run of track at {@code requestedBearing} that the block grid allows.
+	 *
+	 * <p>Picks the block to finish on by how far its centre sits from the line, not by how close it
+	 * lands to the requested length: the sideways miss is the bearing error, and the bearing is
+	 * what was asked for. Length is a mild preference on top, enough to break ties and to stop the
+	 * search wandering, and what it settles on is reported back.
+	 */
+	public static StraightPlan planStraight(Level level, BlockPos from, float requestedBearing, int requestedLength) {
+		int maxLength = AllConfigs.server().trains.maxTrackPlacementLength.get();
+		if (requestedLength > maxLength)
+			return StraightPlan.failed("too_far");
+		if (requestedLength < MIN_SPAN + 1)
+			return StraightPlan.failed("too_close");
+
+		Vec3 ideal = flatUnit(AngledTrackAnchorBlockEntity.directionFromYaw(requestedBearing));
+		Vec3 start = Vec3.atBottomCenterOf(from);
+		BlockPos around = BlockPos.containing(start.add(ideal.scale(requestedLength)));
+
+		BlockPos best = null;
+		double bestScore = Double.MAX_VALUE;
+
+		for (int x = -STRAIGHT_SEARCH; x <= STRAIGHT_SEARCH; x++) {
+			for (int z = -STRAIGHT_SEARCH; z <= STRAIGHT_SEARCH; z++) {
+				BlockPos candidate = around.offset(x, 0, z);
+				if (candidate.equals(from))
+					continue;
+
+				Vec3 reach = flat(Vec3.atBottomCenterOf(candidate)
+					.subtract(start));
+				double along = reach.dot(ideal);
+				if (along < MIN_SPAN)
+					continue;
+
+				// Length is a hard tolerance and the bearing is what is minimised inside it. Scoring
+				// the two against each other instead lets a block a long way short of the length
+				// win on bearing, and a line that comes out two thirds the length asked for is not
+				// a rounding, it is the wrong line.
+				if (Math.abs(along - requestedLength) > STRAIGHT_LENGTH_TOLERANCE)
+					continue;
+
+				double sideways = reach.subtract(ideal.scale(along))
+					.length();
+				double score = sideways + 0.02 * Math.abs(along - requestedLength);
+				if (score >= bestScore)
+					continue;
+
+				bestScore = score;
+				best = candidate;
+			}
+		}
+
+		if (best == null)
+			return StraightPlan.failed("too_close");
+		if (!level.getBlockState(best)
+			.canBeReplaced() && !(level.getBlockEntity(best) instanceof AngledTrackAnchorBlockEntity))
+			return StraightPlan.failed("no_room");
+
+		Vec3 span = flat(Vec3.atBottomCenterOf(best)
+			.subtract(start));
+		Vec3 heading = span.normalize();
+		return new StraightPlan(null, best, heading, AngledTrackAnchorBlockEntity.yawOf(heading), span.length());
+	}
+
+	/** Builds what {@link #planStraight} described. Server side only. */
+	public static boolean applyStraight(Level level, BlockPos from, StraightPlan plan) {
+		if (!plan.valid())
+			return false;
+
+		// Both ends take the same heading, which is the line between the two block centres — so the
+		// bezier between them has collinear tangents and is a straight line rather than nearly one.
+		placeAnchor(level, from, plan.heading());
+		placeAnchor(level, plan.endPos(), plan.heading());
+
+		if (!(level.getBlockEntity(from) instanceof AngledTrackAnchorBlockEntity start))
+			return false;
+		if (!(level.getBlockEntity(plan.endPos()) instanceof AngledTrackAnchorBlockEntity end))
+			return false;
+
+		start.linkTo(end, plan.heading(), plan.heading());
+		return true;
 	}
 
 	// ---------------------------------------------------------------- split

@@ -1,0 +1,7 @@
+{
+  "variants": {
+    "": {
+      "model": "createtrainnext:block/survey_marker"
+    }
+  }
+}

@@ -5,6 +5,14 @@
   "createtrainnext.speed_limit.limit": "Speed Limit",
   "createtrainnext.speed_limit.row": "Speed",
 
+  "block.createtrainnext.survey_marker": "Survey Marker",
+  "createtrainnext.survey_marker.title": "Survey Marker",
+  "createtrainnext.survey_marker.length": "Length",
+  "createtrainnext.survey_marker.apply": "Apply",
+  "createtrainnext.survey_marker.hint": "Lay the line with the Curve Wand",
+  "createtrainnext.survey_marker.bearing": "Bearing",
+  "message.createtrainnext.survey.laid": "Line laid — bearing %s°, %s blocks",
+
   "item.createtrainnext.curve_wand": "Curve Wand",
   "tooltip.createtrainnext.curve_wand.start": "Right click track, then where it should go",
   "tooltip.createtrainnext.curve_wand.adjust": "Sneak + scroll to turn the far end by hand",
