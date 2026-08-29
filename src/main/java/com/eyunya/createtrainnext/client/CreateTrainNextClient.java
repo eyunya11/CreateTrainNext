@@ -47,6 +47,7 @@ public class CreateTrainNextClient {
 		modContainer.registerConfig(ModConfig.Type.CLIENT, CTNConfig.CLIENT_SPEC);
 		modEventBus.addListener(CreateTrainNextClient::onRegisterRenderers);
 		CurveWandPreview.init();
+		SurveyMarkerPreview.init();
 		NeoForge.EVENT_BUS.addListener(CreateTrainNextClient::onRightClickBlock);
 	}
 

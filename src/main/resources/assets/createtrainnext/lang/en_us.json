@@ -11,6 +11,7 @@
   "createtrainnext.survey_marker.apply": "Apply",
   "createtrainnext.survey_marker.hint": "Lay the line with the Curve Wand",
   "createtrainnext.survey_marker.bearing": "Bearing",
+  "message.createtrainnext.survey.ready": "Ready — bearing %s°, %s blocks",
   "message.createtrainnext.survey.laid": "Line laid — bearing %s°, %s blocks",
 
   "item.createtrainnext.curve_wand": "Curve Wand",

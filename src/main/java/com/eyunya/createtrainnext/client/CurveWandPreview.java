@@ -9,8 +9,6 @@ import com.simibubi.create.content.trains.track.BezierConnection;
 
 import net.createmod.catnip.animation.LerpedFloat;
 import net.createmod.catnip.animation.LerpedFloat.Chaser;
-import net.createmod.catnip.data.Pair;
-import net.createmod.catnip.math.VecHelper;
 import net.createmod.catnip.outliner.Outliner;
 import net.createmod.catnip.theme.Color;
 import net.minecraft.ChatFormatting;
@@ -23,7 +21,6 @@ import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.BlockHitResult;
 import net.minecraft.world.phys.HitResult;
-import net.minecraft.world.phys.Vec3;
 
 import net.neoforged.neoforge.client.event.ClientTickEvent;
 import net.neoforged.neoforge.client.event.InputEvent;
@@ -64,7 +61,7 @@ public class CurveWandPreview {
 
 	private static final int INVALID_COLOUR = 0xEA5C2B;
 
-	private static final String CURVE_KEY = "createtrainnext:curve_wand";
+	private static final GhostTrack GHOST = new GhostTrack("createtrainnext:curve_wand");
 
 	private static final String ANCHOR_KEY = "createtrainnext:curve_wand_anchor";
 
@@ -88,10 +85,6 @@ public class CurveWandPreview {
 
 	private static final LerpedFloat validity = LerpedFloat.linear()
 		.startWithValue(0);
-
-	private static int lastLineCount;
-
-	private static boolean drawing;
 
 	public static void init() {
 		NeoForge.EVENT_BUS.addListener(CurveWandPreview::onClientTick);
@@ -173,7 +166,7 @@ public class CurveWandPreview {
 
 		CurveWandSelection selection = CurveWandItem.selectionIn(stack, mc.level);
 		if (selection == null) {
-			clearCurve();
+			GHOST.clear();
 			Outliner.getInstance()
 				.remove(ANCHOR_KEY);
 			showSplitCandidate(mc, player);
@@ -194,7 +187,7 @@ public class CurveWandPreview {
 
 		HitResult hitResult = mc.hitResult;
 		if (hitResult == null || hitResult.getType() != HitResult.Type.BLOCK) {
-			clearCurve();
+			GHOST.clear();
 			return;
 		}
 
@@ -209,10 +202,10 @@ public class CurveWandPreview {
 
 		BezierConnection curve = plan.curve();
 		if (curve == null) {
-			clearCurve();
+			GHOST.clear();
 			return;
 		}
-		drawCurve(curve, Color.mixColors(INVALID_COLOUR, VALID_COLOUR, validity.getValue()), validity.getValue());
+		GHOST.draw(curve, Color.mixColors(INVALID_COLOUR, VALID_COLOUR, validity.getValue()), validity.getValue());
 	}
 
 	/**
@@ -304,78 +297,8 @@ public class CurveWandPreview {
 	 * apart from the one beside it. The sampling follows the same bezier the finished track is cut
 	 * from, so the ghost and the track occupy the same space.
 	 */
-	private static void drawCurve(BezierConnection curve, int colour, float intensity) {
-		Vec3 end1 = curve.starts.getFirst();
-		Vec3 end2 = curve.starts.getSecond();
-		double handle = curve.getHandleLength();
-		Vec3 finish1 = end1.add(curve.axes.getFirst()
-			.normalize()
-			.scale(handle));
-		Vec3 finish2 = end2.add(curve.axes.getSecond()
-			.normalize()
-			.scale(handle));
-
-		Vec3 up = new Vec3(0, 4 / 16f, 0);
-		float lineWidth = intensity / 16f + 1 / 16f;
-		int segments = Math.max(1, curve.getSegmentCount());
-
-		Vec3 previousLeft = null;
-		Vec3 previousRight = null;
-		Outliner outliner = Outliner.getInstance();
-
-		for (int i = 0; i <= segments; i++) {
-			float t = i / (float) segments;
-			Vec3 point = VecHelper.bezier(end1, end2, finish1, finish2, t);
-			Vec3 derivative = VecHelper.bezierDerivative(end1, end2, finish1, finish2, t)
-				.normalize();
-			Vec3 sideways = curve.getNormal(t)
-				.cross(derivative)
-				.scale(15 / 16f);
-
-			Vec3 left = point.add(sideways)
-				.add(up);
-			Vec3 right = point.subtract(sideways)
-				.add(up);
-
-			if (previousLeft != null) {
-				outliner.showLine(Pair.of(CURVE_KEY, i * 2), previousLeft, left)
-					.colored(colour)
-					.disableLineNormals()
-					.lineWidth(lineWidth);
-				outliner.showLine(Pair.of(CURVE_KEY, i * 2 + 1), previousRight, right)
-					.colored(colour)
-					.disableLineNormals()
-					.lineWidth(lineWidth);
-			}
-
-			previousLeft = left;
-			previousRight = right;
-		}
-
-		// A shorter curve than last tick leaves lines beyond its end, which the outliner would go
-		// on drawing because nothing has asked it to stop.
-		for (int i = segments + 1; i <= lastLineCount; i++) {
-			outliner.remove(Pair.of(CURVE_KEY, i * 2));
-			outliner.remove(Pair.of(CURVE_KEY, i * 2 + 1));
-		}
-		lastLineCount = segments;
-		drawing = true;
-	}
-
-	private static void clearCurve() {
-		if (!drawing)
-			return;
-		Outliner outliner = Outliner.getInstance();
-		for (int i = 0; i <= lastLineCount; i++) {
-			outliner.remove(Pair.of(CURVE_KEY, i * 2));
-			outliner.remove(Pair.of(CURVE_KEY, i * 2 + 1));
-		}
-		lastLineCount = 0;
-		drawing = false;
-	}
-
 	private static void clear() {
-		clearCurve();
+		GHOST.clear();
 		Outliner outliner = Outliner.getInstance();
 		outliner.remove(ANCHOR_KEY);
 		outliner.remove(SPLIT_KEY);

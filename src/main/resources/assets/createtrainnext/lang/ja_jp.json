@@ -11,6 +11,7 @@
   "createtrainnext.survey_marker.apply": "適用",
   "createtrainnext.survey_marker.hint": "曲線レール設置杖で敷設します",
   "createtrainnext.survey_marker.bearing": "方位",
+  "message.createtrainnext.survey.ready": "敷設できます — 方位 %s°、長さ %s ブロック",
   "message.createtrainnext.survey.laid": "直線を敷設しました — 方位 %s°、長さ %s ブロック",
 
   "item.createtrainnext.curve_wand": "曲線レール設置杖",

@@ -580,6 +580,11 @@ public final class CurvePlanner {
 		public boolean valid() {
 			return error == null;
 		}
+
+		/** Whether there is a line to draw, which a refusal may still have. */
+		public boolean hasGeometry() {
+			return heading.lengthSqr() > 0;
+		}
 	}
 
 	/**
@@ -636,14 +641,35 @@ public final class CurvePlanner {
 
 		if (best == null)
 			return StraightPlan.failed("too_close");
-		if (!level.getBlockState(best)
-			.canBeReplaced() && !(level.getBlockEntity(best) instanceof AngledTrackAnchorBlockEntity))
-			return StraightPlan.failed("no_room");
 
 		Vec3 span = flat(Vec3.atBottomCenterOf(best)
 			.subtract(start));
 		Vec3 heading = span.normalize();
-		return new StraightPlan(null, best, heading, AngledTrackAnchorBlockEntity.yawOf(heading), span.length());
+
+		// Blocked, but the line is still worked out — the preview draws it in red, which says far
+		// more than the message does on its own: it is the difference between being told "no room"
+		// and being shown where the obstruction is.
+		String error = level.getBlockState(best)
+			.canBeReplaced() || level.getBlockEntity(best) instanceof AngledTrackAnchorBlockEntity ? null
+				: "no_room";
+
+		return new StraightPlan(error, best, heading, AngledTrackAnchorBlockEntity.yawOf(heading), span.length());
+	}
+
+	/**
+	 * The curve {@link #applyStraight} is going to build, so it can be drawn before it is.
+	 *
+	 * <p>Assembled the same way the anchors will assemble it once linked — same node positions,
+	 * same tangents — rather than approximated, so the ghost is the track rather than a likeness of
+	 * it. {@code exitNode} and {@code entryNode} decide between the block centre and its boundary
+	 * on the heading, which is the one thing a straight line at an arbitrary bearing turns on.
+	 */
+	public static BezierConnection straightCurve(BlockPos from, StraightPlan plan) {
+		Vec3 heading = plan.heading();
+		return new BezierConnection(Couple.create(from, plan.endPos()),
+			Couple.create(AngledTrackAnchorBlockEntity.exitNode(from, heading, false),
+				AngledTrackAnchorBlockEntity.entryNode(plan.endPos(), heading, false)),
+			Couple.create(heading, heading.scale(-1)), Couple.create(UP, UP), true, false, TrackMaterial.ANDESITE);
 	}
 
 	/** Builds what {@link #planStraight} described. Server side only. */
