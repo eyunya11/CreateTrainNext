@@ -431,14 +431,36 @@ public class AngledTrackAnchorBlock extends Block implements EntityBlock, ITrack
 			: curve;
 	}
 
+	/**
+	 * Draws the signal, station or observer marker along the axis this block <em>reports</em>.
+	 *
+	 * <p>Create treats {@code direction} as a sign on {@link #getTrackAxes}, and nothing else: it is
+	 * set at selection time by {@code getNearestTrackAxis} testing the player's look against that
+	 * axis, and read back by {@code TrackGraphHelper.getGraphLocationAt} scaling that same axis by
+	 * it. Its own track keeps the two in step for free, because {@code TrackBlock} renders this
+	 * overlay off {@code SHAPE.getAxes().get(0)} — the very vector it reports.
+	 *
+	 * <p>Reading {@link #AXIS} here instead broke that. The four values of {@link AnchorAxis} are
+	 * unsigned — {@code nearestTo} picks by {@code Math.abs} — so an anchor's discrete axis always
+	 * points south or east, while {@link AngledTrackAnchorBlockEntity#targetingAxis} follows the
+	 * route. On a route running north or west the two are antiparallel, and the same
+	 * {@code direction} then drew the marker one way round and resolved the edge the other. That is
+	 * why it was wrong for half the compass and right for the other half.
+	 *
+	 * <p>Taking the vector from {@link #getTrackAxes} makes them the same vector again, which also
+	 * gets the marker off the 45 degree grid and onto the angle the route is really at.
+	 */
 	@Override
 	public <Self extends Affine<Self>> PartialModel prepareTrackOverlay(Affine<Self> affine, BlockGetter world,
 		BlockPos pos, BlockState state, BezierTrackPointLocation bezierPoint, AxisDirection direction,
 		RenderedTrackOverlayType type) {
 
-		Vec3 axis = axisVector(state);
+		Vec3 axis = getTrackAxes(world, pos, state).get(0);
 		Vec3 diff = axis.scale(direction.getStep())
 			.normalize();
+		if (diff.lengthSqr() < 1.0E-6)
+			diff = axisVector(state).scale(direction.getStep())
+				.normalize();
 		Vec3 angles = TrackRenderer.getModelAngles(getUpNormal(world, pos, state), diff);
 
 		affine.center()
