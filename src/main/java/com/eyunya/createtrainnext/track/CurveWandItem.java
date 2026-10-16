@@ -36,9 +36,15 @@ import net.minecraft.world.phys.Vec3;
  *
  * <p>Controls:
  * <ul>
- * <li>Right click a piece of track, or an anchor, to start a curve there.</li>
+ * <li>Right click a piece of track, or an anchor, to start a curve there. An anchor can be started
+ * from while either of its sides is free, and the curve leaves by that side — so a route can be
+ * carried on backwards out of its first anchor as well as forwards out of its last.</li>
  * <li>Right click again to build it. The selection carries on from the end just reached, so a whole
  * route is one click per curve.</li>
+ * <li>Right click the end of another route to join the two. If they were laid away from each other
+ * — two last anchors facing across the gap, or two first — the route at the far end is turned round
+ * to match, which moves no track; the ghost says so. The selection is dropped afterwards, since the
+ * anchor reached has nowhere left to carry on from.</li>
  * <li>Sneak and scroll to turn the far end of the curve by hand; right click the air to put it back
  * to the arc the tool picked.</li>
  * <li>Sneak and right click the air to drop the selection, or an anchor to take its curves apart.</li>
@@ -155,7 +161,12 @@ public class CurveWandItem extends Item {
 		if (level.isClientSide)
 			return InteractionResult.SUCCESS;
 
-		CurvePlanner.apply(level, plan);
+		String failure = CurvePlanner.apply(level, plan);
+		if (failure != null) {
+			message(player, failure);
+			AllSoundEvents.DENY.playFrom(player, 1, 1);
+			return InteractionResult.FAIL;
+		}
 
 		// An end that docked onto Create's own track is where the route stops, so the selection is
 		// dropped rather than carried on. Extending through a docked end would quietly undo the
@@ -165,6 +176,13 @@ public class CurveWandItem extends Item {
 			.docked()) {
 			stack.remove(CTNDataComponents.CURVE_SELECTION);
 			message(player, "docked", String.format("%.1f", plan.length()));
+		} else if (level.getBlockEntity(plan.end()
+			.anchorPos()) instanceof AngledTrackAnchorBlockEntity reached && !reached.hasFreeSide()) {
+			// Joined up. The anchor just reached has a curve on each side now, so there is nowhere left
+			// to carry on from, and a selection kept standing would be a ghost that is red wherever it
+			// is aimed, because the place it starts from is taken.
+			stack.remove(CTNDataComponents.CURVE_SELECTION);
+			message(player, "joined", String.format("%.1f", plan.length()));
 		} else {
 			// Otherwise the selection moves to the end just reached, so a route is one click per
 			// curve. It is safe to leave standing in a way the retired prototype's was not: that one

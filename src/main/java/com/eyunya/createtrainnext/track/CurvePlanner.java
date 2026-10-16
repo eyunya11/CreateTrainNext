@@ -162,18 +162,22 @@ public final class CurvePlanner {
 	 * <p>{@link #curve} is present even for most refusals, because a preview that vanishes the
 	 * moment it becomes invalid tells the player nothing about which way to move to fix it. Only
 	 * failures with no geometry at all — a click that resolves to no anchor — leave it null.
+	 *
+	 * <p>{@link #forward} is which way the link between the two anchors runs: from the start's next
+	 * to the end's prev, or from the end's next to the start's prev. {@link #reverseEnd} is whether
+	 * the route the end belongs to has to be turned round first for that to be possible.
 	 */
 	public record Plan(@Nullable String error, @Nullable Endpoint start, @Nullable Endpoint end,
 		@Nullable Vec3 startHeading, @Nullable Vec3 endHeading, @Nullable BezierConnection curve,
-		boolean adjustable, double turnDegrees, boolean forward) {
+		boolean adjustable, double turnDegrees, boolean forward, boolean reverseEnd) {
 
 		static Plan failed(String error) {
-			return new Plan(error, null, null, null, null, null, false, 0, true);
+			return new Plan(error, null, null, null, null, null, false, 0, true, false);
 		}
 
 		Plan withError(String newError) {
 			return new Plan(newError, start, end, startHeading, endHeading, curve, adjustable, turnDegrees,
-				forward);
+				forward, reverseEnd);
 		}
 
 		public boolean valid() {
@@ -243,6 +247,7 @@ public final class CurvePlanner {
 		// lets a route be continued backwards out of the anchor it started from: that anchor's next
 		// is spoken for, its prev is not, so the new curve runs into it instead of out of it.
 		boolean forward;
+		boolean reverseEnd = false;
 		if (start.side()
 			.allows(Side.NEXT)
 			&& end.side()
@@ -253,28 +258,53 @@ public final class CurvePlanner {
 			&& end.side()
 				.allows(Side.NEXT))
 			forward = false;
-		else
+		else {
 			// Both ends want the same slot, which happens joining two routes that were laid away
-			// from each other. Nothing here can fix that without reversing one of them end to end.
-			return Plan.failed("crossed_ends");
+			// from each other: two tails facing one another, or two heads. One of the routes has to
+			// be turned round, and the one chosen is the one at the far end — the route being joined
+			// onto, rather than the one being carried on. Turning it swaps which side of its end is
+			// free, and that is all it takes: the geometry below already describes the curve between
+			// the two ends as they stand, and turning a route does not move any of its track.
+			//
+			// Only these two pairs get here, because an end that is free on both sides allows either
+			// slot. A route has one head and one tail, so they are two different routes, and turning
+			// the far one cannot disturb the end that was clicked first.
+			reverseEnd = true;
+			forward = start.side() == Side.NEXT;
+		}
 
-		return solve(level, start, end, angleOffsetDegrees, forward);
+		return solve(level, start, end, angleOffsetDegrees, forward, reverseEnd);
 	}
 
-	/** Builds what {@code plan} described. Server side only; the client draws it instead. */
-	public static void apply(Level level, Plan plan) {
+	/**
+	 * Builds what {@code plan} described. Server side only; the client draws it instead.
+	 *
+	 * @return why it could not be built, as the key of a wand message, or null once it has been.
+	 *         Nothing is changed when a reason comes back.
+	 */
+	@Nullable
+	public static String apply(Level level, Plan plan) {
 		if (!plan.valid())
-			return;
+			return plan.error();
+
+		// Before anything is placed, so that a route which cannot be turned leaves the world just as
+		// it found it. Whether the whole of it can be reached is only known here: the ghost was drawn
+		// from what the client has loaded, which can be less than the server does.
+		if (plan.reverseEnd()) {
+			if (!(level.getBlockEntity(plan.end()
+				.anchorPos()) instanceof AngledTrackAnchorBlockEntity turning) || turning.reverseRoute() == 0)
+				return "route_unavailable";
+		}
 
 		place(level, plan.start(), plan.startHeading());
 		place(level, plan.end(), plan.endHeading());
 
 		if (!(level.getBlockEntity(plan.start()
 			.anchorPos()) instanceof AngledTrackAnchorBlockEntity startAnchor))
-			return;
+			return "no_room";
 		if (!(level.getBlockEntity(plan.end()
 			.anchorPos()) instanceof AngledTrackAnchorBlockEntity endAnchor))
-			return;
+			return "no_room";
 
 		// Anchors store their heading pointing downstream, and downstream is whichever way the link
 		// runs. Drawn backwards, the two headings are the negatives of the curve's own directions —
@@ -294,6 +324,7 @@ public final class CurvePlanner {
 		// Aiming an end that was already aimed would only feed its own heading back through a yaw
 		// and out again, losing a little of it to float each time a route was extended.
 		from.linkTo(to, fromEnd.needsAiming() ? fromHeading : null, toEnd.needsAiming() ? toHeading : null);
+		return null;
 	}
 
 	private static void place(Level level, Endpoint endpoint, Vec3 heading) {
@@ -433,7 +464,7 @@ public final class CurvePlanner {
 	// ------------------------------------------------------------- geometry
 
 	private static Plan solve(Level level, Endpoint start, Endpoint end, float angleOffsetDegrees,
-		boolean forward) {
+		boolean forward, boolean reverseEnd) {
 		Vec3 fixedStart = start.fixedHeading() == null ? null : flatUnit(start.fixedHeading());
 		Vec3 fixedEnd = end.fixedHeading() == null ? null : flatUnit(end.fixedHeading());
 
@@ -492,7 +523,8 @@ public final class CurvePlanner {
 			Couple.create(startPoint, endPoint), Couple.create(startHeading, endHeading.scale(-1)),
 			Couple.create(UP, UP), true, false, TrackMaterial.ANDESITE);
 
-		Plan plan = new Plan(null, start, end, startHeading, endHeading, curve, adjustable, turn, forward);
+		Plan plan = new Plan(null, start, end, startHeading, endHeading, curve, adjustable, turn, forward,
+			reverseEnd);
 		String error = validate(level, plan, startPoint, endPoint, startHeading, endHeading, turn);
 		return error == null ? plan : plan.withError(error);
 	}
@@ -611,10 +643,18 @@ public final class CurvePlanner {
 		if (chord.lengthSqr() < 1.0E-8)
 			return null;
 
-		// Negated, because the caller compares against the new curve leaving this node too, and two
-		// edges that continue one another leave it in opposite directions.
-		return chord.normalize()
-			.scale(-1);
+		Vec3 outwards = chord.normalize();
+
+		// What Create compares is an arrival with a departure, and the two ends of the new curve are
+		// on opposite sides of that. The new curve leaves a start, so what has to match it is the way
+		// the old one arrives — the opposite of the way it leaves, since two edges that continue one
+		// another leave their shared node in opposite directions. The new curve arrives at an end, so
+		// what has to match it is the way the old one leaves, as it is.
+		//
+		// This used to turn it round for both, which is right for a start and puts an end 180 degrees
+		// out: any curve finishing at an anchor that already had a route through it was refused as
+		// too sharp however gently it arrived.
+		return role == Role.START ? outwards.scale(-1) : outwards;
 	}
 
 	// ------------------------------------------------------------- straight

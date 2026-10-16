@@ -276,6 +276,13 @@ public class CurveWandPreview {
 				String.format("%.1f", plan.length()), String.format("%.0f", plan.turnDegrees()),
 				String.format("%.0f", shown), compass(bearing))
 				.withStyle(ChatFormatting.GREEN);
+			// Joining two routes that were laid away from each other turns the far one round. No
+			// track moves, but which way that route runs does change, and a click that does more than
+			// draw the curve it showed should not be a surprise.
+			if (plan.reverseEnd())
+				detail = detail.copy()
+					.append(Component.translatable("message.createtrainnext.wand.reverses")
+						.withStyle(ChatFormatting.YELLOW));
 			// The dialled-in angle is only shown once it is not zero, so the common case — two
 			// clicks and no adjustment at all — says nothing about a control the player never used.
 			message = angle == 0 ? detail
