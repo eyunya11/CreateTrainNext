@@ -112,6 +112,17 @@ public class AngledTrackAnchorBlockEntity extends BlockEntity {
 	}
 
 	/**
+	 * Whether a curve could still be attached to this anchor.
+	 *
+	 * <p>An anchor holds one link in each direction, so it has two sides and a route runs through
+	 * it rather than branching at it. A new curve takes whichever side is free: out of the next
+	 * side, carrying the route on, or out of the prev side, going back the way the route came.
+	 */
+	public boolean hasFreeSide() {
+		return prev == null || next == null;
+	}
+
+	/**
 	 * Points the span at whichever of the four lattice-safe axes sits closest to the heading.
 	 *
 	 * <p>The span's ends have to land on the node lattice, so they can only be offset along those

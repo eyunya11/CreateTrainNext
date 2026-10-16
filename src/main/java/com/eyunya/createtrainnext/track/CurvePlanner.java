@@ -190,10 +190,15 @@ public final class CurvePlanner {
 	/**
 	 * Whether a block is something a curve can be started from, which is what the first click has
 	 * to check before it stores a selection.
+	 *
+	 * <p>An anchor qualifies while either of its sides is free. This used to ask only about its
+	 * next, which is the side the <em>first</em> click always used before {@link #plan} learned to
+	 * read the free side off the anchor instead — and left the anchor a route was begun from, whose
+	 * next is taken and whose prev is not, as something a curve could arrive at but never leave.
 	 */
 	public static boolean canStartFrom(Level level, BlockPos pos) {
 		if (level.getBlockEntity(pos) instanceof AngledTrackAnchorBlockEntity anchor)
-			return anchor.getNext() == null;
+			return anchor.hasFreeSide();
 
 		BlockState state = level.getBlockState(pos);
 		if (!(state.getBlock() instanceof ITrackBlock track))
