@@ -86,19 +86,22 @@ public class AngledTrackAnchorBlockEntity extends BlockEntity {
 	private BlockPos next = null;
 
 	/**
-	 * Whether this anchor has been turned round an odd number of times, as far as the axis it
-	 * reports is concerned. See {@link #reverseRoute}.
+	 * Whether the axis this anchor reports is the opposite of the one measured along its route.
+	 * Only meaningful for an anchor at the centre of its block, which is the kind that reports that
+	 * one; an end reports its block's own axis and ignores this.
 	 *
-	 * <p>The axis an anchor in the middle of a route reports is measured along the route, so
-	 * turning the route round would negate it. Create keeps a signal's facing as nothing more than a
-	 * sign against that axis — it is the front-or-back flag {@code TrackGraphHelper.getGraphLocationAt}
-	 * multiplies the axis by — so every signal and station already standing on the route would come
-	 * out facing the other way, and the next time the graph was rebuilt around one it would be put on
-	 * the other edge. Negating it again here undoes that, which is to say that what an anchor
-	 * reports does not depend on which way round its route happens to be stored.
+	 * <p>Create keeps a signal's facing as nothing more than a sign against the reported axis — it
+	 * is the front-or-back flag {@code TrackGraphHelper.getGraphLocationAt} multiplies the axis by —
+	 * so that sign is a promise to everything standing on the anchor, and two things would break it.
+	 * Turning the route round negates the axis measured along it ({@link #reverseRoute}). And a
+	 * route's last anchor, which reports its block's axis, starts reporting the one measured along
+	 * the route as soon as a curve leaves it, where the two point opposite ways about half the time
+	 * ({@link #keepAxisSign}). Either way every signal and station on the anchor would come out
+	 * facing the other way, and the next time the graph was rebuilt around one it would be put on the
+	 * other edge. This is set, or not, to keep the promise.
 	 *
-	 * <p>False for every anchor that has never been reversed, which includes all of those in saves
-	 * made before this existed, so they report exactly what they always did.
+	 * <p>False for every anchor that never needed it, which includes all of those in saves made
+	 * before this existed, so they report exactly what they always did.
 	 */
 	private boolean flipped = false;
 
@@ -132,6 +135,35 @@ public class AngledTrackAnchorBlockEntity extends BlockEntity {
 	/** See {@link #flipped}. */
 	public boolean isFlipped() {
 		return flipped;
+	}
+
+	/**
+	 * Chooses {@link #flipped} so that the axis this anchor reports now points the way
+	 * {@code previous} did, for an anchor whose surroundings have just changed.
+	 *
+	 * <p>What changes is which of two axes it reports. An end reports its block's discrete axis,
+	 * whose sign is whatever the four vectors in {@link AnchorAxis} happen to be. An anchor with a
+	 * route through it reports one measured along the route, whose sign is the way the route runs.
+	 * Joining an end to something turns it from the first into the second, and where the route runs
+	 * against the block's axis the sign changes with it.
+	 *
+	 * <p>Does nothing for an anchor that still reports its block's axis: its sign has not moved, and
+	 * there is nothing here to choose.
+	 *
+	 * <p>Has to run after the links are in place and before the graph is rebuilt around the anchor,
+	 * which is queued for the next tick: a signal that finds its edge gone puts itself back by
+	 * resolving this axis again.
+	 */
+	public void keepAxisSign(Vec3 previous) {
+		if (!usesCentreNode(heading(), isInterior()))
+			return;
+
+		boolean wanted = routeTargetingAxis().dot(previous) < 0;
+		if (wanted == flipped)
+			return;
+
+		flipped = wanted;
+		markChanged();
 	}
 
 	@Nullable
