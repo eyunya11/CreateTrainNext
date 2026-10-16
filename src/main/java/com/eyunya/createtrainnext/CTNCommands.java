@@ -73,7 +73,46 @@ public class CTNCommands {
 					.then(Commands.argument("radius", IntegerArgumentType.integer(0, 8))
 						.executes(context -> junction(context.getSource(),
 							BlockPosArgument.getLoadedBlockPos(context, "pos"),
-							IntegerArgumentType.getInteger(context, "radius")))))));
+							IntegerArgumentType.getInteger(context, "radius"))))))
+			.then(Commands.literal("reverse")
+				.then(Commands.argument("pos", BlockPosArgument.blockPos())
+					.executes(context -> reverse(context.getSource(),
+						BlockPosArgument.getLoadedBlockPos(context, "pos"))))));
+	}
+
+	/**
+	 * Turns the route an anchor belongs to end for end.
+	 *
+	 * <p>Here so that reversing a route can be tried on its own. The wand does the same thing when
+	 * it joins two routes that were laid away from each other, and a fault in that is much easier to
+	 * pin on the reversal or on the joining if the two can be run apart. Running it twice puts
+	 * everything back.
+	 */
+	private static int reverse(CommandSourceStack source, BlockPos pos) {
+		ServerLevel level = source.getLevel();
+		if (!(level.getBlockEntity(pos) instanceof AngledTrackAnchorBlockEntity anchor)) {
+			source.sendFailure(Component.literal("Not an anchor: " + level.getBlockState(pos)
+				.getBlock()));
+			return 0;
+		}
+
+		List<AngledTrackAnchorBlockEntity> route = anchor.route();
+		int turned = anchor.reverseRoute();
+		if (route == null || turned == 0) {
+			source.sendFailure(Component.literal("Part of this route is not loaded, or its links do not agree "
+				+ "with one another. Nothing was changed."));
+			return 0;
+		}
+
+		// The route has just been turned round, so its old last anchor is its new first.
+		say(source, "Turned a route of " + turned + " anchors round. It now runs from "
+			+ route.get(route.size() - 1)
+				.getBlockPos()
+				.toShortString()
+			+ " to " + route.get(0)
+				.getBlockPos()
+				.toShortString() + ".");
+		return turned;
 	}
 
 	/**
@@ -97,7 +136,7 @@ public class CTNCommands {
 
 		if (level.getBlockEntity(pos) instanceof AngledTrackAnchorBlockEntity anchor)
 			say(source, "yaw = " + anchor.getYaw() + "  prev=" + (anchor.getPrev() != null) + " next="
-				+ (anchor.getNext() != null));
+				+ (anchor.getNext() != null) + "  flipped=" + anchor.isFlipped());
 
 		// Case 1: is the block's centre a node, and does any edge leaving it match?
 		Vec3 centre = Vec3.atBottomCenterOf(pos)
