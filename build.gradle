@@ -73,6 +73,10 @@ neoForge {
         gameTestServer {
             type = "gameTestServer"
             systemProperty 'neoforge.enabledGameTestNamespaces', project.mod_id
+
+            // A game directory of its own, so that the world the tests run in is not the one runServer
+            // uses, and can be thrown away before every run: see cleanGameTestWorld below.
+            gameDirectory = project.layout.buildDirectory.dir('gametest')
         }
 
         data {
@@ -108,6 +112,19 @@ neoForge {
             sourceSet(sourceSets.main)
         }
     }
+}
+
+// The game tests run in a world on disk, and Create saves the track graph into it. Left alone, that world
+// grew with every run: the tests leave their track behind, and the area they are built in is new each time.
+// Create checks every new edge against every edge in the world, so each run was slower than the last (nine
+// seconds became thirty over a day of runs, with three thousand graphs carried over) and the folder passed
+// half a gigabyte. A fresh world each time keeps a run the same length however many came before it.
+tasks.register('cleanGameTestWorld', Delete) {
+    delete layout.buildDirectory.dir('gametest/world')
+}
+tasks.configureEach { task ->
+    if (task.name == 'runGameTestServer')
+        task.dependsOn 'cleanGameTestWorld'
 }
 
 // Sets up a dependency configuration called 'localRuntime'.
