@@ -104,10 +104,10 @@ public final class CurvePlanner {
 	 * multiples of 45. Past this a single curve is a hairpin, and {@link #MIN_RADIUS} is the check
 	 * that decides whether it is a buildable one.
 	 */
-	private static final double MAX_TURN_DEGREES = 135;
+	static final double MAX_TURN_DEGREES = 135;
 
 	/** Below this the curve has no room to be a curve, and the two anchors would overlap. */
-	private static final double MIN_SPAN = 1.5;
+	static final double MIN_SPAN = 1.5;
 
 	/**
 	 * The tightest arc a curve may be, in blocks.
@@ -122,7 +122,26 @@ public final class CurvePlanner {
 	 * radius of two. Free angles are the point of this mod; tighter track than the base game allows
 	 * is not.
 	 */
-	private static final double MIN_RADIUS = 2.0;
+	static final double MIN_RADIUS = 2.0;
+
+	/**
+	 * How far a curve may stray from itself read the other way round, in blocks.
+	 *
+	 * <p>Create builds the graph's edge for each direction of travel from the same curve, but not
+	 * as the same curve: the reverse edge is {@code secondary()}, which works the curve out afresh
+	 * from the other end, and the length of a bezier's handles is taken from the distance of its
+	 * <em>second</em> end to where the normals at the two ends cross. That distance is the same from
+	 * either end only when the tangents at the two ends make equal angles with the chord — a circular
+	 * arc does, which is why Create's own curves never show it. Anything else comes out as two
+	 * different shapes, up to several blocks apart: the one that is drawn, and the one trains take the
+	 * other way.
+	 *
+	 * <p>A tenth of a block is well inside what anyone can see on a rail, and what is left once
+	 * {@link Biarc} has split a curve in two.
+	 */
+	public static final double MAX_ORIENTATION_DEVIATION = 0.1;
+
+	private static final int ORIENTATION_SAMPLES = 120;
 
 	private CurvePlanner() {}
 
@@ -554,9 +573,7 @@ public final class CurvePlanner {
 		if (turn > MAX_TURN_DEGREES)
 			return "too_sharp";
 
-		// Create's own rule for how much rise a length of track may carry, which is about how much
-		// a train can climb rather than anything to do with the curve.
-		if (ascend > 1.0E-4 && horizontal < Math.max(ascend * 3, 3))
+		if (tooSteep(horizontal, ascend))
 			return "too_steep";
 
 		BezierConnection curve = plan.curve();
@@ -949,10 +966,48 @@ public final class CurvePlanner {
 	// ----------------------------------------------------------------- math
 
 	/**
+	 * How far {@code curve} strays from itself read the other way round: the largest distance from a
+	 * point on one to the nearest point of the other, both ways, in blocks. Zero for a curve whose
+	 * tangents make equal angles with its chord. See {@link #MAX_ORIENTATION_DEVIATION}.
+	 */
+	public static double orientationDeviation(BezierConnection curve) {
+		BezierConnection reverse = curve.secondary();
+
+		Vec3[] own = new Vec3[ORIENTATION_SAMPLES + 1];
+		Vec3[] other = new Vec3[ORIENTATION_SAMPLES + 1];
+		for (int i = 0; i <= ORIENTATION_SAMPLES; i++) {
+			double t = i / (double) ORIENTATION_SAMPLES;
+			own[i] = curve.getPosition(t);
+			other[i] = reverse.getPosition(t);
+		}
+		return Math.max(farthestFrom(own, other), farthestFrom(other, own));
+	}
+
+	/** The largest distance from any of {@code points} to the polyline through {@code line}. */
+	private static double farthestFrom(Vec3[] points, Vec3[] line) {
+		double worst = 0;
+		for (Vec3 point : points) {
+			double nearest = Double.MAX_VALUE;
+			for (int i = 0; i + 1 < line.length; i++)
+				nearest = Math.min(nearest, distanceToSegment(point, line[i], line[i + 1]));
+			worst = Math.max(worst, nearest);
+		}
+		return worst;
+	}
+
+	private static double distanceToSegment(Vec3 point, Vec3 a, Vec3 b) {
+		Vec3 along = b.subtract(a);
+		double lengthSqr = along.lengthSqr();
+		double t = lengthSqr < 1.0E-12 ? 0 : Mth.clamp(point.subtract(a)
+			.dot(along) / lengthSqr, 0, 1);
+		return point.distanceTo(a.add(along.scale(t)));
+	}
+
+	/**
 	 * {@code tangent} mirrored about {@code chord}: the other tangent of the circular arc that
 	 * joins the two ends of a curve whose chord runs that way.
 	 */
-	private static Vec3 reflect(Vec3 tangent, Vec3 chord) {
+	static Vec3 reflect(Vec3 tangent, Vec3 chord) {
 		return chord.scale(2 * tangent.dot(chord))
 			.subtract(tangent)
 			.normalize();
@@ -965,12 +1020,20 @@ public final class CurvePlanner {
 		return new Vec3(vector.x * cos - vector.z * sin, vector.y, vector.x * sin + vector.z * cos);
 	}
 
+	/**
+	 * Create's own rule for how much rise a length of track may carry, which is about how much a
+	 * train can climb rather than anything to do with the curve.
+	 */
+	static boolean tooSteep(double horizontal, double ascend) {
+		return ascend > 1.0E-4 && horizontal < Math.max(ascend * 3, 3);
+	}
+
 	/** Headings are horizontal; a curve climbs by having its ends at different heights, not by tilting. */
-	private static Vec3 flat(Vec3 vector) {
+	static Vec3 flat(Vec3 vector) {
 		return new Vec3(vector.x, 0, vector.z);
 	}
 
-	private static Vec3 flatUnit(Vec3 vector) {
+	static Vec3 flatUnit(Vec3 vector) {
 		Vec3 flattened = flat(vector);
 		return flattened.lengthSqr() < 1.0E-8 ? new Vec3(0, 0, 1) : flattened.normalize();
 	}

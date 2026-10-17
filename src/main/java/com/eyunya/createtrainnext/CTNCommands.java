@@ -1,13 +1,16 @@
 package com.eyunya.createtrainnext;
 
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 
+import com.eyunya.createtrainnext.track.AnchorIndex;
 import com.eyunya.createtrainnext.track.AngledTrackAnchorBlockEntity;
+import com.eyunya.createtrainnext.track.CurvePlanner;
 import com.mojang.brigadier.CommandDispatcher;
 import com.mojang.brigadier.arguments.IntegerArgumentType;
 import com.simibubi.create.Create;
@@ -17,6 +20,7 @@ import com.simibubi.create.content.trains.graph.TrackGraph;
 import com.simibubi.create.content.trains.graph.TrackNode;
 import com.simibubi.create.content.trains.graph.TrackNodeLocation;
 import com.simibubi.create.content.trains.graph.TrackNodeLocation.DiscoveredLocation;
+import com.simibubi.create.content.trains.track.BezierConnection;
 import com.simibubi.create.content.trains.track.ITrackBlock;
 
 import net.minecraft.commands.CommandSourceStack;
@@ -77,7 +81,61 @@ public class CTNCommands {
 			.then(Commands.literal("reverse")
 				.then(Commands.argument("pos", BlockPosArgument.blockPos())
 					.executes(context -> reverse(context.getSource(),
-						BlockPosArgument.getLoadedBlockPos(context, "pos"))))));
+						BlockPosArgument.getLoadedBlockPos(context, "pos")))))
+			.then(Commands.literal("curves")
+				.executes(context -> curves(context.getSource(), 128))
+				.then(Commands.argument("radius", IntegerArgumentType.integer(1, 1024))
+					.executes(context -> curves(context.getSource(),
+						IntegerArgumentType.getInteger(context, "radius"))))));
+	}
+
+	/**
+	 * Lists the curves whose shape depends on which way they are read, worst first.
+	 *
+	 * <p>Create builds the graph's edge for each direction of travel from the same curve but not as
+	 * the same curve, so one with unequal angles at its ends is drawn one way and driven another way
+	 * the other way round — a train running against the route follows a path that can be blocks away
+	 * from the rails, and the F3 graph shows whichever direction it happens to draw. See
+	 * {@link CurvePlanner#MAX_ORIENTATION_DEVIATION}. This is for finding them.
+	 */
+	private static int curves(CommandSourceStack source, int radius) {
+		ServerLevel level = source.getLevel();
+		Vec3 centre = source.getPosition();
+
+		record Link(BlockPos from, BlockPos to, double length, double deviation) {}
+
+		List<Link> links = new ArrayList<>();
+		for (AngledTrackAnchorBlockEntity anchor : AnchorIndex.in(level)) {
+			BezierConnection curve = anchor.buildCurveToNext();
+			if (curve == null || Vec3.atCenterOf(anchor.getBlockPos())
+				.distanceTo(centre) > radius)
+				continue;
+			links.add(new Link(anchor.getBlockPos(), anchor.getNext(), curve.getLength(),
+				CurvePlanner.orientationDeviation(curve)));
+		}
+		links.sort(Comparator.comparingDouble(Link::deviation)
+			.reversed());
+
+		double limit = CurvePlanner.MAX_ORIENTATION_DEVIATION;
+		long over = links.stream()
+			.filter(link -> link.deviation() > limit)
+			.count();
+		say(source, links.size() + " curves within " + radius + " blocks, " + over + " of them differ by more than "
+			+ fmt(limit) + " blocks between the two directions");
+
+		// Every one over the limit, up to a screenful; and if there are none, the worst three for scale.
+		int shown = 0;
+		for (Link link : links) {
+			if (shown >= 15 || (link.deviation() <= limit && shown >= 3))
+				break;
+			say(source, (link.deviation() > limit ? " !! " : "    ") + link.from()
+				.toShortString() + " -> "
+				+ link.to()
+					.toShortString()
+				+ "   length " + fmt(link.length()) + "   deviation " + fmt(link.deviation()));
+			shown++;
+		}
+		return links.size();
 	}
 
 	/**
