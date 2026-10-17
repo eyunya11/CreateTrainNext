@@ -1,8 +1,17 @@
 package com.eyunya.createtrainnext.track;
 
+import java.util.ArrayList;
+import java.util.HashSet;
+import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+
 import org.jetbrains.annotations.Nullable;
 
 import com.eyunya.createtrainnext.CTNRegistry;
+import com.simibubi.create.content.trains.graph.TrackNodeLocation;
 import com.simibubi.create.content.trains.track.BezierConnection;
 import com.simibubi.create.content.trains.track.TrackMaterial;
 import com.simibubi.create.content.trains.track.TrackPropagator;
@@ -14,6 +23,7 @@ import net.minecraft.nbt.CompoundTag;
 import net.minecraft.network.protocol.Packet;
 import net.minecraft.network.protocol.game.ClientGamePacketListener;
 import net.minecraft.network.protocol.game.ClientboundBlockEntityDataPacket;
+import net.minecraft.util.Mth;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.entity.BlockEntity;
@@ -58,9 +68,18 @@ public class AngledTrackAnchorBlockEntity extends BlockEntity {
 	/** The most a node may be forgiven. See {@link #reachFor}. */
 	private static final double MAX_TARGETING_SLACK = Math.toRadians(60);
 
+	/**
+	 * The longest route {@link #route} will walk before deciding something is wrong with it.
+	 *
+	 * <p>Far longer than anyone lays by hand, and short enough that a link which has gone round in a
+	 * circle is given up on quickly rather than followed until the server stops responding.
+	 */
+	private static final int MAX_ROUTE_ANCHORS = 4096;
+
 	private static final String TAG_YAW = "Yaw";
 	private static final String TAG_PREV = "Prev";
 	private static final String TAG_NEXT = "Next";
+	private static final String TAG_AXIS_FLIPPED = "AxisFlipped";
 
 	private float yaw = 0.0F;
 
@@ -69,6 +88,27 @@ public class AngledTrackAnchorBlockEntity extends BlockEntity {
 	private BlockPos prev = null;
 	@Nullable
 	private BlockPos next = null;
+
+	/**
+	 * Whether the axis this anchor reports is the opposite of the one it would report if nothing
+	 * had to be held: its block's own axis for an end, and the one measured along the route for an
+	 * anchor at the centre of its block.
+	 *
+	 * <p>Create keeps a signal's facing as nothing more than a sign against the reported axis — it
+	 * is the front-or-back flag {@code TrackGraphHelper.getGraphLocationAt} multiplies the axis by —
+	 * so that sign is a promise to everything standing on the anchor, and the surroundings of an
+	 * anchor change in ways that would break it. Turning the route round negates the axis measured
+	 * along it ({@link #reverseRoute}). An end that gains a curve starts reporting that one instead
+	 * of its block's, and an anchor that loses one goes back, and where the route runs against the
+	 * block's axis — about half the time — the two have opposite signs. Any of them would leave
+	 * every signal and station on the anchor facing the other way, and put it on the other edge the
+	 * next time the graph was rebuilt around it. {@link #keepAxisSign} sets this to hold the sign
+	 * through each.
+	 *
+	 * <p>False for every anchor that never needed it, which includes all of those in saves made
+	 * before this existed, so they report exactly what they always did.
+	 */
+	private boolean flipped = false;
 
 	@Nullable
 	private BezierConnection cachedCurve = null;
@@ -97,6 +137,53 @@ public class AngledTrackAnchorBlockEntity extends BlockEntity {
 		return yaw;
 	}
 
+	/** See {@link #flipped}. */
+	public boolean isFlipped() {
+		return flipped;
+	}
+
+	/**
+	 * Chooses {@link #flipped} so that the axis this anchor reports now points the way
+	 * {@code previous} did, for an anchor whose surroundings have just changed.
+	 *
+	 * <p>What changes is which of two axes it reports, or which way the second points. An end
+	 * reports its block's discrete axis, whose sign is whatever the four vectors in
+	 * {@link AnchorAxis} happen to be. An anchor with a route through it reports one measured along
+	 * the route, whose sign is the way the route runs. Joining an end to something turns it from the
+	 * first into the second, unlinking a neighbour turns it back, and where the route runs against
+	 * the block's axis the sign changes with each. Turning the route round changes the second and
+	 * leaves the first alone.
+	 *
+	 * <p>Has to run once the links are in place and before the graph is rebuilt around the anchor,
+	 * which is queued for the next tick: a signal that finds its edge gone puts itself back by
+	 * resolving this axis again.
+	 */
+	public void keepAxisSign(Vec3 previous) {
+		boolean wanted = naturalAxis().dot(previous) < 0;
+		if (wanted == flipped)
+			return;
+
+		flipped = wanted;
+		markChanged();
+	}
+
+	/**
+	 * What each of these anchors reports now, to be handed to {@link #keepAxisSigns} once something
+	 * has changed their links. Only those with a curve are included: without one there is no edge
+	 * for anything to stand on, and so nothing whose facing is worth keeping.
+	 */
+	private static Map<AngledTrackAnchorBlockEntity, Vec3> reportedBy(AngledTrackAnchorBlockEntity... anchors) {
+		Map<AngledTrackAnchorBlockEntity, Vec3> reported = new LinkedHashMap<>();
+		for (AngledTrackAnchorBlockEntity anchor : anchors)
+			if (anchor != null && anchor.isLinked())
+				reported.put(anchor, anchor.targetingAxis());
+		return reported;
+	}
+
+	private static void keepAxisSigns(Map<AngledTrackAnchorBlockEntity, Vec3> reported) {
+		reported.forEach(AngledTrackAnchorBlockEntity::keepAxisSign);
+	}
+
 	@Nullable
 	public BlockPos getPrev() {
 		return prev;
@@ -109,6 +196,17 @@ public class AngledTrackAnchorBlockEntity extends BlockEntity {
 
 	public boolean isLinked() {
 		return prev != null || next != null;
+	}
+
+	/**
+	 * Whether a curve could still be attached to this anchor.
+	 *
+	 * <p>An anchor holds one link in each direction, so it has two sides and a route runs through
+	 * it rather than branching at it. A new curve takes whichever side is free: out of the next
+	 * side, carrying the route on, or out of the prev side, going back the way the route came.
+	 */
+	public boolean hasFreeSide() {
+		return prev == null || next == null;
 	}
 
 	/**
@@ -148,8 +246,15 @@ public class AngledTrackAnchorBlockEntity extends BlockEntity {
 		if (other == this)
 			return;
 
-		detachNeighbourhood();
-		other.detachNeighbourhood();
+		// What every anchor this is about to change reports, so that each can go on reporting the
+		// same way afterwards: see keepAxisSign. Whatever is displaced from either side loses a link
+		// too, so it is included.
+		Map<AngledTrackAnchorBlockEntity, Vec3> reported =
+			reportedBy(this, other, anchorAt(next), other.anchorAt(other.prev));
+
+		// Where the graph's nodes are about to stop being: see pruneGraph.
+		Set<TrackNodeLocation> stale = detachNeighbourhood();
+		stale.addAll(other.detachNeighbourhood());
 
 		// Whatever used to follow this anchor, or lead into the other, loses its half of the link.
 		clearNextOfThis();
@@ -169,6 +274,8 @@ public class AngledTrackAnchorBlockEntity extends BlockEntity {
 
 		invalidateNeighbourhood();
 		other.invalidateNeighbourhood();
+		keepAxisSigns(reported);
+		pruneGraph(stale);
 		attachNeighbourhood();
 		other.attachNeighbourhood();
 	}
@@ -178,10 +285,17 @@ public class AngledTrackAnchorBlockEntity extends BlockEntity {
 		if (!isLinked())
 			return;
 
-		detachNeighbourhood();
+		// The neighbours become ends, and an end reports a different axis from an anchor in the
+		// middle of a route: see keepAxisSign. This one is left to report whatever it does, since with
+		// no curve left it has no edge for anything to stand on.
+		Map<AngledTrackAnchorBlockEntity, Vec3> reported = reportedBy(anchorAt(prev), anchorAt(next));
+
+		Set<TrackNodeLocation> stale = detachNeighbourhood();
 		clearNextOfThis();
 		clearPrevOfThis();
 		invalidateNeighbourhood();
+		keepAxisSigns(reported);
+		pruneGraph(stale);
 		attachNeighbourhood();
 	}
 
@@ -209,6 +323,107 @@ public class AngledTrackAnchorBlockEntity extends BlockEntity {
 		markChanged();
 	}
 
+	// ---------------------------------------------------------------- route
+
+	/**
+	 * Every anchor in the route this one belongs to, in the order the route runs, or null if the
+	 * route cannot be walked in full.
+	 *
+	 * <p>Null means a link leads somewhere that is not a loaded anchor, or that the two anchors on
+	 * either end of a link do not agree about it, or that the walk went on past
+	 * {@link #MAX_ROUTE_ANCHORS} or round in a circle. All of those would have a caller act on part
+	 * of a route, and for turning one round that is worse than not doing it at all: the half left
+	 * alone would go on running the old way.
+	 */
+	@Nullable
+	public List<AngledTrackAnchorBlockEntity> route() {
+		// Back to the first anchor and then forwards to the last, so the list comes out in the order
+		// the route runs.
+		Set<BlockPos> seen = new HashSet<>();
+		seen.add(worldPosition);
+		AngledTrackAnchorBlockEntity first = this;
+		while (first.prev != null) {
+			AngledTrackAnchorBlockEntity behind = first.anchorAt(first.prev);
+			if (behind == null || !seen.add(behind.worldPosition) || seen.size() > MAX_ROUTE_ANCHORS)
+				return null;
+			first = behind;
+		}
+
+		List<AngledTrackAnchorBlockEntity> route = new ArrayList<>();
+		AngledTrackAnchorBlockEntity cursor = first;
+		while (true) {
+			route.add(cursor);
+			if (route.size() > MAX_ROUTE_ANCHORS)
+				return null;
+			if (cursor.next == null)
+				break;
+
+			// A link is held by both of its anchors, and the route is only the one it looks like if
+			// they agree about it.
+			AngledTrackAnchorBlockEntity ahead = cursor.anchorAt(cursor.next);
+			if (ahead == null || !cursor.worldPosition.equals(ahead.prev))
+				return null;
+			cursor = ahead;
+		}
+
+		// Walking forwards has to pass through the anchor the walk back started from, or the two
+		// halves were not the same route.
+		return route.contains(this) ? route : null;
+	}
+
+	/**
+	 * Turns the whole route this anchor belongs to end for end, so that what was its last anchor is
+	 * its first and every curve in it runs the other way.
+	 *
+	 * <p>The track itself does not move, and that is why the graph is left alone: swapping an
+	 * anchor's prev and next and pointing it the opposite way puts its entry node where its exit
+	 * node was and the other way round, to the bit, because the offset is taken along an axis that
+	 * has no sign and negated with the heading. The same nodes are reported, the same edges join
+	 * them, and tearing the graph down to rebuild exactly what it already holds would only make
+	 * Create throw away the signals and stations on the way.
+	 *
+	 * <p>Two things do change, both slightly. A curve is built by the anchor behind it, and a
+	 * bezier's handles are worked out by Create from its second end, so a curve whose ends are not
+	 * mirror images of one another comes out a little differently when the other end builds it — by a
+	 * fifth of a block or less over twenty, for ends within 25 degrees of the chord. And the floor
+	 * under each curve is laid by its owner, which is now the other anchor: it is renewed from there
+	 * within a few seconds, and what falls outside the new shape expires on its own.
+	 *
+	 * @return how many anchors were turned round, or zero if the route could not be reached in full,
+	 *         in which case nothing has changed.
+	 */
+	public int reverseRoute() {
+		if (level == null || level.isClientSide)
+			return 0;
+
+		List<AngledTrackAnchorBlockEntity> route = route();
+		if (route == null)
+			return 0;
+
+		// Every anchor's report is taken before any of them is turned, since each is measured off
+		// its neighbours, and put right once all of them have been.
+		Map<AngledTrackAnchorBlockEntity, Vec3> reported =
+			reportedBy(route.toArray(new AngledTrackAnchorBlockEntity[0]));
+		for (AngledTrackAnchorBlockEntity anchor : route)
+			anchor.turnAround();
+		keepAxisSigns(reported);
+		return route.size();
+	}
+
+	private void turnAround() {
+		BlockPos behind = prev;
+		prev = next;
+		next = behind;
+
+		yaw = Mth.wrapDegrees(yaw + 180.0F);
+
+		// What was recorded is the curve this anchor used to own, which it no longer does, and
+		// clearing it would take up a floor that its new neighbour is about to renew.
+		occupied = null;
+		invalidateCurve();
+		markChanged();
+	}
+
 	@Nullable
 	private AngledTrackAnchorBlockEntity anchorAt(@Nullable BlockPos pos) {
 		if (level == null || pos == null || !level.isLoaded(pos))
@@ -229,16 +444,46 @@ public class AngledTrackAnchorBlockEntity extends BlockEntity {
 	 * reported by the anchor behind it, so changing this one's heading changes an edge that its
 	 * predecessor owns. Must run <em>before</em> the state those edges derive from changes, or the
 	 * propagator removes the wrong nodes and strands the rest.
+	 *
+	 * <p>That teardown does not leave the graph without them. The propagator ends by rebuilding what
+	 * is next to the nodes it removed, from what those blocks report <em>now</em>, which is the state
+	 * about to be changed — so the nodes just taken out are put straight back. They are then the
+	 * propagator's to remove only for as long as something reports them.
+	 *
+	 * @return every location the three report before the change, to be given to {@link #pruneGraph}
+	 *         once it has been made.
 	 */
-	private void detachNeighbourhood() {
+	private Set<TrackNodeLocation> detachNeighbourhood() {
+		Set<TrackNodeLocation> reported = new LinkedHashSet<>();
 		if (level == null || level.isClientSide)
-			return;
+			return reported;
+
+		reported.addAll(GraphPruner.reportedBy(level, worldPosition, getBlockState()));
 		TrackPropagator.onRailRemoved(level, worldPosition, getBlockState());
 		for (BlockPos neighbour : new BlockPos[] { prev, next }) {
 			AngledTrackAnchorBlockEntity anchor = anchorAt(neighbour);
-			if (anchor != null)
+			if (anchor != null) {
+				reported.addAll(GraphPruner.reportedBy(level, neighbour, anchor.getBlockState()));
 				TrackPropagator.onRailRemoved(level, neighbour, anchor.getBlockState());
+			}
 		}
+		return reported;
+	}
+
+	/**
+	 * Takes out of the graph the nodes that were where {@link #detachNeighbourhood} found the
+	 * neighbourhood reporting them and are not now.
+	 *
+	 * <p>Without this they stay for good. The rebuild queued by {@link #attachNeighbourhood} only
+	 * removes and replaces what the blocks report when it runs, so a node at a location that has
+	 * stopped being reported is never reached again: it is the island Create's debug view draws as a
+	 * coloured post where an anchor has been broken. Runs after the links have changed, so what the
+	 * blocks report is what the graph is about to be built from, and before the rebuild is queued.
+	 */
+	private void pruneGraph(Set<TrackNodeLocation> stale) {
+		if (level == null || level.isClientSide)
+			return;
+		GraphPruner.prune(level, stale);
 	}
 
 	// Deliberately no rebuild on chunk load. It looks like the obvious way to recover a graph that
@@ -311,8 +556,21 @@ public class AngledTrackAnchorBlockEntity extends BlockEntity {
 	 * <p>The vector reported by an anchor with a curve on either side is deliberately <em>short</em>.
 	 * See {@link #reachFor}: its length is what buys the slack that lets a signal or a station be
 	 * placed facing either way along the route rather than only one.
+	 *
+	 * <p>Its sign is held where the anchor's surroundings change — the route turned round, an end
+	 * joined to something, a neighbour unlinked — whatever the curves say: see {@link #flipped} for
+	 * why.
 	 */
 	public Vec3 targetingAxis() {
+		Vec3 axis = naturalAxis();
+		return flipped ? axis.scale(-1) : axis;
+	}
+
+	/**
+	 * What {@link #targetingAxis} reports before {@link #flipped} is applied: the block's own axis
+	 * for an end, and the one measured along the route for a node at the block's centre.
+	 */
+	private Vec3 naturalAxis() {
 		// An end resolves through the helper's second case, which compares against the direction of
 		// this block's own linear span rather than any edge — and that span lies on the discrete
 		// axis. Reporting the heading there had it refused at every angle where the two differ,
@@ -321,6 +579,14 @@ public class AngledTrackAnchorBlockEntity extends BlockEntity {
 		if (!usesCentreNode(heading(), isInterior()))
 			return AngledTrackAnchorBlock.axisVector(getBlockState());
 
+		return routeTargetingAxis();
+	}
+
+	/**
+	 * What {@link #naturalAxis} gives for a node at the block's centre: measured off the curves
+	 * either side, so it points the way the route runs.
+	 */
+	private Vec3 routeTargetingAxis() {
 		// The two directions leaving this node, measured the way Create measures them.
 		Vec3 forwards = chordOf(buildCurveToNext());
 		BezierConnection behind = buildCurveFromPrev();
@@ -734,6 +1000,8 @@ public class AngledTrackAnchorBlockEntity extends BlockEntity {
 	protected void saveAdditional(CompoundTag tag, HolderLookup.Provider registries) {
 		super.saveAdditional(tag, registries);
 		tag.putFloat(TAG_YAW, yaw);
+		if (flipped)
+			tag.putBoolean(TAG_AXIS_FLIPPED, true);
 		if (prev != null)
 			tag.putLong(TAG_PREV, prev.asLong());
 		if (next != null)
@@ -746,6 +1014,7 @@ public class AngledTrackAnchorBlockEntity extends BlockEntity {
 		yaw = tag.getFloat(TAG_YAW);
 		prev = tag.contains(TAG_PREV) ? BlockPos.of(tag.getLong(TAG_PREV)) : null;
 		next = tag.contains(TAG_NEXT) ? BlockPos.of(tag.getLong(TAG_NEXT)) : null;
+		flipped = tag.getBoolean(TAG_AXIS_FLIPPED);
 		invalidateCurve();
 	}
 

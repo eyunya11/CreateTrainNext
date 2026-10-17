@@ -8,6 +8,9 @@ import java.util.Set;
 import java.util.UUID;
 
 import com.eyunya.createtrainnext.track.AngledTrackAnchorBlockEntity;
+import com.eyunya.createtrainnext.track.CurvePlanner;
+import com.eyunya.createtrainnext.track.CurveRepair;
+import com.eyunya.createtrainnext.track.GraphPruner;
 import com.mojang.brigadier.CommandDispatcher;
 import com.mojang.brigadier.arguments.IntegerArgumentType;
 import com.simibubi.create.Create;
@@ -45,6 +48,15 @@ import net.neoforged.neoforge.event.RegisterCommandsEvent;
  *
  * <p>The alternative is deleting {@code saves/<world>/data/create_tracks.dat} with the game shut
  * down, which is the same thing with more steps and no undo.
+ *
+ * <p>{@code /createtrainnext prune} is the gentler form of the same cleanup, for when it is only a few
+ * nodes that nothing reports any more — the coloured posts left in the F3 view where anchors used to
+ * be. It takes out just those, and leaves the graph, and every train and signal on it, otherwise as
+ * it is.
+ *
+ * <p>{@code curves} and {@code repair} are for the links built as one curve before the wand learned not
+ * to, which are a different shape read the other way round: the first lists them and the second
+ * mends them.
  */
 public class CTNCommands {
 
@@ -73,7 +85,180 @@ public class CTNCommands {
 					.then(Commands.argument("radius", IntegerArgumentType.integer(0, 8))
 						.executes(context -> junction(context.getSource(),
 							BlockPosArgument.getLoadedBlockPos(context, "pos"),
-							IntegerArgumentType.getInteger(context, "radius")))))));
+							IntegerArgumentType.getInteger(context, "radius"))))))
+			.then(Commands.literal("reverse")
+				.then(Commands.argument("pos", BlockPosArgument.blockPos())
+					.executes(context -> reverse(context.getSource(),
+						BlockPosArgument.getLoadedBlockPos(context, "pos")))))
+			.then(Commands.literal("curves")
+				.executes(context -> curves(context.getSource(), 128))
+				.then(Commands.argument("radius", IntegerArgumentType.integer(1, 1024))
+					.executes(context -> curves(context.getSource(),
+						IntegerArgumentType.getInteger(context, "radius")))))
+			.then(Commands.literal("repair")
+				.executes(context -> repair(context.getSource(), 128))
+				.then(Commands.argument("radius", IntegerArgumentType.integer(1, 1024))
+					.executes(context -> repair(context.getSource(),
+						IntegerArgumentType.getInteger(context, "radius")))))
+			.then(Commands.literal("prune")
+				.executes(context -> prune(context.getSource(), 128))
+				.then(Commands.argument("radius", IntegerArgumentType.integer(1, 1024))
+					.executes(context -> prune(context.getSource(),
+						IntegerArgumentType.getInteger(context, "radius"))))));
+	}
+
+	/**
+	 * Removes the graph nodes around whoever runs it that no track block reports.
+	 *
+	 * <p>Anchors used to leave these behind whenever a route was extended, joined, unlinked or
+	 * broken, and a world that has been played in has some. They are not part of any track, so no
+	 * train can reach them and nothing cleans them up; they only show in the F3 view, as a post of
+	 * their own colour where an anchor was. Nodes next to a chunk that is not loaded are left, since
+	 * what is there is not known.
+	 */
+	private static int prune(CommandSourceStack source, int radius) {
+		GraphPruner.Result result = GraphPruner.pruneAround(source.getLevel(), source.getPosition(), radius);
+
+		String undecided = result.undecided() == 0 ? ""
+			: " " + result.undecided() + " could not be judged, because a chunk beside them is not loaded.";
+		source.sendSuccess(() -> Component.literal("Looked at " + result.examined() + " graph nodes within " + radius
+			+ " blocks and removed " + result.removed() + " that no track block reports." + undecided), true);
+		return result.removed();
+	}
+
+	/**
+	 * Lists the curves whose shape depends on which way they are read, worst first.
+	 *
+	 * <p>Create builds the graph's edge for each direction of travel from the same curve but not as
+	 * the same curve, so one with unequal angles at its ends is drawn one way and driven another way
+	 * the other way round — a train running against the route follows a path that can be blocks away
+	 * from the rails, and the F3 graph shows whichever direction it happens to draw. See
+	 * {@link CurvePlanner#MAX_ORIENTATION_DEVIATION}. This is for finding them.
+	 */
+	private static int curves(CommandSourceStack source, int radius) {
+		List<CurveRepair.Link> links = CurveRepair.links(source.getLevel(), source.getPosition(), radius);
+
+		double limit = CurvePlanner.MAX_ORIENTATION_DEVIATION;
+		long over = links.stream()
+			.filter(CurveRepair.Link::overLimit)
+			.count();
+		say(source, links.size() + " curves within " + radius + " blocks, " + over + " of them differ by more than "
+			+ fmt(limit) + " blocks between the two directions"
+			+ (over > 0 ? "  (/createtrainnext repair mends them)" : ""));
+
+		// Every one over the limit, up to a screenful; and if there are none, the worst three for scale.
+		int shown = 0;
+		for (CurveRepair.Link link : links) {
+			if (shown >= 15 || (!link.overLimit() && shown >= 3))
+				break;
+			say(source, (link.overLimit() ? " !! " : "    ") + describe(link) + "   length " + fmt(link.length())
+				+ "   deviation " + fmt(link.deviation()));
+			shown++;
+		}
+		return links.size();
+	}
+
+	private static String describe(CurveRepair.Link link) {
+		return link.from()
+			.getBlockPos()
+			.toShortString() + " -> "
+			+ link.to()
+				.toShortString();
+	}
+
+	/**
+	 * Mends the curves around whoever runs it that were built as one and are a different shape read
+	 * the other way round: an anchor goes between the two ends and the link becomes two arcs.
+	 *
+	 * <p>What {@code curves} lists, done. The wand builds such curves as two arcs now, so what is
+	 * mended is what was built before that, and it stays where it is: both anchors keep their place and
+	 * their heading and only the path between them changes. A link that cannot be mended — nowhere to
+	 * put the anchor, or an arc a train would not take — is left as it was and said so.
+	 *
+	 * <p>Trains on or beside a mended link are derailed, as they are when track is broken under them.
+	 */
+	private static int repair(CommandSourceStack source, int radius) {
+		CurveRepair.Batch batch = CurveRepair.repairAll(source.getLevel(), source.getPosition(), radius,
+			CurveRepair.MAX_PER_RUN);
+		if (batch.outcomes()
+			.isEmpty()) {
+			say(source, "No curve within " + radius + " blocks differs by more than "
+				+ fmt(CurvePlanner.MAX_ORIENTATION_DEVIATION) + " blocks between the two directions. Nothing to mend.");
+			return 0;
+		}
+
+		int mended = 0;
+		for (CurveRepair.Outcome outcome : batch.outcomes()) {
+			if (outcome.repaired()) {
+				mended++;
+				say(source, " ok  " + describe(outcome.link()) + "   was " + fmt(outcome.link()
+					.deviation())
+					+ " off; now two arcs with an anchor at " + outcome.junction()
+						.toShortString()
+					+ ", and the rails are up to " + fmt(outcome.moved()) + " blocks from where they were");
+			} else
+				say(source, " !!  " + describe(outcome.link()) + "   left as it was: " + explain(outcome.error()));
+		}
+
+		int failed = batch.outcomes()
+			.size() - mended;
+		StringBuilder summary = new StringBuilder("Mended " + mended + " curves within " + radius + " blocks.");
+		if (mended > 0)
+			summary.append(" Trains on or beside them were derailed.");
+		if (failed > 0)
+			summary.append(" " + failed + " could not be mended, and are listed above.");
+		if (batch.remaining() > 0)
+			summary.append(" " + batch.remaining() + " more are over the limit: run it again to mend them.");
+		source.sendSuccess(() -> Component.literal(summary.toString()), true);
+		return mended;
+	}
+
+	/** What one of the repair's reasons means to whoever read it. */
+	private static String explain(String error) {
+		return switch (error) {
+			case "uneven" -> "there is no free block to put an anchor in between the two arcs";
+			case "too_sharp" -> "an arc would be too sharp for a train to take";
+			case "too_steep" -> "an arc would climb too steeply";
+			case "not_loaded" -> "the anchor at the other end is not loaded";
+			case "links_disagree" -> "the two anchors do not agree about the link";
+			case "no_room" -> "the anchor could not be placed";
+			default -> error;
+		};
+	}
+
+	/**
+	 * Turns the route an anchor belongs to end for end.
+	 *
+	 * <p>Here so that reversing a route can be tried on its own. The wand does the same thing when
+	 * it joins two routes that were laid away from each other, and a fault in that is much easier to
+	 * pin on the reversal or on the joining if the two can be run apart. Running it twice puts
+	 * everything back.
+	 */
+	private static int reverse(CommandSourceStack source, BlockPos pos) {
+		ServerLevel level = source.getLevel();
+		if (!(level.getBlockEntity(pos) instanceof AngledTrackAnchorBlockEntity anchor)) {
+			source.sendFailure(Component.literal("Not an anchor: " + level.getBlockState(pos)
+				.getBlock()));
+			return 0;
+		}
+
+		List<AngledTrackAnchorBlockEntity> route = anchor.route();
+		int turned = anchor.reverseRoute();
+		if (route == null || turned == 0) {
+			source.sendFailure(Component.literal("Part of this route is not loaded, or its links do not agree "
+				+ "with one another. Nothing was changed."));
+			return 0;
+		}
+
+		// The route has just been turned round, so its old last anchor is its new first.
+		say(source, "Turned a route of " + turned + " anchors round. It now runs from "
+			+ route.get(route.size() - 1)
+				.getBlockPos()
+				.toShortString()
+			+ " to " + route.get(0)
+				.getBlockPos()
+				.toShortString() + ".");
+		return turned;
 	}
 
 	/**
@@ -97,7 +282,7 @@ public class CTNCommands {
 
 		if (level.getBlockEntity(pos) instanceof AngledTrackAnchorBlockEntity anchor)
 			say(source, "yaw = " + anchor.getYaw() + "  prev=" + (anchor.getPrev() != null) + " next="
-				+ (anchor.getNext() != null));
+				+ (anchor.getNext() != null) + "  flipped=" + anchor.isFlipped());
 
 		// Case 1: is the block's centre a node, and does any edge leaving it match?
 		Vec3 centre = Vec3.atBottomCenterOf(pos)

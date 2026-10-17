@@ -391,6 +391,24 @@ public class AngledTrackAnchorBlock extends Block implements EntityBlock, ITrack
 				(b, v) -> getMaterial());
 		}
 
+		// An anchor at the centre of its block with no curve either side has nothing to report, but it
+		// is not without a node: onRailAdded makes one at the first location of the linear query, and
+		// that is the centre. What a block does not report is out of the propagator's reach, so left
+		// out, that node could never be removed again. Breaking the anchor left it in the graph, and
+		// every rebuild made another in a graph of its own on top of it.
+		//
+		// Asked from a location instead (connectedTo), both ends are the same point and neither leads
+		// anywhere, which is also true.
+		if (list.isEmpty()) {
+			ITrackBlock.addToListIfConnected(connectedTo, list, (d, b) -> center, b -> getUpNormal(world, pos, state),
+				dimensionFactory, yOffsetFactory, axisVector(state), null,
+				(b, v) -> ITrackBlock.getMaterialSimple(world, v, getMaterial()));
+			// It adds both ends of a piece of track, and a point has the one.
+			if (list.size() > 1)
+				list.subList(1, list.size())
+					.clear();
+		}
+
 		return list;
 	}
 

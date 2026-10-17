@@ -1,6 +1,10 @@
 package com.eyunya.createtrainnext.track;
 
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 import org.jetbrains.annotations.Nullable;
 
@@ -104,10 +108,10 @@ public final class CurvePlanner {
 	 * multiples of 45. Past this a single curve is a hairpin, and {@link #MIN_RADIUS} is the check
 	 * that decides whether it is a buildable one.
 	 */
-	private static final double MAX_TURN_DEGREES = 135;
+	static final double MAX_TURN_DEGREES = 135;
 
 	/** Below this the curve has no room to be a curve, and the two anchors would overlap. */
-	private static final double MIN_SPAN = 1.5;
+	static final double MIN_SPAN = 1.5;
 
 	/**
 	 * The tightest arc a curve may be, in blocks.
@@ -122,7 +126,26 @@ public final class CurvePlanner {
 	 * radius of two. Free angles are the point of this mod; tighter track than the base game allows
 	 * is not.
 	 */
-	private static final double MIN_RADIUS = 2.0;
+	static final double MIN_RADIUS = 2.0;
+
+	/**
+	 * How far a curve may stray from itself read the other way round, in blocks.
+	 *
+	 * <p>Create builds the graph's edge for each direction of travel from the same curve, but not
+	 * as the same curve: the reverse edge is {@code secondary()}, which works the curve out afresh
+	 * from the other end, and the length of a bezier's handles is taken from the distance of its
+	 * <em>second</em> end to where the normals at the two ends cross. That distance is the same from
+	 * either end only when the tangents at the two ends make equal angles with the chord — a circular
+	 * arc does, which is why Create's own curves never show it. Anything else comes out as two
+	 * different shapes, up to several blocks apart: the one that is drawn, and the one trains take the
+	 * other way.
+	 *
+	 * <p>A tenth of a block is well inside what anyone can see on a rail, and what is left once
+	 * {@link Biarc} has split a curve in two.
+	 */
+	public static final double MAX_ORIENTATION_DEVIATION = 0.1;
+
+	private static final int ORIENTATION_SAMPLES = 120;
 
 	private CurvePlanner() {}
 
@@ -162,26 +185,46 @@ public final class CurvePlanner {
 	 * <p>{@link #curve} is present even for most refusals, because a preview that vanishes the
 	 * moment it becomes invalid tells the player nothing about which way to move to fix it. Only
 	 * failures with no geometry at all — a click that resolves to no anchor — leave it null.
+	 *
+	 * <p>{@link #forward} is which way the link between the two anchors runs: from the start's next
+	 * to the end's prev, or from the end's next to the start's prev. {@link #reverseEnd} is whether
+	 * the route the end belongs to has to be turned round first for that to be possible.
+	 *
+	 * <p>A curve whose ends are not at equal angles to its chord is a different shape read the other
+	 * way round, so it is not built as one curve: {@link #junction} is where an anchor goes to make
+	 * it two circular arcs, {@link #curve} is then the first of them and {@link #secondCurve} the
+	 * second. See {@link Biarc}.
 	 */
 	public record Plan(@Nullable String error, @Nullable Endpoint start, @Nullable Endpoint end,
 		@Nullable Vec3 startHeading, @Nullable Vec3 endHeading, @Nullable BezierConnection curve,
-		boolean adjustable, double turnDegrees, boolean forward) {
+		boolean adjustable, double turnDegrees, boolean forward, boolean reverseEnd,
+		@Nullable Biarc.Junction junction, @Nullable BezierConnection secondCurve) {
 
 		static Plan failed(String error) {
-			return new Plan(error, null, null, null, null, null, false, 0, true);
+			return new Plan(error, null, null, null, null, null, false, 0, true, false, null, null);
 		}
 
 		Plan withError(String newError) {
 			return new Plan(newError, start, end, startHeading, endHeading, curve, adjustable, turnDegrees,
-				forward);
+				forward, reverseEnd, junction, secondCurve);
 		}
 
 		public boolean valid() {
 			return error == null;
 		}
 
+		/** What would be built, from the start to the end: one curve, or two with a point between. */
+		public List<BezierConnection> curves() {
+			if (curve == null)
+				return List.of();
+			return secondCurve == null ? List.of(curve) : List.of(curve, secondCurve);
+		}
+
 		public double length() {
-			return curve == null ? 0 : curve.getLength();
+			double length = 0;
+			for (BezierConnection each : curves())
+				length += each.getLength();
+			return length;
 		}
 	}
 
@@ -190,10 +233,15 @@ public final class CurvePlanner {
 	/**
 	 * Whether a block is something a curve can be started from, which is what the first click has
 	 * to check before it stores a selection.
+	 *
+	 * <p>An anchor qualifies while either of its sides is free. This used to ask only about its
+	 * next, which is the side the <em>first</em> click always used before {@link #plan} learned to
+	 * read the free side off the anchor instead — and left the anchor a route was begun from, whose
+	 * next is taken and whose prev is not, as something a curve could arrive at but never leave.
 	 */
 	public static boolean canStartFrom(Level level, BlockPos pos) {
 		if (level.getBlockEntity(pos) instanceof AngledTrackAnchorBlockEntity anchor)
-			return anchor.getNext() == null;
+			return anchor.hasFreeSide();
 
 		BlockState state = level.getBlockState(pos);
 		if (!(state.getBlock() instanceof ITrackBlock track))
@@ -238,6 +286,7 @@ public final class CurvePlanner {
 		// lets a route be continued backwards out of the anchor it started from: that anchor's next
 		// is spoken for, its prev is not, so the new curve runs into it instead of out of it.
 		boolean forward;
+		boolean reverseEnd = false;
 		if (start.side()
 			.allows(Side.NEXT)
 			&& end.side()
@@ -248,28 +297,60 @@ public final class CurvePlanner {
 			&& end.side()
 				.allows(Side.NEXT))
 			forward = false;
-		else
+		else {
 			// Both ends want the same slot, which happens joining two routes that were laid away
-			// from each other. Nothing here can fix that without reversing one of them end to end.
-			return Plan.failed("crossed_ends");
+			// from each other: two tails facing one another, or two heads. One of the routes has to
+			// be turned round, and the one chosen is the one at the far end — the route being joined
+			// onto, rather than the one being carried on. Turning it swaps which side of its end is
+			// free, and that is all it takes: the geometry below already describes the curve between
+			// the two ends as they stand, and turning a route does not move any of its track.
+			//
+			// Only these two pairs get here, because an end that is free on both sides allows either
+			// slot. A route has one head and one tail, so they are two different routes, and turning
+			// the far one cannot disturb the end that was clicked first.
+			reverseEnd = true;
+			forward = start.side() == Side.NEXT;
+		}
 
-		return solve(level, start, end, angleOffsetDegrees, forward);
+		return solve(level, start, end, angleOffsetDegrees, forward, reverseEnd);
 	}
 
-	/** Builds what {@code plan} described. Server side only; the client draws it instead. */
-	public static void apply(Level level, Plan plan) {
+	/**
+	 * Builds what {@code plan} described. Server side only; the client draws it instead.
+	 *
+	 * @return why it could not be built, as the key of a wand message, or null once it has been.
+	 *         Nothing is changed when a reason comes back: a route that was turned round is turned
+	 *         back and an anchor that was placed is taken out again. Only what was cleared to make room
+	 *         for an anchor — grass and the like — stays gone.
+	 */
+	@Nullable
+	public static String apply(Level level, Plan plan) {
 		if (!plan.valid())
-			return;
+			return plan.error();
 
-		place(level, plan.start(), plan.startHeading());
-		place(level, plan.end(), plan.endHeading());
+		// Before anything is placed, so that a route which cannot be turned leaves the world just as
+		// it found it. Whether the whole of it can be reached is only known here: the ghost was drawn
+		// from what the client has loaded, which can be less than the server does.
+		boolean reversed = false;
+		if (plan.reverseEnd()) {
+			if (!(level.getBlockEntity(plan.end()
+				.anchorPos()) instanceof AngledTrackAnchorBlockEntity turning) || turning.reverseRoute() == 0)
+				return "route_unavailable";
+			reversed = true;
+		}
+
+		// Everything from here on can still fail for want of room, and by then the route has been
+		// turned and anchors may be standing, so what is done is written down to be undone.
+		List<BlockPos> placed = new ArrayList<>();
+		place(level, plan.start(), plan.startHeading(), placed);
+		place(level, plan.end(), plan.endHeading(), placed);
 
 		if (!(level.getBlockEntity(plan.start()
 			.anchorPos()) instanceof AngledTrackAnchorBlockEntity startAnchor))
-			return;
+			return abandon(level, plan, reversed, placed);
 		if (!(level.getBlockEntity(plan.end()
 			.anchorPos()) instanceof AngledTrackAnchorBlockEntity endAnchor))
-			return;
+			return abandon(level, plan, reversed, placed);
 
 		// Anchors store their heading pointing downstream, and downstream is whichever way the link
 		// runs. Drawn backwards, the two headings are the negatives of the curve's own directions —
@@ -288,18 +369,59 @@ public final class CurvePlanner {
 
 		// Aiming an end that was already aimed would only feed its own heading back through a yaw
 		// and out again, losing a little of it to float each time a route was extended.
-		from.linkTo(to, fromEnd.needsAiming() ? fromHeading : null, toEnd.needsAiming() ? toHeading : null);
+		//
+		// An end that stops being one reports a different axis, and linkTo holds the sign it had, so
+		// that whatever is standing on it stays facing the same way.
+		Vec3 fromAim = fromEnd.needsAiming() ? fromHeading : null;
+		Vec3 toAim = toEnd.needsAiming() ? toHeading : null;
+
+		Biarc.Junction junction = plan.junction();
+		if (junction == null) {
+			from.linkTo(to, fromAim, toAim);
+			return null;
+		}
+
+		// Two arcs, and an anchor where they meet. It points the way the route runs there, which is
+		// the junction's heading when the link runs the way the curve was drawn and its opposite when
+		// it runs the other way, like the two ends'.
+		Vec3 middleHeading = plan.forward() ? junction.heading() : junction.heading()
+			.scale(-1);
+		placeAnchor(level, junction.pos(), middleHeading);
+		placed.add(junction.pos());
+		if (!(level.getBlockEntity(junction.pos()) instanceof AngledTrackAnchorBlockEntity middle))
+			return abandon(level, plan, reversed, placed);
+
+		from.linkTo(middle, fromAim, middleHeading);
+		middle.linkTo(to, null, toAim);
+		return null;
 	}
 
-	private static void place(Level level, Endpoint endpoint, Vec3 heading) {
+	/** Puts the world back as far as {@link #apply} had got, and says there was no room. */
+	private static String abandon(Level level, Plan plan, boolean reversed, List<BlockPos> placed) {
+		// Only where an anchor really stands: a block that could not be placed leaves nothing of ours
+		// there, and what is there instead is not ours to remove.
+		for (BlockPos pos : placed)
+			if (level.getBlockState(pos)
+				.is(CTNRegistry.ANGLED_TRACK_ANCHOR.get()))
+				level.removeBlock(pos, false);
+
+		// Turning a route round twice leaves it as it was.
+		if (reversed && level.getBlockEntity(plan.end()
+			.anchorPos()) instanceof AngledTrackAnchorBlockEntity turned)
+			turned.reverseRoute();
+		return "no_room";
+	}
+
+	private static void place(Level level, Endpoint endpoint, Vec3 heading, List<BlockPos> placed) {
 		if (!endpoint.mustPlace())
 			return;
 
 		placeAnchor(level, endpoint.anchorPos(), heading);
+		placed.add(endpoint.anchorPos());
 	}
 
 	/** Puts an anchor at {@code pos}, clearing whatever was there first. */
-	private static void placeAnchor(Level level, BlockPos pos, Vec3 heading) {
+	static void placeAnchor(Level level, BlockPos pos, Vec3 heading) {
 		clearFor(level, pos);
 		level.setBlock(pos, CTNRegistry.ANGLED_TRACK_ANCHOR.get()
 			.defaultBlockState()
@@ -428,7 +550,7 @@ public final class CurvePlanner {
 	// ------------------------------------------------------------- geometry
 
 	private static Plan solve(Level level, Endpoint start, Endpoint end, float angleOffsetDegrees,
-		boolean forward) {
+		boolean forward, boolean reverseEnd) {
 		Vec3 fixedStart = start.fixedHeading() == null ? null : flatUnit(start.fixedHeading());
 		Vec3 fixedEnd = end.fixedHeading() == null ? null : flatUnit(end.fixedHeading());
 
@@ -481,26 +603,109 @@ public final class CurvePlanner {
 
 		double turn = Math.toDegrees(Math.acos(Mth.clamp(startHeading.dot(endHeading), -1, 1)));
 
-		// Both tangents point into the curve: ours forwards along the route, the far end's
-		// backwards along it, matching how an anchor builds the curve it owns.
-		BezierConnection curve = new BezierConnection(Couple.create(start.anchorPos(), end.anchorPos()),
-			Couple.create(startPoint, endPoint), Couple.create(startHeading, endHeading.scale(-1)),
-			Couple.create(UP, UP), true, false, TrackMaterial.ANDESITE);
+		BezierConnection curve =
+			curveBetween(start.anchorPos(), end.anchorPos(), startPoint, endPoint, startHeading, endHeading);
 
-		Plan plan = new Plan(null, start, end, startHeading, endHeading, curve, adjustable, turn, forward);
-		String error = validate(level, plan, startPoint, endPoint, startHeading, endHeading, turn);
+		Plan plan = new Plan(null, start, end, startHeading, endHeading, curve, adjustable, turn, forward,
+			reverseEnd, null, null);
+
+		String error = validateSpan(startPoint, endPoint, startHeading, endHeading, turn);
+		if (error != null)
+			return plan.withError(error);
+
+		// A curve whose tangents make unequal angles with its chord is a different shape read the
+		// other way round, so it would be drawn one way and driven another. That is what a free end
+		// avoids by being aimed at the arc, and what a fixed one — two anchors already pointing
+		// somewhere, or an end turned by hand — cannot: it is built as two arcs instead.
+		if (orientationDeviation(curve) > MAX_ORIENTATION_DEVIATION)
+			return splitPlan(level, plan, startPoint, endPoint);
+
+		error = validateCurve(level, curve, startPoint, endPoint, startHeading, endHeading, start, end);
 		return error == null ? plan : plan.withError(error);
 	}
 
+	/**
+	 * The curve between two points as an anchor builds the one it owns. Both tangents point into the
+	 * curve: the first forwards along the route, the second backwards along it.
+	 */
+	static BezierConnection curveBetween(BlockPos from, BlockPos to, Vec3 fromPoint, Vec3 toPoint,
+		Vec3 fromHeading, Vec3 toHeading) {
+		return new BezierConnection(Couple.create(from, to), Couple.create(fromPoint, toPoint),
+			Couple.create(fromHeading, toHeading.scale(-1)), Couple.create(UP, UP), true, false,
+			TrackMaterial.ANDESITE);
+	}
+
+	/**
+	 * The plan for a curve that has to be two, or the reason there is no room to make it so.
+	 *
+	 * <p>The junction is somewhere an anchor can go: loaded, and a block that may be built in.
+	 * Chunks that are not loaded are not searched, since asking for a block in one makes a server
+	 * load it. What the plan keeps from the single curve is its curve, when there is no junction to
+	 * be had, so that the ghost still shows where the player was aiming.
+	 */
+	private static Plan splitPlan(Level level, Plan single, Vec3 startPoint, Vec3 endPoint) {
+		Endpoint start = single.start();
+		Endpoint end = single.end();
+		Vec3 startHeading = single.startHeading();
+		Vec3 endHeading = single.endHeading();
+
+		Biarc.Junction junction =
+			Biarc.find(startPoint, startHeading, endPoint, endHeading, pos -> junctionUsable(level, pos));
+		if (junction == null)
+			return single.withError("uneven");
+
+		BezierConnection first = curveBetween(start.anchorPos(), junction.pos(), startPoint, junction.point(),
+			startHeading, junction.heading());
+		BezierConnection second = curveBetween(junction.pos(), end.anchorPos(), junction.point(), endPoint,
+			junction.heading(), endHeading);
+		Plan plan = new Plan(null, start, end, startHeading, endHeading, first, single.adjustable(),
+			single.turnDegrees(), single.forward(), single.reverseEnd(), junction, second);
+
+		// Each arc is held to what a curve of its own would be, against whatever is already at the
+		// end it shares with the route; the junction has no neighbour yet, only the other arc.
+		String error = validateCurve(level, first, startPoint, junction.point(), startHeading, junction.heading(),
+			start, null);
+		if (error == null)
+			error = validateCurve(level, second, junction.point(), endPoint, junction.heading(), endHeading, null,
+				end);
+		if (error == null)
+			error = validateJoint(first, second);
+		return error == null ? plan : plan.withError(error);
+	}
+
+	/**
+	 * Whether an anchor may go in a block as the point between two arcs: one that is loaded, since
+	 * asking for a block in a chunk that is not makes a server load it, and that may be built in.
+	 * Shared with {@link CurveRepair}, which has to agree with the planner about where one can go.
+	 */
+	static boolean junctionUsable(Level level, BlockPos pos) {
+		return level.isLoaded(pos) && level.getBlockState(pos)
+			.canBeReplaced();
+	}
+
+	/** Whether a train may cross the node where two arcs meet, asked the way Create asks it. */
 	@Nullable
-	private static String validate(Level level, Plan plan, Vec3 startPoint, Vec3 endPoint, Vec3 startHeading,
-		Vec3 endHeading, double turn) {
+	static String validateJoint(BezierConnection first, BezierConnection second) {
+		Vec3 arriving = first.getPosition(1)
+			.subtract(first.getPosition(0.75));
+		Vec3 leaving = second.getPosition(0.25)
+			.subtract(second.getPosition(0));
+		if (arriving.lengthSqr() < 1.0E-8 || leaving.lengthSqr() < 1.0E-8)
+			return "too_sharp";
+		return arriving.normalize()
+			.dot(leaving.normalize()) < MIN_JOINT_DOT ? "too_sharp" : null;
+	}
 
+	/**
+	 * The checks about the span as a whole rather than about the curve across it: how far apart the
+	 * ends are, whether the tangents point towards one another, and how much it turns.
+	 */
+	@Nullable
+	private static String validateSpan(Vec3 startPoint, Vec3 endPoint, Vec3 startHeading, Vec3 endHeading,
+		double turn) {
 		Vec3 span = endPoint.subtract(startPoint);
-		double horizontal = flat(span).length();
-		double ascend = Math.abs(span.y);
 
-		if (horizontal < MIN_SPAN)
+		if (flat(span).length() < MIN_SPAN)
 			return "too_close";
 
 		int maxLength = AllConfigs.server().trains.maxTrackPlacementLength.get();
@@ -514,12 +719,46 @@ public final class CurvePlanner {
 		if (turn > MAX_TURN_DEGREES)
 			return "too_sharp";
 
-		// Create's own rule for how much rise a length of track may carry, which is about how much
-		// a train can climb rather than anything to do with the curve.
-		if (ascend > 1.0E-4 && horizontal < Math.max(ascend * 3, 3))
+		return null;
+	}
+
+	/**
+	 * The checks about one curve: whether it climbs more than track may, whether it is tighter than a
+	 * train will take, and whether a train can cross the nodes at its ends.
+	 *
+	 * @param startNeighbour the end the curve leaves from, if a route already runs through it for the
+	 *                       curve to be compared against; null where nothing does, and the curve
+	 *                       meets its own tangent.
+	 * @param endNeighbour   the same for the end it arrives at.
+	 */
+	@Nullable
+	private static String validateCurve(Level level, BezierConnection curve, Vec3 startPoint, Vec3 endPoint,
+		Vec3 startHeading, Vec3 endHeading, @Nullable Endpoint startNeighbour, @Nullable Endpoint endNeighbour) {
+		Vec3 arriving =
+			startNeighbour == null ? null : adjoiningDirection(level, startNeighbour, startHeading, Role.START);
+		Vec3 leaving = endNeighbour == null ? null : adjoiningDirection(level, endNeighbour, endHeading, Role.END);
+		return validateCurve(curve, startPoint, endPoint, startHeading, endHeading, arriving, leaving);
+	}
+
+	/**
+	 * The same checks with the neighbours' directions already worked out, for a caller that knows
+	 * which of an anchor's sides the neighbour is on rather than having it read off the anchor.
+	 *
+	 * @param arriving the direction of the track that already arrives at the start, as
+	 *                 {@link #adjoiningDirection} gives it; null to compare against the heading.
+	 * @param leaving  the same for the track that already leaves from the end.
+	 */
+	@Nullable
+	static String validateCurve(BezierConnection curve, Vec3 startPoint, Vec3 endPoint, Vec3 startHeading,
+		Vec3 endHeading, @Nullable Vec3 arriving, @Nullable Vec3 leaving) {
+		Vec3 span = endPoint.subtract(startPoint);
+		double horizontal = flat(span).length();
+		double ascend = Math.abs(span.y);
+		int maxLength = AllConfigs.server().trains.maxTrackPlacementLength.get();
+
+		if (tooSteep(horizontal, ascend))
 			return "too_steep";
 
-		BezierConnection curve = plan.curve();
 		double length = curve.getLength();
 		if (!Double.isFinite(length) || length <= 0 || length > maxLength * 4)
 			return "too_sharp";
@@ -539,12 +778,10 @@ public final class CurvePlanner {
 		if (startChord.lengthSqr() < 1.0E-8 || endChord.lengthSqr() < 1.0E-8)
 			return "too_sharp";
 
-		Vec3 arriving = adjoiningDirection(level, plan.start(), startHeading, Role.START);
 		if (startChord.normalize()
 			.dot(arriving == null ? startHeading : arriving) < MIN_JOINT_DOT)
 			return "too_sharp";
 
-		Vec3 leaving = adjoiningDirection(level, plan.end(), endHeading, Role.END);
 		if (endChord.normalize()
 			.dot(leaving == null ? endHeading : leaving) < MIN_JOINT_DOT)
 			return "too_sharp";
@@ -576,13 +813,24 @@ public final class CurvePlanner {
 
 		// Whichever side is already spoken for is the one with a curve on it. Exactly one is, or
 		// the endpoint would not have got this far.
-		boolean neighbourIsNext = anchor.getNext() != null;
+		return adjoiningDirection(anchor, anchor.getNext() != null, role);
+	}
+
+	/**
+	 * The same for an anchor that may have a curve on both sides, and is asked about one of them:
+	 * the link being replaced is the other, and not what the new curve is to be compared against.
+	 *
+	 * @param neighbourIsNext which side the track to compare against is on.
+	 */
+	@Nullable
+	static Vec3 adjoiningDirection(AngledTrackAnchorBlockEntity anchor, boolean neighbourIsNext, Role role) {
+		Level level = anchor.getLevel();
 		BlockPos neighbourPos = neighbourIsNext ? anchor.getNext() : anchor.getPrev();
-		if (neighbourPos == null
+		if (level == null || neighbourPos == null
 			|| !(level.getBlockEntity(neighbourPos) instanceof AngledTrackAnchorBlockEntity neighbour))
 			return null;
 
-		BlockPos pos = endpoint.anchorPos();
+		BlockPos pos = anchor.getBlockPos();
 		Vec3 anchorHeading = anchor.heading();
 
 		// The existing curve, written from this node outwards, so both it and the new curve are
@@ -606,10 +854,18 @@ public final class CurvePlanner {
 		if (chord.lengthSqr() < 1.0E-8)
 			return null;
 
-		// Negated, because the caller compares against the new curve leaving this node too, and two
-		// edges that continue one another leave it in opposite directions.
-		return chord.normalize()
-			.scale(-1);
+		Vec3 outwards = chord.normalize();
+
+		// What Create compares is an arrival with a departure, and the two ends of the new curve are
+		// on opposite sides of that. The new curve leaves a start, so what has to match it is the way
+		// the old one arrives — the opposite of the way it leaves, since two edges that continue one
+		// another leave their shared node in opposite directions. The new curve arrives at an end, so
+		// what has to match it is the way the old one leaves, as it is.
+		//
+		// This used to turn it round for both, which is right for a start and puts an end 180 degrees
+		// out: any curve finishing at an anchor that already had a route through it was refused as
+		// too sharp however gently it arrived.
+		return role == Role.START ? outwards.scale(-1) : outwards;
 	}
 
 	// ------------------------------------------------------------- straight
@@ -901,10 +1157,83 @@ public final class CurvePlanner {
 	// ----------------------------------------------------------------- math
 
 	/**
+	 * How far {@code curve} strays from itself read the other way round: the largest distance from a
+	 * point on one to the nearest point of the other, both ways, in blocks. Zero for a curve whose
+	 * tangents make equal angles with its chord. See {@link #MAX_ORIENTATION_DEVIATION}.
+	 */
+	public static double orientationDeviation(BezierConnection curve) {
+		DeviationKey key = new DeviationKey(curve.starts.getFirst(), curve.starts.getSecond(),
+			curve.axes.getFirst(), curve.axes.getSecond());
+		Double known = DEVIATIONS.get(key);
+		if (known != null)
+			return known;
+
+		double deviation = deviation(curve, curve.secondary());
+		DEVIATIONS.put(key, deviation);
+		return deviation;
+	}
+
+	/**
+	 * What a curve is made from, which is all its shape depends on. The measurement samples it a
+	 * hundred and twenty times against a hundred and twenty segments, and the wand asks for the same
+	 * curve every tick while it is aimed at the same two anchors.
+	 */
+	private record DeviationKey(Vec3 firstStart, Vec3 secondStart, Vec3 firstAxis, Vec3 secondAxis) {}
+
+	/** The last few curves measured, least recently used out first. Read from the client and the server. */
+	private static final Map<DeviationKey, Double> DEVIATIONS =
+		Collections.synchronizedMap(new LinkedHashMap<>(64, 0.75f, true) {
+			@Override
+			protected boolean removeEldestEntry(Map.Entry<DeviationKey, Double> eldest) {
+				return size() > 512;
+			}
+		});
+
+	/**
+	 * How far apart two curves are: the largest distance from a point on one to the nearest point of
+	 * the other, taken both ways, in blocks.
+	 */
+	public static double deviation(BezierConnection a, BezierConnection b) {
+		Vec3[] first = new Vec3[ORIENTATION_SAMPLES + 1];
+		Vec3[] second = new Vec3[ORIENTATION_SAMPLES + 1];
+		for (int i = 0; i <= ORIENTATION_SAMPLES; i++) {
+			double t = i / (double) ORIENTATION_SAMPLES;
+			first[i] = a.getPosition(t);
+			second[i] = b.getPosition(t);
+		}
+		return deviation(first, second);
+	}
+
+	/** The same for two lines already sampled, each a run of points along it in order. */
+	static double deviation(Vec3[] first, Vec3[] second) {
+		return Math.max(farthestFrom(first, second), farthestFrom(second, first));
+	}
+
+	/** The largest distance from any of {@code points} to the polyline through {@code line}. */
+	private static double farthestFrom(Vec3[] points, Vec3[] line) {
+		double worst = 0;
+		for (Vec3 point : points) {
+			double nearest = Double.MAX_VALUE;
+			for (int i = 0; i + 1 < line.length; i++)
+				nearest = Math.min(nearest, distanceToSegment(point, line[i], line[i + 1]));
+			worst = Math.max(worst, nearest);
+		}
+		return worst;
+	}
+
+	private static double distanceToSegment(Vec3 point, Vec3 a, Vec3 b) {
+		Vec3 along = b.subtract(a);
+		double lengthSqr = along.lengthSqr();
+		double t = lengthSqr < 1.0E-12 ? 0 : Mth.clamp(point.subtract(a)
+			.dot(along) / lengthSqr, 0, 1);
+		return point.distanceTo(a.add(along.scale(t)));
+	}
+
+	/**
 	 * {@code tangent} mirrored about {@code chord}: the other tangent of the circular arc that
 	 * joins the two ends of a curve whose chord runs that way.
 	 */
-	private static Vec3 reflect(Vec3 tangent, Vec3 chord) {
+	static Vec3 reflect(Vec3 tangent, Vec3 chord) {
 		return chord.scale(2 * tangent.dot(chord))
 			.subtract(tangent)
 			.normalize();
@@ -917,12 +1246,20 @@ public final class CurvePlanner {
 		return new Vec3(vector.x * cos - vector.z * sin, vector.y, vector.x * sin + vector.z * cos);
 	}
 
+	/**
+	 * Create's own rule for how much rise a length of track may carry, which is about how much a
+	 * train can climb rather than anything to do with the curve.
+	 */
+	static boolean tooSteep(double horizontal, double ascend) {
+		return ascend > 1.0E-4 && horizontal < Math.max(ascend * 3, 3);
+	}
+
 	/** Headings are horizontal; a curve climbs by having its ends at different heights, not by tilting. */
-	private static Vec3 flat(Vec3 vector) {
+	static Vec3 flat(Vec3 vector) {
 		return new Vec3(vector.x, 0, vector.z);
 	}
 
-	private static Vec3 flatUnit(Vec3 vector) {
+	static Vec3 flatUnit(Vec3 vector) {
 		Vec3 flattened = flat(vector);
 		return flattened.lengthSqr() < 1.0E-8 ? new Vec3(0, 0, 1) : flattened.normalize();
 	}
