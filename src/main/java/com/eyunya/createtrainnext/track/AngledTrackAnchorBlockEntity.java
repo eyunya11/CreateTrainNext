@@ -79,8 +79,6 @@ public class AngledTrackAnchorBlockEntity extends BlockEntity {
 	private static final String TAG_YAW = "Yaw";
 	private static final String TAG_PREV = "Prev";
 	private static final String TAG_NEXT = "Next";
-	/** What earlier versions called the flag, when it only meant anything at the centre of a block. */
-	private static final String TAG_FLIPPED = "Flipped";
 	private static final String TAG_AXIS_FLIPPED = "AxisFlipped";
 
 	private float yaw = 0.0F;
@@ -1016,13 +1014,7 @@ public class AngledTrackAnchorBlockEntity extends BlockEntity {
 		yaw = tag.getFloat(TAG_YAW);
 		prev = tag.contains(TAG_PREV) ? BlockPos.of(tag.getLong(TAG_PREV)) : null;
 		next = tag.contains(TAG_NEXT) ? BlockPos.of(tag.getLong(TAG_NEXT)) : null;
-
-		// Earlier versions wrote this as Flipped, and it meant something only at the centre of a
-		// block: an end ignored it. It applies to an end now, so a value from before is read the way
-		// it was then — kept at a centre, dropped on an end — or an end it happened to be set on
-		// would start reporting the opposite of what it always had.
-		flipped = tag.contains(TAG_AXIS_FLIPPED) ? tag.getBoolean(TAG_AXIS_FLIPPED)
-			: tag.getBoolean(TAG_FLIPPED) && usesCentreNode(heading(), isInterior());
+		flipped = tag.getBoolean(TAG_AXIS_FLIPPED);
 		invalidateCurve();
 	}
 

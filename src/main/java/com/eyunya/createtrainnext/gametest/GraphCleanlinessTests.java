@@ -452,6 +452,37 @@ public class GraphCleanlinessTests {
 		helper.succeed();
 	}
 
+	/**
+	 * Whether a node is wanted cannot be told from beside a chunk that is not loaded, because the
+	 * block that would report it may be in that chunk. Such a node is left, by both ways of pruning,
+	 * however little reports it; the answer would have been wrong for every node along a route that
+	 * crosses the edge of what is loaded.
+	 */
+	@GameTest(template = EMPTY, timeoutTicks = 40)
+	public static void aNodeBesideAnUnloadedChunkIsNeverPruned(GameTestHelper helper) {
+		Level level = helper.getLevel();
+		// Far from anywhere the test world has loaded.
+		Vec3 where = new Vec3(5_000_000.5, 64.0, 5_000_000.5);
+		helper.assertTrue(!level.isLoaded(BlockPos.containing(where)), "setup: the place should not be loaded");
+
+		TrackGraph graph = new TrackGraph();
+		Create.RAILWAYS.putGraphWithDefaultGroup(graph);
+		graph.createNodeIfAbsent(new DiscoveredLocation(level.dimension(), where));
+		TrackNodeLocation location = new TrackNodeLocation(where).in(level);
+
+		GraphPruner.Result named = GraphPruner.prune(level, List.of(location));
+		GraphPruner.Result swept = GraphPruner.pruneAround(level, where, 4);
+
+		boolean kept = graph.locateNode(location) != null;
+		Create.RAILWAYS.removeGraphAndGroup(graph);
+		helper.assertTrue(kept, "a node nothing can be seen to report should have been left");
+		helper.assertTrue(named.removed() == 0 && named.undecided() == 1,
+			"naming the node should have left it as undecided: " + named);
+		helper.assertTrue(swept.removed() == 0 && swept.undecided() == 1,
+			"sweeping round it should have left it as undecided: " + swept);
+		helper.succeed();
+	}
+
 	/** And it leaves alone what track is there. */
 	@GameTest(template = EMPTY, timeoutTicks = 60)
 	public static void thePruneCommandLeavesTrackThatIsThere(GameTestHelper helper) {

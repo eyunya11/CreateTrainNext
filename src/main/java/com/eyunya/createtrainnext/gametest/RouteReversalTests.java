@@ -213,8 +213,7 @@ public class RouteReversalTests {
 
 		AngledTrackAnchorBlockEntity lone = anchor(helper, new BlockPos(10, 2, 4));
 		CompoundTag untouched = lone.saveWithFullMetadata(level.registryAccess());
-		helper.assertTrue(!untouched.contains("AxisFlipped") && !untouched.contains("Flipped"),
-			"an anchor with nothing to hold should not write a flag at all");
+		helper.assertTrue(!untouched.contains("AxisFlipped"), "an anchor with nothing to hold should not write a flag at all");
 
 		// A reversal turns the flag of an anchor at the centre of its block, whichever way it was, so
 		// this leaves it set either way.
@@ -224,8 +223,7 @@ public class RouteReversalTests {
 		AngledTrackAnchorBlockEntity original = anchors[1];
 		helper.assertTrue(original.isFlipped(), "setup: the anchor should be holding its sign");
 		CompoundTag saved = original.saveWithFullMetadata(level.registryAccess());
-		helper.assertTrue(saved.contains("AxisFlipped") && !saved.contains("Flipped"),
-			"the flag should be written under its new name only");
+		helper.assertTrue(saved.contains("AxisFlipped"), "the flag should be written");
 
 		BlockEntity loaded = BlockEntity.loadStatic(original.getBlockPos(), original.getBlockState(), saved,
 			level.registryAccess());
@@ -239,34 +237,6 @@ public class RouteReversalTests {
 			"the loaded anchor should keep its heading");
 
 		helper.succeed();
-	}
-
-	/**
-	 * A flag written by an earlier version, under its old name, is read the way that version read
-	 * it: kept at the centre of a block, and dropped on an end, where it meant nothing and where
-	 * keeping it would now turn the axis the end reports the other way round.
-	 */
-	@GameTest(template = EMPTY)
-	public static void aFlagFromAnEarlierVersionIsReadAsItWas(GameTestHelper helper) {
-		AngledTrackAnchorBlockEntity[] anchors = bend(helper);
-		Level level = helper.getLevel();
-
-		helper.assertTrue(oldFlagLoadsAs(level, anchors[1]),
-			"a flag written by an earlier version should be kept at the centre of a block");
-		helper.assertTrue(!oldFlagLoadsAs(level, anchors[0]),
-			"a flag written by an earlier version should be dropped on an end");
-
-		helper.succeed();
-	}
-
-	/** Saves the anchor, rewrites its flag the way an earlier version wrote it, loads it and reports what it holds. */
-	private static boolean oldFlagLoadsAs(Level level, AngledTrackAnchorBlockEntity anchor) {
-		CompoundTag tag = anchor.saveWithFullMetadata(level.registryAccess());
-		tag.remove("AxisFlipped");
-		tag.putBoolean("Flipped", true);
-		BlockEntity loaded =
-			BlockEntity.loadStatic(anchor.getBlockPos(), anchor.getBlockState(), tag, level.registryAccess());
-		return ((AngledTrackAnchorBlockEntity) loaded).isFlipped();
 	}
 
 	// --------------------------------------------------------------- helpers

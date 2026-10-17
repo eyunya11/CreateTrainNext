@@ -238,6 +238,32 @@ public class CurveRepairTests {
 		});
 	}
 
+	/**
+	 * A link is held by both of its anchors, and one that the far anchor knows nothing about is not
+	 * mended: there is no telling which of the two is right.
+	 */
+	@GameTest(template = EMPTY, timeoutTicks = 60)
+	public static void aLinkTheFarAnchorKnowsNothingAboutIsLeftAlone(GameTestHelper helper) {
+		AngledTrackAnchorBlockEntity[] route = oldJoin(helper);
+		Level level = helper.getLevel();
+
+		helper.runAfterDelay(GRAPH_TICKS, () -> {
+			CurveRepair.Link link = CurveRepair.linkFrom(route[1]);
+			helper.assertTrue(link != null && link.overLimit(), "setup: the link should be one worth mending");
+
+			// Takes the far anchor's block entity out from under the link. Asked for again it comes
+			// back new and blank, with no link back.
+			level.removeBlockEntity(helper.absolutePos(END));
+
+			CurveRepair.Outcome outcome = CurveRepair.repair(level, link);
+			helper.assertTrue("links_disagree".equals(outcome.error()),
+				"it should have been left alone because the anchors disagree, not: " + outcome.error());
+			helper.assertTrue(helper.absolutePos(END)
+				.equals(route[1].getNext()), "the link should be as it was");
+			helper.succeed();
+		});
+	}
+
 	/** A curve that is the same either way round is not touched, however many there are about. */
 	@GameTest(template = EMPTY, timeoutTicks = 60)
 	public static void linksThatAreTheSameEitherWayAreLeftAlone(GameTestHelper helper) {
