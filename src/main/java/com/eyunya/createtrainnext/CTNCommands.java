@@ -11,6 +11,7 @@ import java.util.UUID;
 import com.eyunya.createtrainnext.track.AnchorIndex;
 import com.eyunya.createtrainnext.track.AngledTrackAnchorBlockEntity;
 import com.eyunya.createtrainnext.track.CurvePlanner;
+import com.eyunya.createtrainnext.track.GraphPruner;
 import com.mojang.brigadier.CommandDispatcher;
 import com.mojang.brigadier.arguments.IntegerArgumentType;
 import com.simibubi.create.Create;
@@ -49,6 +50,11 @@ import net.neoforged.neoforge.event.RegisterCommandsEvent;
  *
  * <p>The alternative is deleting {@code saves/<world>/data/create_tracks.dat} with the game shut
  * down, which is the same thing with more steps and no undo.
+ *
+ * <p>{@code /createtrainnext prune} is the gentler form of the same cleanup, for when it is only a few
+ * nodes that nothing reports any more — the coloured posts left in the F3 view where anchors used to
+ * be. It takes out just those, and leaves the graph, and every train and signal on it, otherwise as
+ * it is.
  */
 public class CTNCommands {
 
@@ -86,7 +92,31 @@ public class CTNCommands {
 				.executes(context -> curves(context.getSource(), 128))
 				.then(Commands.argument("radius", IntegerArgumentType.integer(1, 1024))
 					.executes(context -> curves(context.getSource(),
+						IntegerArgumentType.getInteger(context, "radius")))))
+			.then(Commands.literal("prune")
+				.executes(context -> prune(context.getSource(), 128))
+				.then(Commands.argument("radius", IntegerArgumentType.integer(1, 1024))
+					.executes(context -> prune(context.getSource(),
 						IntegerArgumentType.getInteger(context, "radius"))))));
+	}
+
+	/**
+	 * Removes the graph nodes around whoever runs it that no track block reports.
+	 *
+	 * <p>Anchors used to leave these behind whenever a route was extended, joined, unlinked or
+	 * broken, and a world that has been played in has some. They are not part of any track, so no
+	 * train can reach them and nothing cleans them up; they only show in the F3 view, as a post of
+	 * their own colour where an anchor was. Nodes next to a chunk that is not loaded are left, since
+	 * what is there is not known.
+	 */
+	private static int prune(CommandSourceStack source, int radius) {
+		GraphPruner.Result result = GraphPruner.pruneAround(source.getLevel(), source.getPosition(), radius);
+
+		String undecided = result.undecided() == 0 ? ""
+			: " " + result.undecided() + " could not be judged, because a chunk beside them is not loaded.";
+		source.sendSuccess(() -> Component.literal("Looked at " + result.examined() + " graph nodes within " + radius
+			+ " blocks and removed " + result.removed() + " that no track block reports." + undecided), true);
+		return result.removed();
 	}
 
 	/**

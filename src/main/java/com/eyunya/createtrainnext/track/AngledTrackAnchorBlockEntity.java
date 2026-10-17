@@ -3,6 +3,7 @@ package com.eyunya.createtrainnext.track;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -10,6 +11,7 @@ import java.util.Set;
 import org.jetbrains.annotations.Nullable;
 
 import com.eyunya.createtrainnext.CTNRegistry;
+import com.simibubi.create.content.trains.graph.TrackNodeLocation;
 import com.simibubi.create.content.trains.track.BezierConnection;
 import com.simibubi.create.content.trains.track.TrackMaterial;
 import com.simibubi.create.content.trains.track.TrackPropagator;
@@ -252,8 +254,9 @@ public class AngledTrackAnchorBlockEntity extends BlockEntity {
 		Map<AngledTrackAnchorBlockEntity, Vec3> reported =
 			reportedBy(this, other, anchorAt(next), other.anchorAt(other.prev));
 
-		detachNeighbourhood();
-		other.detachNeighbourhood();
+		// Where the graph's nodes are about to stop being: see pruneGraph.
+		Set<TrackNodeLocation> stale = detachNeighbourhood();
+		stale.addAll(other.detachNeighbourhood());
 
 		// Whatever used to follow this anchor, or lead into the other, loses its half of the link.
 		clearNextOfThis();
@@ -274,6 +277,7 @@ public class AngledTrackAnchorBlockEntity extends BlockEntity {
 		invalidateNeighbourhood();
 		other.invalidateNeighbourhood();
 		keepAxisSigns(reported);
+		pruneGraph(stale);
 		attachNeighbourhood();
 		other.attachNeighbourhood();
 	}
@@ -288,11 +292,12 @@ public class AngledTrackAnchorBlockEntity extends BlockEntity {
 		// no curve left it has no edge for anything to stand on.
 		Map<AngledTrackAnchorBlockEntity, Vec3> reported = reportedBy(anchorAt(prev), anchorAt(next));
 
-		detachNeighbourhood();
+		Set<TrackNodeLocation> stale = detachNeighbourhood();
 		clearNextOfThis();
 		clearPrevOfThis();
 		invalidateNeighbourhood();
 		keepAxisSigns(reported);
+		pruneGraph(stale);
 		attachNeighbourhood();
 	}
 
@@ -441,16 +446,46 @@ public class AngledTrackAnchorBlockEntity extends BlockEntity {
 	 * reported by the anchor behind it, so changing this one's heading changes an edge that its
 	 * predecessor owns. Must run <em>before</em> the state those edges derive from changes, or the
 	 * propagator removes the wrong nodes and strands the rest.
+	 *
+	 * <p>That teardown does not leave the graph without them. The propagator ends by rebuilding what
+	 * is next to the nodes it removed, from what those blocks report <em>now</em>, which is the state
+	 * about to be changed — so the nodes just taken out are put straight back. They are then the
+	 * propagator's to remove only for as long as something reports them.
+	 *
+	 * @return every location the three report before the change, to be given to {@link #pruneGraph}
+	 *         once it has been made.
 	 */
-	private void detachNeighbourhood() {
+	private Set<TrackNodeLocation> detachNeighbourhood() {
+		Set<TrackNodeLocation> reported = new LinkedHashSet<>();
 		if (level == null || level.isClientSide)
-			return;
+			return reported;
+
+		reported.addAll(GraphPruner.reportedBy(level, worldPosition, getBlockState()));
 		TrackPropagator.onRailRemoved(level, worldPosition, getBlockState());
 		for (BlockPos neighbour : new BlockPos[] { prev, next }) {
 			AngledTrackAnchorBlockEntity anchor = anchorAt(neighbour);
-			if (anchor != null)
+			if (anchor != null) {
+				reported.addAll(GraphPruner.reportedBy(level, neighbour, anchor.getBlockState()));
 				TrackPropagator.onRailRemoved(level, neighbour, anchor.getBlockState());
+			}
 		}
+		return reported;
+	}
+
+	/**
+	 * Takes out of the graph the nodes that were where {@link #detachNeighbourhood} found the
+	 * neighbourhood reporting them and are not now.
+	 *
+	 * <p>Without this they stay for good. The rebuild queued by {@link #attachNeighbourhood} only
+	 * removes and replaces what the blocks report when it runs, so a node at a location that has
+	 * stopped being reported is never reached again: it is the island Create's debug view draws as a
+	 * coloured post where an anchor has been broken. Runs after the links have changed, so what the
+	 * blocks report is what the graph is about to be built from, and before the rebuild is queued.
+	 */
+	private void pruneGraph(Set<TrackNodeLocation> stale) {
+		if (level == null || level.isClientSide)
+			return;
+		GraphPruner.prune(level, stale);
 	}
 
 	// Deliberately no rebuild on chunk load. It looks like the obvious way to recover a graph that
