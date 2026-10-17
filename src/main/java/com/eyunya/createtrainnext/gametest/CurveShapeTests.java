@@ -81,6 +81,28 @@ public class CurveShapeTests {
 	}
 
 	/**
+	 * The measurement is remembered per curve, since the wand asks for the same one every tick, and
+	 * what it remembers is the answer and not a guess at it: a second look at the same curve gives the
+	 * same number as measuring it afresh, and a different curve is not given the first one's.
+	 */
+	@GameTest(template = EMPTY)
+	public static void measuringACurveAgainGivesTheAnswerMeasuringItAfreshDoes(GameTestHelper helper) {
+		BezierConnection uneven = curve(START, heading(0), end(20, -10), heading(-90));
+		double fresh = CurvePlanner.deviation(uneven, uneven.secondary());
+
+		helper.assertTrue(CurvePlanner.orientationDeviation(uneven) == fresh, "the first look should be the measurement");
+		helper.assertTrue(CurvePlanner.orientationDeviation(curve(START, heading(0), end(20, -10), heading(-90))) == fresh,
+			"an equal curve built again should be given the same answer");
+
+		BezierConnection even = curve(START, heading(0), end(20, -10), heading(0));
+		helper.assertTrue(CurvePlanner.orientationDeviation(even) < 0.005,
+			"a different curve should not be given the remembered answer, but was given "
+				+ CurvePlanner.orientationDeviation(even));
+
+		helper.succeed();
+	}
+
+	/**
 	 * Any other curve is not, and the difference is large.
 	 *
 	 * <p>This is a fact about Create, not about this mod, and is here so that the day Create changes

@@ -1,6 +1,10 @@
 package com.eyunya.createtrainnext.track;
 
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 import org.jetbrains.annotations.Nullable;
 
@@ -315,7 +319,9 @@ public final class CurvePlanner {
 	 * Builds what {@code plan} described. Server side only; the client draws it instead.
 	 *
 	 * @return why it could not be built, as the key of a wand message, or null once it has been.
-	 *         Nothing is changed when a reason comes back.
+	 *         Nothing is changed when a reason comes back: a route that was turned round is turned
+	 *         back and an anchor that was placed is taken out again. Only what was cleared to make room
+	 *         for an anchor — grass and the like — stays gone.
 	 */
 	@Nullable
 	public static String apply(Level level, Plan plan) {
@@ -325,21 +331,26 @@ public final class CurvePlanner {
 		// Before anything is placed, so that a route which cannot be turned leaves the world just as
 		// it found it. Whether the whole of it can be reached is only known here: the ghost was drawn
 		// from what the client has loaded, which can be less than the server does.
+		boolean reversed = false;
 		if (plan.reverseEnd()) {
 			if (!(level.getBlockEntity(plan.end()
 				.anchorPos()) instanceof AngledTrackAnchorBlockEntity turning) || turning.reverseRoute() == 0)
 				return "route_unavailable";
+			reversed = true;
 		}
 
-		place(level, plan.start(), plan.startHeading());
-		place(level, plan.end(), plan.endHeading());
+		// Everything from here on can still fail for want of room, and by then the route has been
+		// turned and anchors may be standing, so what is done is written down to be undone.
+		List<BlockPos> placed = new ArrayList<>();
+		place(level, plan.start(), plan.startHeading(), placed);
+		place(level, plan.end(), plan.endHeading(), placed);
 
 		if (!(level.getBlockEntity(plan.start()
 			.anchorPos()) instanceof AngledTrackAnchorBlockEntity startAnchor))
-			return "no_room";
+			return abandon(level, plan, reversed, placed);
 		if (!(level.getBlockEntity(plan.end()
 			.anchorPos()) instanceof AngledTrackAnchorBlockEntity endAnchor))
-			return "no_room";
+			return abandon(level, plan, reversed, placed);
 
 		// Anchors store their heading pointing downstream, and downstream is whichever way the link
 		// runs. Drawn backwards, the two headings are the negatives of the curve's own directions —
@@ -376,19 +387,37 @@ public final class CurvePlanner {
 		Vec3 middleHeading = plan.forward() ? junction.heading() : junction.heading()
 			.scale(-1);
 		placeAnchor(level, junction.pos(), middleHeading);
+		placed.add(junction.pos());
 		if (!(level.getBlockEntity(junction.pos()) instanceof AngledTrackAnchorBlockEntity middle))
-			return "no_room";
+			return abandon(level, plan, reversed, placed);
 
 		from.linkTo(middle, fromAim, middleHeading);
 		middle.linkTo(to, null, toAim);
 		return null;
 	}
 
-	private static void place(Level level, Endpoint endpoint, Vec3 heading) {
+	/** Puts the world back as far as {@link #apply} had got, and says there was no room. */
+	private static String abandon(Level level, Plan plan, boolean reversed, List<BlockPos> placed) {
+		// Only where an anchor really stands: a block that could not be placed leaves nothing of ours
+		// there, and what is there instead is not ours to remove.
+		for (BlockPos pos : placed)
+			if (level.getBlockState(pos)
+				.is(CTNRegistry.ANGLED_TRACK_ANCHOR.get()))
+				level.removeBlock(pos, false);
+
+		// Turning a route round twice leaves it as it was.
+		if (reversed && level.getBlockEntity(plan.end()
+			.anchorPos()) instanceof AngledTrackAnchorBlockEntity turned)
+			turned.reverseRoute();
+		return "no_room";
+	}
+
+	private static void place(Level level, Endpoint endpoint, Vec3 heading, List<BlockPos> placed) {
 		if (!endpoint.mustPlace())
 			return;
 
 		placeAnchor(level, endpoint.anchorPos(), heading);
+		placed.add(endpoint.anchorPos());
 	}
 
 	/** Puts an anchor at {@code pos}, clearing whatever was there first. */
@@ -1133,8 +1162,32 @@ public final class CurvePlanner {
 	 * tangents make equal angles with its chord. See {@link #MAX_ORIENTATION_DEVIATION}.
 	 */
 	public static double orientationDeviation(BezierConnection curve) {
-		return deviation(curve, curve.secondary());
+		DeviationKey key = new DeviationKey(curve.starts.getFirst(), curve.starts.getSecond(),
+			curve.axes.getFirst(), curve.axes.getSecond());
+		Double known = DEVIATIONS.get(key);
+		if (known != null)
+			return known;
+
+		double deviation = deviation(curve, curve.secondary());
+		DEVIATIONS.put(key, deviation);
+		return deviation;
 	}
+
+	/**
+	 * What a curve is made from, which is all its shape depends on. The measurement samples it a
+	 * hundred and twenty times against a hundred and twenty segments, and the wand asks for the same
+	 * curve every tick while it is aimed at the same two anchors.
+	 */
+	private record DeviationKey(Vec3 firstStart, Vec3 secondStart, Vec3 firstAxis, Vec3 secondAxis) {}
+
+	/** The last few curves measured, least recently used out first. Read from the client and the server. */
+	private static final Map<DeviationKey, Double> DEVIATIONS =
+		Collections.synchronizedMap(new LinkedHashMap<>(64, 0.75f, true) {
+			@Override
+			protected boolean removeEldestEntry(Map.Entry<DeviationKey, Double> eldest) {
+				return size() > 512;
+			}
+		});
 
 	/**
 	 * How far apart two curves are: the largest distance from a point on one to the nearest point of

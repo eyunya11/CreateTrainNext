@@ -6,6 +6,7 @@ import java.util.List;
 
 import org.jetbrains.annotations.Nullable;
 
+import com.eyunya.createtrainnext.CTNRegistry;
 import com.simibubi.create.content.trains.track.BezierConnection;
 
 import net.minecraft.core.BlockPos;
@@ -213,8 +214,13 @@ public final class CurveRepair {
 		// The same two links the planner makes for a curve built as two arcs. The first takes the far
 		// anchor off this one, so it is held in `to` already, and the second puts it back.
 		CurvePlanner.placeAnchor(level, junction.pos(), junction.heading());
-		if (!(level.getBlockEntity(junction.pos()) instanceof AngledTrackAnchorBlockEntity middle))
+		if (!(level.getBlockEntity(junction.pos()) instanceof AngledTrackAnchorBlockEntity middle)) {
+			// Nothing is linked yet, so taking out what was placed leaves the link as it was.
+			if (level.getBlockState(junction.pos())
+				.is(CTNRegistry.ANGLED_TRACK_ANCHOR.get()))
+				level.removeBlock(junction.pos(), false);
 			return Outcome.left(link, "no_room");
+		}
 
 		from.linkTo(middle, null, junction.heading());
 		middle.linkTo(to, null, null);

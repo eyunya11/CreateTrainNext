@@ -215,6 +215,44 @@ public class RouteJoinTests {
 	}
 
 	/**
+	 * The other way a join can fail once it has started: the far route has been turned round, and an
+	 * anchor then has nowhere to go. The route has to be turned back, or the player is told there was
+	 * no room by a wand that has turned a route round and built nothing.
+	 *
+	 * <p>The start is made to need an anchor above the top of the world, which nothing can be placed
+	 * in, standing for a block that turns out not to take one.
+	 */
+	@GameTest(template = EMPTY)
+	public static void putsTheFarRouteBackWhenTheJoinRunsOutOfRoom(GameTestHelper helper) {
+		AngledTrackAnchorBlockEntity[] first = route(helper, EAST, at(4), at(12), at(20));
+		AngledTrackAnchorBlockEntity[] second = route(helper, WEST, at(46), at(38), at(30));
+		Level level = helper.getLevel();
+		Vec3[] secondHeadings = headings(second);
+		boolean[] secondFlags = flags(second);
+
+		CurvePlanner.Plan plan = CurvePlanner.plan(level, helper.absolutePos(at(20)), helper.absolutePos(at(30)),
+			Direction.UP, 0);
+		helper.assertTrue(plan.valid() && plan.reverseEnd(),
+			"setup: the join should turn the far route round: " + plan.error());
+
+		CurvePlanner.Endpoint nowhere = new CurvePlanner.Endpoint(null,
+			new BlockPos(0, level.getMaxBuildHeight() + 8, 0), true, null, false, false, CurvePlanner.Side.EITHER);
+		CurvePlanner.Plan doomed = new CurvePlanner.Plan(null, nowhere, plan.end(), plan.startHeading(),
+			plan.endHeading(), plan.curve(), plan.adjustable(), plan.turnDegrees(), plan.forward(),
+			plan.reverseEnd(), null, null);
+
+		String failure = CurvePlanner.apply(level, doomed);
+		helper.assertTrue("no_room".equals(failure), "the join should be refused as no_room, not " + failure);
+
+		helper.assertTrue(first[2].getNext() == null, "the first route should not have been joined onto");
+		helper.assertTrue(second[2].getNext() == null, "the second route should not have been joined onto");
+		assertTurned(helper, second, secondHeadings, false);
+		assertSameFlags(helper, second, secondFlags);
+
+		helper.succeed();
+	}
+
+	/**
 	 * Carrying a route on out of its last anchor, when the route runs against that anchor's own
 	 * axis: west here, where the block's axis points east.
 	 *

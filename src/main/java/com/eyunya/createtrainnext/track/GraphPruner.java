@@ -3,8 +3,10 @@ package com.eyunya.createtrainnext.track;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 import com.simibubi.create.Create;
@@ -75,7 +77,17 @@ public final class GraphPruner {
 	public static Result prune(Level level, Collection<? extends TrackNodeLocation> candidates) {
 		if (level.isClientSide || candidates.isEmpty())
 			return Result.NONE;
-		return removeUnreported(level, candidates);
+
+		GlobalRailwayManager manager = Create.RAILWAYS;
+		Map<TrackNodeLocation, List<TrackGraph>> held = new LinkedHashMap<>();
+		for (TrackNodeLocation location : candidates) {
+			if (held.containsKey(location))
+				continue;
+			List<TrackGraph> graphs = manager.getGraphs(level, location);
+			if (!graphs.isEmpty())
+				held.put(location, graphs);
+		}
+		return removeUnreported(level, held);
 	}
 
 	/**
@@ -86,19 +98,24 @@ public final class GraphPruner {
 		if (level.isClientSide)
 			return Result.NONE;
 
-		List<TrackNodeLocation> nearby = new ArrayList<>();
+		// The graph a node was found in is kept with it. Asking the manager which graphs hold a location
+		// searches all of them, and doing that for every node of a large network is as many searches as
+		// there are nodes.
+		Map<TrackNodeLocation, List<TrackGraph>> nearby = new LinkedHashMap<>();
 		for (TrackGraph graph : Create.RAILWAYS.trackNetworks.values())
 			for (TrackNodeLocation location : graph.getNodes())
 				if (level.dimension()
 					.equals(location.getDimension())
 					&& location.getLocation()
 						.distanceTo(centre) <= radius)
-					nearby.add(location);
+					nearby.computeIfAbsent(location, each -> new ArrayList<>())
+						.add(graph);
 
 		return removeUnreported(level, nearby);
 	}
 
-	private static Result removeUnreported(Level level, Collection<? extends TrackNodeLocation> candidates) {
+	/** @param held each location to look at, with the graphs that have a node there. */
+	private static Result removeUnreported(Level level, Map<TrackNodeLocation, List<TrackGraph>> held) {
 		GlobalRailwayManager manager = Create.RAILWAYS;
 		TrackGraphSync sync = manager.sync;
 
@@ -106,15 +123,10 @@ public final class GraphPruner {
 		int removed = 0;
 		int undecided = 0;
 		Set<TrackGraph> touched = new HashSet<>();
-		Set<TrackNodeLocation> seen = new HashSet<>();
 
-		for (TrackNodeLocation location : candidates) {
-			if (!seen.add(location))
-				continue;
-
-			List<TrackGraph> graphs = manager.getGraphs(level, location);
-			if (graphs.isEmpty())
-				continue;
+		for (Map.Entry<TrackNodeLocation, List<TrackGraph>> entry : held.entrySet()) {
+			TrackNodeLocation location = entry.getKey();
+			List<TrackGraph> graphs = entry.getValue();
 
 			examined++;
 			Reported reported = reportedNextTo(level, location);
