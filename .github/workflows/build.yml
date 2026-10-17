@@ -5,6 +5,7 @@ on: [push, pull_request]
 jobs:
   build:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -23,3 +24,33 @@ jobs:
 
       - name: Build with Gradle
         run: ./gradlew build
+
+      # A real server with the mod loaded: it builds routes out of anchors and checks what Create makes of
+      # them. It needs no display. Gradle still fetches the Minecraft assets the run configuration lists,
+      # most of a gigabyte, which the Gradle cache above keeps for the next run.
+      - name: Run game tests
+        id: gametest
+        run: ./gradlew runGameTestServer
+
+      - name: Summarise failed game tests
+        if: failure() && steps.gametest.outcome == 'failure'
+        run: |
+          {
+            echo '### Failed game tests'
+            echo
+            echo '```'
+            grep -h -E 'LogTestReporter|GAME TESTS COMPLETE|required tests failed|optional tests failed|GameTestServer/\]:    - ' build/gametest/logs/latest.log \
+              | sed -E 's/^\[[^]]*\] \[[^]]*\] \[[^]]*\]: //' \
+              || echo 'No failure was logged. See the output of the step above.'
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Keep the game test logs
+        if: failure() && steps.gametest.outcome == 'failure'
+        uses: actions/upload-artifact@v4
+        with:
+          name: gametest-logs
+          path: |
+            build/gametest/logs
+            build/gametest/crash-reports
+          if-no-files-found: ignore
