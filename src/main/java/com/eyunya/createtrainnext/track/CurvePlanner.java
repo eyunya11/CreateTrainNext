@@ -287,13 +287,6 @@ public final class CurvePlanner {
 		if (!plan.valid())
 			return plan.error();
 
-		// What the two ends report before anything about them changes. Joining an end to something
-		// turns it into the middle of a route, and an anchor there reports a different axis — the
-		// opposite way round, where the route runs against its block's own — so whatever is standing
-		// on it needs the sign it was placed against kept.
-		Vec3 startBefore = reportedBefore(level, plan.start());
-		Vec3 endBefore = reportedBefore(level, plan.end());
-
 		// Before anything is placed, so that a route which cannot be turned leaves the world just as
 		// it found it. Whether the whole of it can be reached is only known here: the ghost was drawn
 		// from what the client has loaded, which can be less than the server does.
@@ -330,27 +323,11 @@ public final class CurvePlanner {
 
 		// Aiming an end that was already aimed would only feed its own heading back through a yaw
 		// and out again, losing a little of it to float each time a route was extended.
+		//
+		// An end that stops being one reports a different axis, and linkTo holds the sign it had, so
+		// that whatever is standing on it stays facing the same way.
 		from.linkTo(to, fromEnd.needsAiming() ? fromHeading : null, toEnd.needsAiming() ? toHeading : null);
-
-		if (startBefore != null)
-			startAnchor.keepAxisSign(startBefore);
-		if (endBefore != null)
-			endAnchor.keepAxisSign(endBefore);
 		return null;
-	}
-
-	/**
-	 * The axis the anchor at one end of a curve reports now, or null where there is nothing on it
-	 * to keep: an anchor still to be placed, or one with no curve yet, which a signal cannot stand
-	 * on because there is no edge to stand it on.
-	 */
-	@Nullable
-	private static Vec3 reportedBefore(Level level, Endpoint endpoint) {
-		if (endpoint.mustPlace()
-			|| !(level.getBlockEntity(endpoint.anchorPos()) instanceof AngledTrackAnchorBlockEntity anchor)
-			|| !anchor.isLinked())
-			return null;
-		return anchor.targetingAxis();
 	}
 
 	private static void place(Level level, Endpoint endpoint, Vec3 heading) {
