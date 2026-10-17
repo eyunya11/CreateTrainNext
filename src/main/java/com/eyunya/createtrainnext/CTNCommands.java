@@ -1,16 +1,15 @@
 package com.eyunya.createtrainnext;
 
 import java.util.ArrayList;
-import java.util.Comparator;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 
-import com.eyunya.createtrainnext.track.AnchorIndex;
 import com.eyunya.createtrainnext.track.AngledTrackAnchorBlockEntity;
 import com.eyunya.createtrainnext.track.CurvePlanner;
+import com.eyunya.createtrainnext.track.CurveRepair;
 import com.eyunya.createtrainnext.track.GraphPruner;
 import com.mojang.brigadier.CommandDispatcher;
 import com.mojang.brigadier.arguments.IntegerArgumentType;
@@ -21,7 +20,6 @@ import com.simibubi.create.content.trains.graph.TrackGraph;
 import com.simibubi.create.content.trains.graph.TrackNode;
 import com.simibubi.create.content.trains.graph.TrackNodeLocation;
 import com.simibubi.create.content.trains.graph.TrackNodeLocation.DiscoveredLocation;
-import com.simibubi.create.content.trains.track.BezierConnection;
 import com.simibubi.create.content.trains.track.ITrackBlock;
 
 import net.minecraft.commands.CommandSourceStack;
@@ -55,6 +53,10 @@ import net.neoforged.neoforge.event.RegisterCommandsEvent;
  * nodes that nothing reports any more — the coloured posts left in the F3 view where anchors used to
  * be. It takes out just those, and leaves the graph, and every train and signal on it, otherwise as
  * it is.
+ *
+ * <p>{@code curves} and {@code repair} are for the links built as one curve before the wand learned not
+ * to, which are a different shape read the other way round: the first lists them and the second
+ * mends them.
  */
 public class CTNCommands {
 
@@ -93,6 +95,11 @@ public class CTNCommands {
 				.then(Commands.argument("radius", IntegerArgumentType.integer(1, 1024))
 					.executes(context -> curves(context.getSource(),
 						IntegerArgumentType.getInteger(context, "radius")))))
+			.then(Commands.literal("repair")
+				.executes(context -> repair(context.getSource(), 128))
+				.then(Commands.argument("radius", IntegerArgumentType.integer(1, 1024))
+					.executes(context -> repair(context.getSource(),
+						IntegerArgumentType.getInteger(context, "radius")))))
 			.then(Commands.literal("prune")
 				.executes(context -> prune(context.getSource(), 128))
 				.then(Commands.argument("radius", IntegerArgumentType.integer(1, 1024))
@@ -129,43 +136,94 @@ public class CTNCommands {
 	 * {@link CurvePlanner#MAX_ORIENTATION_DEVIATION}. This is for finding them.
 	 */
 	private static int curves(CommandSourceStack source, int radius) {
-		ServerLevel level = source.getLevel();
-		Vec3 centre = source.getPosition();
-
-		record Link(BlockPos from, BlockPos to, double length, double deviation) {}
-
-		List<Link> links = new ArrayList<>();
-		for (AngledTrackAnchorBlockEntity anchor : AnchorIndex.in(level)) {
-			BezierConnection curve = anchor.buildCurveToNext();
-			if (curve == null || Vec3.atCenterOf(anchor.getBlockPos())
-				.distanceTo(centre) > radius)
-				continue;
-			links.add(new Link(anchor.getBlockPos(), anchor.getNext(), curve.getLength(),
-				CurvePlanner.orientationDeviation(curve)));
-		}
-		links.sort(Comparator.comparingDouble(Link::deviation)
-			.reversed());
+		List<CurveRepair.Link> links = CurveRepair.links(source.getLevel(), source.getPosition(), radius);
 
 		double limit = CurvePlanner.MAX_ORIENTATION_DEVIATION;
 		long over = links.stream()
-			.filter(link -> link.deviation() > limit)
+			.filter(CurveRepair.Link::overLimit)
 			.count();
 		say(source, links.size() + " curves within " + radius + " blocks, " + over + " of them differ by more than "
-			+ fmt(limit) + " blocks between the two directions");
+			+ fmt(limit) + " blocks between the two directions"
+			+ (over > 0 ? "  (/createtrainnext repair mends them)" : ""));
 
 		// Every one over the limit, up to a screenful; and if there are none, the worst three for scale.
 		int shown = 0;
-		for (Link link : links) {
-			if (shown >= 15 || (link.deviation() <= limit && shown >= 3))
+		for (CurveRepair.Link link : links) {
+			if (shown >= 15 || (!link.overLimit() && shown >= 3))
 				break;
-			say(source, (link.deviation() > limit ? " !! " : "    ") + link.from()
-				.toShortString() + " -> "
-				+ link.to()
-					.toShortString()
-				+ "   length " + fmt(link.length()) + "   deviation " + fmt(link.deviation()));
+			say(source, (link.overLimit() ? " !! " : "    ") + describe(link) + "   length " + fmt(link.length())
+				+ "   deviation " + fmt(link.deviation()));
 			shown++;
 		}
 		return links.size();
+	}
+
+	private static String describe(CurveRepair.Link link) {
+		return link.from()
+			.getBlockPos()
+			.toShortString() + " -> "
+			+ link.to()
+				.toShortString();
+	}
+
+	/**
+	 * Mends the curves around whoever runs it that were built as one and are a different shape read
+	 * the other way round: an anchor goes between the two ends and the link becomes two arcs.
+	 *
+	 * <p>What {@code curves} lists, done. The wand builds such curves as two arcs now, so what is
+	 * mended is what was built before that, and it stays where it is: both anchors keep their place and
+	 * their heading and only the path between them changes. A link that cannot be mended — nowhere to
+	 * put the anchor, or an arc a train would not take — is left as it was and said so.
+	 *
+	 * <p>Trains on or beside a mended link are derailed, as they are when track is broken under them.
+	 */
+	private static int repair(CommandSourceStack source, int radius) {
+		CurveRepair.Batch batch = CurveRepair.repairAll(source.getLevel(), source.getPosition(), radius,
+			CurveRepair.MAX_PER_RUN);
+		if (batch.outcomes()
+			.isEmpty()) {
+			say(source, "No curve within " + radius + " blocks differs by more than "
+				+ fmt(CurvePlanner.MAX_ORIENTATION_DEVIATION) + " blocks between the two directions. Nothing to mend.");
+			return 0;
+		}
+
+		int mended = 0;
+		for (CurveRepair.Outcome outcome : batch.outcomes()) {
+			if (outcome.repaired()) {
+				mended++;
+				say(source, " ok  " + describe(outcome.link()) + "   was " + fmt(outcome.link()
+					.deviation())
+					+ " off; now two arcs with an anchor at " + outcome.junction()
+						.toShortString()
+					+ ", and the rails are up to " + fmt(outcome.moved()) + " blocks from where they were");
+			} else
+				say(source, " !!  " + describe(outcome.link()) + "   left as it was: " + explain(outcome.error()));
+		}
+
+		int failed = batch.outcomes()
+			.size() - mended;
+		StringBuilder summary = new StringBuilder("Mended " + mended + " curves within " + radius + " blocks.");
+		if (mended > 0)
+			summary.append(" Trains on or beside them were derailed.");
+		if (failed > 0)
+			summary.append(" " + failed + " could not be mended, and are listed above.");
+		if (batch.remaining() > 0)
+			summary.append(" " + batch.remaining() + " more are over the limit: run it again to mend them.");
+		source.sendSuccess(() -> Component.literal(summary.toString()), true);
+		return mended;
+	}
+
+	/** What one of the repair's reasons means to whoever read it. */
+	private static String explain(String error) {
+		return switch (error) {
+			case "uneven" -> "there is no free block to put an anchor in between the two arcs";
+			case "too_sharp" -> "an arc would be too sharp for a train to take";
+			case "too_steep" -> "an arc would climb too steeply";
+			case "not_loaded" -> "the anchor at the other end is not loaded";
+			case "links_disagree" -> "the two anchors do not agree about the link";
+			case "no_room" -> "the anchor could not be placed";
+			default -> error;
+		};
 	}
 
 	/**

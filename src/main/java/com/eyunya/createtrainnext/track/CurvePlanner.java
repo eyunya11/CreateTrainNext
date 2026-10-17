@@ -392,7 +392,7 @@ public final class CurvePlanner {
 	}
 
 	/** Puts an anchor at {@code pos}, clearing whatever was there first. */
-	private static void placeAnchor(Level level, BlockPos pos, Vec3 heading) {
+	static void placeAnchor(Level level, BlockPos pos, Vec3 heading) {
 		clearFor(level, pos);
 		level.setBlock(pos, CTNRegistry.ANGLED_TRACK_ANCHOR.get()
 			.defaultBlockState()
@@ -599,7 +599,7 @@ public final class CurvePlanner {
 	 * The curve between two points as an anchor builds the one it owns. Both tangents point into the
 	 * curve: the first forwards along the route, the second backwards along it.
 	 */
-	private static BezierConnection curveBetween(BlockPos from, BlockPos to, Vec3 fromPoint, Vec3 toPoint,
+	static BezierConnection curveBetween(BlockPos from, BlockPos to, Vec3 fromPoint, Vec3 toPoint,
 		Vec3 fromHeading, Vec3 toHeading) {
 		return new BezierConnection(Couple.create(from, to), Couple.create(fromPoint, toPoint),
 			Couple.create(fromHeading, toHeading.scale(-1)), Couple.create(UP, UP), true, false,
@@ -620,9 +620,8 @@ public final class CurvePlanner {
 		Vec3 startHeading = single.startHeading();
 		Vec3 endHeading = single.endHeading();
 
-		Biarc.Junction junction = Biarc.find(startPoint, startHeading, endPoint, endHeading,
-			pos -> level.isLoaded(pos) && level.getBlockState(pos)
-				.canBeReplaced());
+		Biarc.Junction junction =
+			Biarc.find(startPoint, startHeading, endPoint, endHeading, pos -> junctionUsable(level, pos));
 		if (junction == null)
 			return single.withError("uneven");
 
@@ -645,9 +644,19 @@ public final class CurvePlanner {
 		return error == null ? plan : plan.withError(error);
 	}
 
+	/**
+	 * Whether an anchor may go in a block as the point between two arcs: one that is loaded, since
+	 * asking for a block in a chunk that is not makes a server load it, and that may be built in.
+	 * Shared with {@link CurveRepair}, which has to agree with the planner about where one can go.
+	 */
+	static boolean junctionUsable(Level level, BlockPos pos) {
+		return level.isLoaded(pos) && level.getBlockState(pos)
+			.canBeReplaced();
+	}
+
 	/** Whether a train may cross the node where two arcs meet, asked the way Create asks it. */
 	@Nullable
-	private static String validateJoint(BezierConnection first, BezierConnection second) {
+	static String validateJoint(BezierConnection first, BezierConnection second) {
 		Vec3 arriving = first.getPosition(1)
 			.subtract(first.getPosition(0.75));
 		Vec3 leaving = second.getPosition(0.25)
@@ -696,6 +705,23 @@ public final class CurvePlanner {
 	@Nullable
 	private static String validateCurve(Level level, BezierConnection curve, Vec3 startPoint, Vec3 endPoint,
 		Vec3 startHeading, Vec3 endHeading, @Nullable Endpoint startNeighbour, @Nullable Endpoint endNeighbour) {
+		Vec3 arriving =
+			startNeighbour == null ? null : adjoiningDirection(level, startNeighbour, startHeading, Role.START);
+		Vec3 leaving = endNeighbour == null ? null : adjoiningDirection(level, endNeighbour, endHeading, Role.END);
+		return validateCurve(curve, startPoint, endPoint, startHeading, endHeading, arriving, leaving);
+	}
+
+	/**
+	 * The same checks with the neighbours' directions already worked out, for a caller that knows
+	 * which of an anchor's sides the neighbour is on rather than having it read off the anchor.
+	 *
+	 * @param arriving the direction of the track that already arrives at the start, as
+	 *                 {@link #adjoiningDirection} gives it; null to compare against the heading.
+	 * @param leaving  the same for the track that already leaves from the end.
+	 */
+	@Nullable
+	static String validateCurve(BezierConnection curve, Vec3 startPoint, Vec3 endPoint, Vec3 startHeading,
+		Vec3 endHeading, @Nullable Vec3 arriving, @Nullable Vec3 leaving) {
 		Vec3 span = endPoint.subtract(startPoint);
 		double horizontal = flat(span).length();
 		double ascend = Math.abs(span.y);
@@ -723,13 +749,10 @@ public final class CurvePlanner {
 		if (startChord.lengthSqr() < 1.0E-8 || endChord.lengthSqr() < 1.0E-8)
 			return "too_sharp";
 
-		Vec3 arriving =
-			startNeighbour == null ? null : adjoiningDirection(level, startNeighbour, startHeading, Role.START);
 		if (startChord.normalize()
 			.dot(arriving == null ? startHeading : arriving) < MIN_JOINT_DOT)
 			return "too_sharp";
 
-		Vec3 leaving = endNeighbour == null ? null : adjoiningDirection(level, endNeighbour, endHeading, Role.END);
 		if (endChord.normalize()
 			.dot(leaving == null ? endHeading : leaving) < MIN_JOINT_DOT)
 			return "too_sharp";
@@ -761,13 +784,24 @@ public final class CurvePlanner {
 
 		// Whichever side is already spoken for is the one with a curve on it. Exactly one is, or
 		// the endpoint would not have got this far.
-		boolean neighbourIsNext = anchor.getNext() != null;
+		return adjoiningDirection(anchor, anchor.getNext() != null, role);
+	}
+
+	/**
+	 * The same for an anchor that may have a curve on both sides, and is asked about one of them:
+	 * the link being replaced is the other, and not what the new curve is to be compared against.
+	 *
+	 * @param neighbourIsNext which side the track to compare against is on.
+	 */
+	@Nullable
+	static Vec3 adjoiningDirection(AngledTrackAnchorBlockEntity anchor, boolean neighbourIsNext, Role role) {
+		Level level = anchor.getLevel();
 		BlockPos neighbourPos = neighbourIsNext ? anchor.getNext() : anchor.getPrev();
-		if (neighbourPos == null
+		if (level == null || neighbourPos == null
 			|| !(level.getBlockEntity(neighbourPos) instanceof AngledTrackAnchorBlockEntity neighbour))
 			return null;
 
-		BlockPos pos = endpoint.anchorPos();
+		BlockPos pos = anchor.getBlockPos();
 		Vec3 anchorHeading = anchor.heading();
 
 		// The existing curve, written from this node outwards, so both it and the new curve are
@@ -1114,6 +1148,11 @@ public final class CurvePlanner {
 			first[i] = a.getPosition(t);
 			second[i] = b.getPosition(t);
 		}
+		return deviation(first, second);
+	}
+
+	/** The same for two lines already sampled, each a run of points along it in order. */
+	static double deviation(Vec3[] first, Vec3[] second) {
 		return Math.max(farthestFrom(first, second), farthestFrom(second, first));
 	}
 

@@ -53,17 +53,17 @@ public class CurveConsistencyTests {
 
 	private static final String EMPTY = "empty";
 
-	private static final float EAST = 270.0F;
-	private static final float NORTH = 180.0F;
-	private static final float WEST = 90.0F;
+	static final float EAST = 270.0F;
+	static final float NORTH = 180.0F;
+	static final float WEST = 90.0F;
 
 	/** How many ticks Create takes to build a graph out of anchors that have just been linked. */
-	private static final int GRAPH_TICKS = 8;
+	static final int GRAPH_TICKS = 8;
 
-	private static final BlockPos BEFORE = new BlockPos(2, 2, 26);
-	private static final BlockPos START = new BlockPos(10, 2, 26);
-	private static final BlockPos END = new BlockPos(30, 2, 16);
-	private static final BlockPos AFTER = new BlockPos(30, 2, 8);
+	static final BlockPos BEFORE = new BlockPos(2, 2, 26);
+	static final BlockPos START = new BlockPos(10, 2, 26);
+	static final BlockPos END = new BlockPos(30, 2, 16);
+	static final BlockPos AFTER = new BlockPos(30, 2, 8);
 
 	/**
 	 * East into north: the kind of join the wand used to build as one curve, and which was nearly
@@ -275,11 +275,11 @@ public class CurveConsistencyTests {
 	// --------------------------------------------------------------- helpers
 
 	/** Where an absolute position is, in the frame of the test. */
-	private static BlockPos relative(GameTestHelper helper, BlockPos absolute) {
+	static BlockPos relative(GameTestHelper helper, BlockPos absolute) {
 		return absolute.subtract(helper.absolutePos(BlockPos.ZERO));
 	}
 
-	private static AngledTrackAnchorBlockEntity anchor(GameTestHelper helper, BlockPos relative) {
+	static AngledTrackAnchorBlockEntity anchor(GameTestHelper helper, BlockPos relative) {
 		helper.setBlock(relative, CTNRegistry.ANGLED_TRACK_ANCHOR.get()
 			.defaultBlockState()
 			.setValue(AngledTrackAnchorBlock.AXIS, AnchorAxis.Z_ORTHO));
@@ -290,7 +290,7 @@ public class CurveConsistencyTests {
 	}
 
 	/** Links the given positions in order into one route, every anchor pointed along {@code yaw}. */
-	private static AngledTrackAnchorBlockEntity[] route(GameTestHelper helper, float yaw, BlockPos... positions) {
+	static AngledTrackAnchorBlockEntity[] route(GameTestHelper helper, float yaw, BlockPos... positions) {
 		AngledTrackAnchorBlockEntity[] anchors = new AngledTrackAnchorBlockEntity[positions.length];
 		for (int i = 0; i < anchors.length; i++)
 			anchors[i] = anchor(helper, positions[i]);
@@ -302,7 +302,7 @@ public class CurveConsistencyTests {
 	}
 
 	/** Checks that the route through {@code member} is the anchors at {@code expected}, in order. */
-	private static void assertChain(GameTestHelper helper, AngledTrackAnchorBlockEntity member, BlockPos... expected) {
+	static void assertChain(GameTestHelper helper, AngledTrackAnchorBlockEntity member, BlockPos... expected) {
 		List<AngledTrackAnchorBlockEntity> route = member.route();
 		helper.assertTrue(route != null, "the route should be one that can be walked in full");
 		helper.assertTrue(route.size() == expected.length,
@@ -317,7 +317,7 @@ public class CurveConsistencyTests {
 	 * Checks every link in the route through {@code member} against the graph Create built: the edge
 	 * for each direction of travel has to lie on the curve that is drawn, and be as long as the other.
 	 */
-	private static void assertConsistent(GameTestHelper helper, AngledTrackAnchorBlockEntity member) {
+	static void assertConsistent(GameTestHelper helper, AngledTrackAnchorBlockEntity member) {
 		Level level = helper.getLevel();
 		List<AngledTrackAnchorBlockEntity> route = member.route();
 		helper.assertTrue(route != null, "the route should be one that can be walked in full");

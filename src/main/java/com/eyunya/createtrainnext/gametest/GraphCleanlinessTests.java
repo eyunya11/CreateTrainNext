@@ -11,6 +11,7 @@ import com.eyunya.createtrainnext.track.AnchorAxis;
 import com.eyunya.createtrainnext.track.AngledTrackAnchorBlock;
 import com.eyunya.createtrainnext.track.AngledTrackAnchorBlockEntity;
 import com.eyunya.createtrainnext.track.CurvePlanner;
+import com.eyunya.createtrainnext.track.CurveRepair;
 import com.eyunya.createtrainnext.track.GraphPruner;
 import com.simibubi.create.AllBlocks;
 import com.simibubi.create.Create;
@@ -185,6 +186,31 @@ public class GraphCleanlinessTests {
 			helper.runAfterDelay(SETTLE_TICKS, () -> {
 				// Five anchors in one route: two ends, and the three in the middle.
 				assertClean(helper, "after joining two anchors that point different ways", 7);
+				helper.succeed();
+			});
+		});
+	}
+
+	/**
+	 * An old link mended into two arcs is the same change as the planner makes for a new one, done to
+	 * anchors that are already linked: the far one is taken off the first for a moment and put back
+	 * on the new anchor.
+	 */
+	@GameTest(template = EMPTY, timeoutTicks = 80)
+	public static void mendingAnOldLinkLeavesNothingBehind(GameTestHelper helper) {
+		BlockPos start = new BlockPos(10, 2, 26);
+		BlockPos end = new BlockPos(30, 2, 16);
+		AngledTrackAnchorBlockEntity[] first = route(helper, EAST, new BlockPos(2, 2, 26), start);
+		AngledTrackAnchorBlockEntity[] second = route(helper, NORTH, end, new BlockPos(30, 2, 8));
+		first[1].linkTo(second[0], null, null);
+
+		helper.runAfterDelay(BUILD_TICKS, () -> {
+			CurveRepair.Outcome outcome = CurveRepair.repair(helper.getLevel(), CurveRepair.linkFrom(first[1]));
+			helper.assertTrue(outcome.repaired(), "setup: the link should have been mended, but: " + outcome.error());
+
+			helper.runAfterDelay(SETTLE_TICKS, () -> {
+				// Four anchors and the one that was added: the two ends, and the three in the middle.
+				assertClean(helper, "after mending the link between two anchors that point different ways", 7);
 				helper.succeed();
 			});
 		});
@@ -447,7 +473,7 @@ public class GraphCleanlinessTests {
 	// --------------------------------------------------------------- helpers
 
 	/** Runs a command as an operator standing at {@code where}, and returns what it said. */
-	private static List<String> run(GameTestHelper helper, String command, Vec3 where) {
+	static List<String> run(GameTestHelper helper, String command, Vec3 where) {
 		ServerLevel level = helper.getLevel();
 		List<String> said = new ArrayList<>();
 		CommandSource sink = new CommandSource() {
