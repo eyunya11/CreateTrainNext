@@ -1,5 +1,7 @@
 package com.eyunya.createtrainnext.client;
 
+import java.util.List;
+
 import com.eyunya.createtrainnext.track.AngledTrackAnchorBlockEntity;
 import com.eyunya.createtrainnext.track.CurvePlanner;
 import com.eyunya.createtrainnext.track.CurveWandItem;
@@ -62,6 +64,11 @@ public class CurveWandPreview {
 	private static final int INVALID_COLOUR = 0xEA5C2B;
 
 	private static final GhostTrack GHOST = new GhostTrack("createtrainnext:curve_wand");
+
+	/** The second arc, when a curve is built as two. See {@link CurvePlanner.Plan#junction}. */
+	private static final GhostTrack GHOST_SECOND = new GhostTrack("createtrainnext:curve_wand_second");
+
+	private static final String JUNCTION_KEY = "createtrainnext:curve_wand_junction";
 
 	private static final String ANCHOR_KEY = "createtrainnext:curve_wand_anchor";
 
@@ -166,7 +173,7 @@ public class CurveWandPreview {
 
 		CurveWandSelection selection = CurveWandItem.selectionIn(stack, mc.level);
 		if (selection == null) {
-			GHOST.clear();
+			clearGhost();
 			Outliner.getInstance()
 				.remove(ANCHOR_KEY);
 			showSplitCandidate(mc, player);
@@ -187,7 +194,7 @@ public class CurveWandPreview {
 
 		HitResult hitResult = mc.hitResult;
 		if (hitResult == null || hitResult.getType() != HitResult.Type.BLOCK) {
-			GHOST.clear();
+			clearGhost();
 			return;
 		}
 
@@ -200,12 +207,38 @@ public class CurveWandPreview {
 		validity.chase(plan.valid() ? 1 : 0, 0.25, Chaser.EXP);
 		validity.tickChaser();
 
-		BezierConnection curve = plan.curve();
-		if (curve == null) {
-			GHOST.clear();
+		List<BezierConnection> curves = plan.curves();
+		if (curves.isEmpty()) {
+			clearGhost();
 			return;
 		}
-		GHOST.draw(curve, Color.mixColors(INVALID_COLOUR, VALID_COLOUR, validity.getValue()), validity.getValue());
+
+		int colour = Color.mixColors(INVALID_COLOUR, VALID_COLOUR, validity.getValue());
+		GHOST.draw(curves.get(0), colour, validity.getValue());
+		if (curves.size() > 1)
+			GHOST_SECOND.draw(curves.get(1), colour, validity.getValue());
+		else
+			GHOST_SECOND.clear();
+
+		// The block the anchor between the two arcs would go in, so that a click which adds
+		// something to the world says where.
+		if (plan.junction() == null)
+			Outliner.getInstance()
+				.remove(JUNCTION_KEY);
+		else
+			Outliner.getInstance()
+				.showAABB(JUNCTION_KEY, new AABB(plan.junction()
+					.pos()).inflate(0.02))
+				.colored(colour)
+				.lineWidth(1 / 16f);
+	}
+
+	/** Takes the whole ghost down: both arcs, and the marker for the anchor between them. */
+	private static void clearGhost() {
+		GHOST.clear();
+		GHOST_SECOND.clear();
+		Outliner.getInstance()
+			.remove(JUNCTION_KEY);
 	}
 
 	/**
@@ -283,6 +316,13 @@ public class CurveWandPreview {
 				detail = detail.copy()
 					.append(Component.translatable("message.createtrainnext.wand.reverses")
 						.withStyle(ChatFormatting.YELLOW));
+			// A curve between ends that point different ways is two arcs, and an anchor goes where
+			// they meet. That is a block put in the world which the player did not click, so it is
+			// said as well as shown.
+			if (plan.junction() != null)
+				detail = detail.copy()
+					.append(Component.translatable("message.createtrainnext.wand.junction")
+						.withStyle(ChatFormatting.YELLOW));
 			// The dialled-in angle is only shown once it is not zero, so the common case — two
 			// clicks and no adjustment at all — says nothing about a control the player never used.
 			message = angle == 0 ? detail
@@ -305,7 +345,7 @@ public class CurveWandPreview {
 	 * from, so the ghost and the track occupy the same space.
 	 */
 	private static void clear() {
-		GHOST.clear();
+		clearGhost();
 		Outliner outliner = Outliner.getInstance();
 		outliner.remove(ANCHOR_KEY);
 		outliner.remove(SPLIT_KEY);

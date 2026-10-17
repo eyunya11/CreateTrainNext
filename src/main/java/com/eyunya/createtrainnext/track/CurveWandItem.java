@@ -11,6 +11,7 @@ import net.minecraft.ChatFormatting;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.network.chat.Component;
+import net.minecraft.network.chat.MutableComponent;
 import net.minecraft.sounds.SoundEvent;
 import net.minecraft.sounds.SoundEvents;
 import net.minecraft.sounds.SoundSource;
@@ -41,6 +42,10 @@ import net.minecraft.world.phys.Vec3;
  * carried on backwards out of its first anchor as well as forwards out of its last.</li>
  * <li>Right click again to build it. The selection carries on from the end just reached, so a whole
  * route is one click per curve.</li>
+ * <li>Where the two ends point so differently that one bezier would be a different curve read the
+ * other way round — joining two anchors that already point somewhere, or turning the far end by hand
+ * — the curve is built as two arcs with an anchor where they meet. The ghost shows both, and
+ * outlines the block the anchor will take.</li>
  * <li>Right click the end of another route to join the two. If they were laid away from each other
  * — two last anchors facing across the gap, or two first — the route at the far end is turned round
  * to match, which moves no track; the ghost says so. The selection is dropped afterwards, since the
@@ -175,14 +180,14 @@ public class CurveWandItem extends Item {
 		if (plan.end()
 			.docked()) {
 			stack.remove(CTNDataComponents.CURVE_SELECTION);
-			message(player, "docked", String.format("%.1f", plan.length()));
+			built(player, plan, "docked");
 		} else if (level.getBlockEntity(plan.end()
 			.anchorPos()) instanceof AngledTrackAnchorBlockEntity reached && !reached.hasFreeSide()) {
 			// Joined up. The anchor just reached has a curve on each side now, so there is nowhere left
 			// to carry on from, and a selection kept standing would be a ghost that is red wherever it
 			// is aimed, because the place it starts from is taken.
 			stack.remove(CTNDataComponents.CURVE_SELECTION);
-			message(player, "joined", String.format("%.1f", plan.length()));
+			built(player, plan, "joined");
 		} else {
 			// Otherwise the selection moves to the end just reached, so a route is one click per
 			// curve. It is safe to leave standing in a way the retired prototype's was not: that one
@@ -191,7 +196,7 @@ public class CurveWandItem extends Item {
 			// dropped with a sneak right click.
 			stack.set(CTNDataComponents.CURVE_SELECTION, CurveWandSelection.of(level, plan.end()
 				.anchorPos()));
-			message(player, "built", String.format("%.1f", plan.length()));
+			built(player, plan, "built");
 		}
 
 		level.playSound(null, plan.end()
@@ -292,6 +297,19 @@ public class CurveWandItem extends Item {
 	private static void playSound(Level level, Player player, SoundEvent sound) {
 		if (level.isClientSide)
 			level.playSound(player, player.blockPosition(), sound, SoundSource.BLOCKS, 0.75F, 1.0F);
+	}
+
+	/**
+	 * What is said when a curve has been built: how long it is, and — when the wand put an anchor in
+	 * the middle of it to make two arcs — that it did, since that block is one the player did not
+	 * click.
+	 */
+	private static void built(Player player, CurvePlanner.Plan plan, String key) {
+		MutableComponent text = Component.translatable("message.createtrainnext.wand." + key,
+			String.format("%.1f", plan.length()));
+		if (plan.junction() != null)
+			text.append(Component.translatable("message.createtrainnext.wand.point_added"));
+		player.displayClientMessage(text, true);
 	}
 
 	static void message(Player player, String key, Object... args) {
