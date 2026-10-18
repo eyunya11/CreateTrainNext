@@ -167,9 +167,10 @@ dependencies {
         transitive = false
     }
 
-    // Create declares Ponder as "[1.0.85+mc1.21.1,)" and Flywheel as "[1.0.6,2.0)".
-    // Those open ranges resolve to whatever is newest at build time, which makes the
-    // build non-reproducible, so pin both to a known-good version instead.
+    // Create declares Ponder as "[1.0.82+mc1.21.1,)", Flywheel as "[1.0.6,2.0)" and Registrate
+    // as "[MC1.21-1.3.0+67,)". Those open ranges resolve to whatever is newest at build time,
+    // which makes the build non-reproducible, so pin all three to the versions Create 6.0.10
+    // ships with instead.
     implementation "net.createmod.ponder:ponder-neoforge:${ponder_version}"
     implementation "com.tterrag.registrate:Registrate:${registrate_version}"
     implementation "dev.engine-room.flywheel:flywheel-neoforge-api-1.21.1:${flywheel_version}"
