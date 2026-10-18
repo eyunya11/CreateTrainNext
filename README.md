@@ -1,40 +1,302 @@
-Create Train Next
-=======
+# Create Train Next
 
-An addon for [Create](https://github.com/Creators-of-Create/Create) that lets
-train track run at arbitrary curve angles, instead of the 45 and 90 degree
-steps Create's own track placement tools allow.
+[日本語](README.ja.md)
 
-Targets Create 6.0.10 on Minecraft 1.21.1 / NeoForge 21.1.248, and requires
-Create to be installed.
+An addon for [Create](https://github.com/Creators-of-Create/Create) that lets train track run at any curve angle, instead of the 45 and 90 degree steps Create's own placement tools allow. Besides the wand that draws the curves, it adds trackside equipment: a Japanese-style five-aspect signal, a relay signal, a speed limit sign and the poles that carry them.
 
-License
--------
+| Item | Supported |
+|---|---|
+| Minecraft | 1.21.1 |
+| NeoForge | 21.1.248 or later |
+| Create | 6.0.x (verified on 6.0.10) |
 
-Code is MIT; assets are All Rights Reserved. See [LICENSE.md](LICENSE.md) for
-the split, and its Third-Party Notice for the handful of files that carry
-logic adapted from Create's own MIT-licensed source.
+## Features
 
-Building from source
-=======
+- Lay a curve at any angle with two right clicks. A ghost shows what will be built before you build it: green means it can be laid, red means it cannot.
+- Trains run on these curves as they do on any Create track. The five-aspect signal is built on Create's own signal system.
+- A Survey Marker lays a dead straight line at a bearing and length you set.
+- An invisible floor is laid along each curve at rail height, so you can walk on curves.
+- Adds a Japanese-style five-aspect signal, a relay signal and a speed limit sign, and the pole that carries them.
+- Commands inspect and repair the track.
 
-This repository was started from the NeoForged MDK template, and the sections
-below are unchanged from it.
+## Installation
 
-Once you have your clone, simply open the repository in the IDE of your choice. The usual recommendation for an IDE is either IntelliJ IDEA or Eclipse.
+You need Minecraft 1.21.1, NeoForge and Create itself. Ponder and Flywheel ship inside Create, so they need no separate install. On multiplayer, install the same version on the server and on every client.
 
-If at any point you are missing libraries in your IDE, or you've run into problems you can
-run `gradlew --refresh-dependencies` to refresh the local cache. `gradlew clean` to reset everything 
-{this does not affect your code} and then start the process again.
+There is no download page yet. Build the jar from source and put it in the `mods` folder. The steps are in the Development section.
 
-Mapping Names:
-============
-By default, the MDK is configured to use the official mapping names from Mojang for methods and fields 
-in the Minecraft codebase. These names are covered by a specific license. All modders should be aware of this
-license. For the latest license text, refer to the mapping file itself, or the reference copy here:
+There are no crafting recipes yet either. Take the items from the "Create Train Next" creative tab, or use `/give`. There are seven items.
+
+| Name | Japanese name | Purpose |
+|---|---|---|
+| Curve Wand | 曲線レール設置杖 | Draws curves |
+| Angled Track Anchor | 自由角度レールアンカー | The track block at the end of a curve |
+| Survey Marker | 測量標 | Lays a straight line at a set bearing and length |
+| Track Speed Limit | 速度制限標識 | A sign that shows a speed limit |
+| Signal Pole | 信号柱 | A pole that carries signals and signs |
+| 5-Aspect Railway Signal | 5灯式信号機 | A Japanese-style five-aspect signal |
+| Relay Signal | 中継信号機 | Repeats the next signal's aspect in advance |
+
+Create 6.0.10 is the version this has been verified on. The declared range is 6.0 and later, but other versions have not been tried.
+
+## Usage
+
+### Laying curves with the Curve Wand
+
+Curves are laid with the Curve Wand (the wand, below). The wand places the anchors a curve needs at its ends by itself, so you do not place them first.
+
+1. Hold the wand and right click the track the curve starts from (Create track, or an anchor).
+2. Look at where the curve should go. A ghost is drawn from the start to the block you are looking at.
+3. When the ghost is green, right click again. The curve is built exactly as the ghost showed it.
+
+The selection stays on the end you just reached, so each further right click extends the route by one curve.
+
+When something already fixes the direction at one end (Create track, or an anchor a curve already arrives at), the direction at the other end is chosen so that the whole curve is a circular arc. You do not enter any angle, and the result is close to what a real railway would build.
+
+The message above the hotbar gives the length of the curve, how far it turns and the bearing it arrives on. Bearings count the way Minecraft does: 0 degrees is south, and the number grows clockwise. Compass points such as NE are shown beside it.
+
+| Action | What it does |
+|---|---|
+| Right click track or an anchor | Starts a curve there. An anchor can start one if either side is free. |
+| Right click the destination block (while selecting) | Builds the curve as the ghost shows it and moves the selection to the new end. |
+| Right click the end of another route (while selecting) | Joins the two routes. |
+| Scroll while sneaking (while selecting) | Turns the far end by hand. 2.5 degrees per notch, 15 while the sprint key is held, up to ±85. |
+| Right click the air (after turning by hand) | Returns to the automatic arc. |
+| Right click the air while sneaking (while selecting) | Drops the selection. |
+| Right click an anchor while sneaking | Takes apart the curves linked to that anchor. |
+| Right click near a curve while sneaking (nothing selected) | Puts a point (an anchor) on the curve. |
+
+When a curve cannot be built, the ghost turns red and the message says why.
+
+| Message | Meaning |
+|---|---|
+| "Too close" | The two points are less than 1.5 blocks apart horizontally. |
+| "Too far" | The distance exceeds Create's maximum track placement length (32 blocks by default). |
+| "Too sharp for a train to take" | The curve turns more than 135 degrees, its radius is under 2 blocks, or it differs from the existing track by more than about 26 degrees where they meet. |
+| "Too steep" | The horizontal distance is too short for the climb. It must be at least three times the height difference, and at least 3 blocks. |
+| "The curve would double back on itself" | One end points against the direction of the line joining the two points. |
+| "The ends point too differently for one curve…" | One curve cannot join them, and there is no free block to put an anchor in between two arcs. |
+| "No room for an anchor there" | The block the anchor needs is occupied. |
+| "Both sides of this anchor already have a curve" | An anchor with a curve on both sides cannot be a start or an end. |
+| "Both ends would be the same anchor" | The same anchor was picked twice. |
+| "Cannot start from a junction" | Create track that has more than one direction cannot be an end. |
+| "Cannot start from sloped track" | Sloped Create track cannot be an end. |
+| "Part of the route that would have to be turned round is not loaded" | Move close enough that the whole route is loaded. |
+| "The track this curve started from is gone" | The track you started from has been broken. |
+
+### Joining, reversing and splitting routes
+
+An anchor holds only one curve on each side. A curve can leave by whichever side is free, so a route can also be extended backwards out of its first anchor.
+
+Two routes laid separately join when you right click their ends. If they run against each other, the wand turns the far route end for end before it joins them. Reversing moves no track and does not change which way the signals on it face. The message says "turns the far route round" before you build, so nothing comes as a surprise.
+
+If a curve between ends that point very differently were built as one curve, trains running the other way would follow a path different from the rails that are drawn. So the wand builds such a curve as two circular arcs with an anchor between them. The block for that anchor is outlined on the ghost and named in the message. If no block is free, the curve cannot be built.
+
+Signals and the like cannot be placed directly on the stretch of a curve. Sneak and right click near the place you want, and a point is added. The point is an anchor, which is a track block, so a signal can be placed on it. A point cannot be added too near the end of a curve, or where there already is one.
+
+The ends of ordinary Create track (flat and straight) can be a start or an end. The wand puts an anchor in the neighbouring block and joins the Create track at the same point. The selection ends at an end joined to Create track, and the route cannot be extended past it. Track with a junction, and sloped track, cannot be used.
+
+Two points at different heights can be joined. The direction of a curve is always horizontal, and the height is carried by the difference between the ends. The horizontal distance must be at least three times the height difference, and at least 3 blocks.
+
+Breaking an anchor, or right clicking it while sneaking, takes apart the links on both sides of it.
+
+### Straight lines (Survey Marker)
+
+A Survey Marker lays a dead straight line at a bearing and length you give it. Unlike the wand, which you aim by eye, it suits a line that has to leave at a stated angle towards something far away.
+
+1. Place a Survey Marker where the line should start.
+2. Set the bearing and length. The bearing can be changed a degree at a time in the value box, with a wrench in hand. Right click with an empty hand to open a screen where both can be typed in.
+3. Look at the marker and the line it would lay is drawn as a ghost. Right click the marker with the wand to lay it.
+
+The bearing is 0 to 359 degrees, with 0 at south and growing clockwise. It is the same bearing the wand shows, so you can read one and type it into the other. The length is 3 to 128 blocks, 16 by default. The real upper limit is Create's maximum track placement length (32 blocks by default).
+
+The line is exactly straight, but its bearing comes out a little off. The anchor nodes sit at block centres, and the line joins two of them. The longer the line, the smaller the error: roughly under 0.5 degrees on average at 16 blocks, and under 0.25 at 32. The message after laying gives the real bearing and length. The marker is used up by laying, and becomes the anchor at that place.
+
+### Anchors
+
+An anchor is the track block at the end of a curve. The wand places them where they are needed, so you do not normally place one by hand. Place one by hand when you want to fix the block first. Right click a placed anchor with the wand to start a curve from it.
+
+An anchor behaves as a Create track block, so it can also be the target of a signal and the like.
+
+### 5-Aspect Railway Signal
+
+There are five lamps, from the top: yellow, yellow, red, yellow, green. The aspect depends on how many consecutive signal sections (the stretches Create's signals divide the track into) are clear beyond the signal. On a line with no signal ahead, it shows Proceed.
+
+| Aspect | Lamps lit | Clear sections (normal) | Clear sections (with Restricted on) |
+|---|---|---|---|
+| Stop (停止) | red | 0 | 0 |
+| Restricted (警戒) | top yellow and bottom yellow | not shown | 1 |
+| Approach (注意) | bottom yellow | 1 | 2 |
+| Reduced speed (減速) | second yellow and green | 2 | 3 |
+| Proceed (進行) | green | 3 or more | 4 or more |
+
+Restricted is a step for places where the section ahead is too short to stop in from Approach speed. Each signal decides whether to use it, and a right click with a wrench switches it. After you switch, the message shows the order of aspects.
+
+It is placed as Create's signals are. Hold the signal, right click the track, then right click where it should stand. The placed signal is a signal boundary just like Create's own, and trains stop at red. It can be used together with Create's signals.
+
+The housing can be moved to the centre, left or right. That is handy when a pole stands between two tracks and heads are shared out to either side. Pick it in the value box. The direction is set by which way you face when you place it, in 22.5 degree steps. A placed signal cannot be turned.
+
+Stopping trains and reserving sections is Create's job, and this signal only decides its lamps. So there is no slowing down to match an aspect yet. The lamps refresh about every 0.5 seconds.
+
+### Relay Signal
+
+A relay signal shows the aspect of the next signal ahead of time. Use it where that signal is hard to see, such as beyond a curve or behind a platform roof. It does not stop trains or reserve sections, and it is not in the track graph. It is placed like a signal.
+
+All lamps are the same white, and three of the seven light up. The meaning is read from the angle of the pattern.
+
+| Pattern | Meaning | Aspect of the next signal |
+|---|---|---|
+| Three across | Stop relay (停止中継) | Stop |
+| Three on the diagonal | Restricted relay (制限中継) | Restricted, Approach or Reduced speed |
+| Three upright | Proceed relay (進行中継) | Proceed |
+| Dark | Nothing to show | There is no next signal |
+
+Where the line divides ahead, it shows the strictest aspect among the signals on each branch.
+
+### Track Speed Limit
+
+A sign stood beside the track that shows a speed limit. It is placed like a signal: right click the track, then where it should stand. Hold right click on the sign to open the slider and set the limit, from 0 to 100, 40 by default, in the same unit as Create's train speed readout. The direction is set by which way you face when you place it, in 22.5 degree steps.
+
+**For now it only displays and stores the number, and does not affect trains.** Applying it to trains is planned.
+
+### Signal Pole
+
+A thin pole that carries signals and signs. One block serves as a mast and as a crossbeam between masts. The direction it runs is set by the face you place it on, and it joins neighbouring poles and signals by itself. It joins the 5-Aspect Railway Signal and the Relay Signal, and does not join the Track Speed Limit.
+
+It joins a 5-Aspect Railway Signal from behind, below and either side, and not from the front. A right click with a wrench changes the direction. To run a long length, hold a pole and right click a pole already placed, and Create's placement assist suggests the position at the far end.
+
+### Curve floor
+
+Create's curves have no collision, so stepping onto one drops you through it. For curves laid by this mod, an invisible floor is laid at rail height, so you can walk on them. The floor is made of small blocks that the anchors refresh every few seconds. They cannot be seen or broken, and building over one removes it.
+
+To turn it off, set the server config `curves.collision` to false. New floor is no longer placed, and the floor already there disappears within a few minutes.
+
+## Commands
+
+All start with `/createtrainnext` and need permission level 2 (op).
+
+| Command | Description |
+|---|---|
+| `junction <pos> [radius]` | Lists what the track blocks near the position report (their axes), whether the graph holds a node there, and whether a train could pass at each angle. The radius is 0 to 8, 2 by default. Use it when trains stop or a signal cannot be placed. |
+| `probe <pos>` | For one anchor, prints the values Create looks at when it decides where a station or signal goes, and how they compare. |
+| `curves [radius]` | Lists curves whose shape differs when read the other way round. The wand no longer lays them, but curves laid by older versions can have them. The radius is 1 to 1024, 128 by default. |
+| `repair [radius]` | Rebuilds those curves as two arcs. Up to 16 per run, and the rails move by a little under half a block at most. Trains near a repaired curve are derailed. |
+| `prune [radius]` | Removes graph nodes that no block reports any more, the coloured posts left in the F3 graph. Other track, trains and signals are left as they are. |
+| `reverse <pos>` | Turns the route the anchor belongs to end for end. Running it twice puts it back. |
+| `resetgraph` | **Deletes every train and every track graph in the world.** Nothing is rebuilt automatically. |
+
+`resetgraph` is only for isolating problems during development. Afterwards, break and replace one block of each track network and link the anchors again, or the track has no edges. Back up the world before running it.
+
+Enable Create's client config `showTrackGraphOnF3` and open the F3 debug screen, and the nodes and edges of the track graph are drawn.
+
+## Configuration
+
+Edit the config files directly. The client settings are in `config/createtrainnext-client.toml`, and the server setting is in the world's `serverconfig/createtrainnext-server.toml`.
+
+The server setting affects what is in the world, so the same value applies to every connected player.
+
+| Key | Default | Range | Description |
+|---|---|---|---|
+| `curves.collision` | true | true, false | Whether to lay the floor along curves |
+
+The client settings change only how things are drawn, so each player can pick their own.
+
+| Key | Default | Range | Description |
+|---|---|---|---|
+| `speed_limit_sign.fontScale` | 1.7 | 0.25 to 4.0 | Size of the number on a sign (multiplier). At 1.15 or less three digits fit inside the white area, and above 2.0 three digits run off the sign. |
+| `speed_limit_sign.viewDistance` | 0 | 0 to 1024 | How far a sign is drawn, in blocks. 0 draws as far as the render distance. |
+| `multi_aspect_signal.litLampScale` | 1.0 | 1.0 to 2.0 | How much larger a lit lamp is drawn. Above 1 the lamp comes out in front of its bezel, and above 1.35 it reaches over the neighbouring lamps. |
+| `multi_aspect_signal.glow` | true | true, false | Whether a lit lamp gets a halo of its own colour |
+| `multi_aspect_signal.glowSize` | 5.0 | 1.0 to 16.0 | Width of the halo, in pixels |
+| `multi_aspect_signal.glowBrightness` | 0.5 | 0.0 to 1.0 | Strength of the halo. At high values the housing washes out to white near the lamp. |
+| `multi_aspect_signal.viewDistance` | 0 | 0 to 1024 | How far the lamps are drawn, in blocks. 0 draws as far as the render distance. |
+
+## How it works
+
+Create rounds the X and Z of every node in its track graph onto a half-block lattice. A node has to land on that lattice exactly, and only four directions, in 45 degree steps, can do so. That is why Create's own track comes in 45 and 90 degree steps.
+
+An anchor in this mod keeps its node on one of those four directions, and holds the direction of the curve as a free value of its own. The node sits on the lattice while the tangent of the curve is at any angle. The curve is a Create bezier curve, and Create's own machinery runs the trains, the signals and the section reservation as it is.
+
+A bezier curve is worked out again from the other end for trains running the opposite way. A circular arc, whose end angles are symmetric, gives the same shape both ways. Other curves can differ by several blocks between the two directions. The wand builds such a curve as two arcs, which keeps the difference within 0.1 block.
+
+The ghost and the curve the server builds come out of the same calculation (`CurvePlanner`), so that what you see and what is built cannot disagree.
+
+## Limitations and known issues
+
+These limitations apply.
+
+| Item | Details |
+|---|---|
+| Recipes | None. Take items from the creative tab or with `/give`. |
+| Create track that cannot be an end | Track with a junction and sloped track cannot be a start or an end of the wand. |
+| Slopes | A curve's direction stays horizontal, and a climb can only be expressed by the difference in height between its ends. |
+| Speed limits | The number on a sign is not applied to trains. There are no speed limits per signal aspect either. |
+| Signals along a curve | They cannot be placed directly on the stretch of a curve. Add a point first, then place them. |
+| Junctions | An anchor holds only one curve on each side, so anchors alone cannot make a junction. |
+| Old worlds | They may hold coloured posts left where anchors were broken, and curves whose shape changes when read the other way. `prune`, `curves` and `repair` fix these. |
+| Multiplayer | It has not been tested enough. |
+| Startup log | Two model load errors appear. They do not affect what is drawn. |
+
+## Roadmap
+
+### Planned
+
+These three are planned.
+
+| Item | Where it stands | Aim |
+|---|---|---|
+| Slopes | A curve's direction is horizontal, and a climb is expressed only by the difference in height between its ends. Sloped Create track cannot be a start or an end of the wand. | Handle slopes, including joining sloped Create track. |
+| Enforcing speed limits | The number on a sign can be set, but does not affect trains. There are no limits per signal aspect either. | Apply the number on a sign, and a limit per aspect, to trains that pass. The per-aspect values will be configurable. |
+| Placing directly on a curve | A point has to be added with the wand before a signal can be placed. | Support Create's own curve targeting, so signals and stations can be placed along a curve without a point. |
+
+### Under consideration
+
+Whether to build these is still being considered.
+
+| Item | Details |
+|---|---|
+| A "train passed" wait condition | A condition for Create's schedules that waits until a named train has passed. The intended use is a passing loop, where a local waits for an express to go through. A prototype exists, and whether to bring it in is undecided. |
+| Recipes for survival | Items can only be taken from the creative tab or with `/give` for now. |
+| Laying from Create track with a junction | It cannot be an end for now. |
+| Cleaning up the English text | Some wording, such as the names of the signal aspects, shows in Japanese even in English. |
+
+## Development
+
+You need JDK 21.
+
+```
+./gradlew build              # build the jar (output in build/libs)
+./gradlew compileJava        # compile only
+./gradlew runClient          # launch a client
+./gradlew runServer          # launch a dedicated server
+./gradlew runGameTestServer  # run the game tests
+```
+
+The game tests are in `src/main/java/com/eyunya/createtrainnext/gametest/`. They check curve planning, the wand's click handling, reversing and joining routes, and cleaning and repairing the graph, on a real server. The test world is created in `build/gametest/world` and deleted on every run. GitHub Actions runs the build and the game tests on every push and pull request. Drawing, and trains actually driving over the result, cannot be checked automatically, so check them in a client.
+
+The build is against the Create 6.0.10 release. The Maven build `6.0.10-281` has the same class contents as the distributed `create-1.21.1-6.0.10.jar`. `6.0.11-N` builds are Create's development builds and are not used. The 6.0.10 POM declares Registrate, Ponder and Flywheel only as runtime dependencies. So `build.gradle` takes Create itself alone, and the three versions are pinned in `gradle.properties`.
+
+The main packages are as follows.
+
+| Package | Role |
+|---|---|
+| `track/` | Curve planning (`CurvePlanner`), anchors, the wand, survey markers, the curve floor, graph cleaning and repair |
+| `signal/` | The five-aspect signal and the relay signal |
+| `speed/` | The speed limit sign and its edge point |
+| `pole/` | The signal pole |
+| `client/` | Rendering, the ghost, screens |
+| `gametest/` | Game tests |
+
+The registry, config, networking and commands sit directly in the base package.
+
+`relay_traffic_signal.json` and `housing_left.json` in `assets/createtrainnext/models/block/multi_aspect_signal/` are Blockbench source files. The game does not use them. They were exported with free rotation, so a load error appears in the log at every start, and it does not affect what is drawn.
+
+Minecraft's names come from Mojang's official mappings. Their license is described at:
+
 https://github.com/NeoForged/NeoForm/blob/main/Mojang.md
 
-Additional Resources: 
-==========
-Community Documentation: https://docs.neoforged.net/  
-NeoForged Discord: https://discord.neoforged.net/
+## License and credits
+
+The code is MIT, and the assets under `src/main/resources/assets/` are All Rights Reserved. [LICENSE.md](LICENSE.md) has the split, and the notice for the files that carry logic adapted from Create's own MIT-licensed source.
+
+This mod is an addon for Create by The Creators of Create. It is not an official Create product, and is not affiliated with the Create team. The project began from the NeoForged MDK, and the template's license is in [TEMPLATE_LICENSE.txt](TEMPLATE_LICENSE.txt).
