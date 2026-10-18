@@ -16,7 +16,7 @@ An addon for [Create](https://github.com/Creators-of-Create/Create) that lets tr
 - Trains run on these curves as they do on any Create track. The five-aspect signal is built on Create's own signal system.
 - A Survey Marker lays a dead straight line at a bearing and length you set.
 - An invisible floor is laid along each curve at rail height, so you can walk on curves.
-- Adds a Japanese-style five-aspect signal, a relay signal and a speed limit sign, and the pole that carries them.
+- Adds a Japanese-style five-aspect signal, a relay signal and a speed limit sign, and a pole that carries the signals.
 - Commands inspect and repair the track.
 
 ## Installation
@@ -25,17 +25,17 @@ You need Minecraft 1.21.1, NeoForge and Create itself. Ponder and Flywheel ship 
 
 There is no download page yet. Build the jar from source and put it in the `mods` folder. The steps are in the Development section.
 
-There are no crafting recipes yet either. Take the items from the "Create Train Next" creative tab, or use `/give`. There are seven items.
+There are no crafting recipes yet either. Take the items from the "Create Train Next" creative tab, or use `/give`, for example `/give @s createtrainnext:curve_wand`. There are seven items.
 
-| Name | Japanese name | Purpose |
-|---|---|---|
-| Curve Wand | 曲線レール設置杖 | Draws curves |
-| Angled Track Anchor | 自由角度レールアンカー | The track block at the end of a curve |
-| Survey Marker | 測量標 | Lays a straight line at a set bearing and length |
-| Track Speed Limit | 速度制限標識 | A sign that shows a speed limit |
-| Signal Pole | 信号柱 | A pole that carries signals and signs |
-| 5-Aspect Railway Signal | 5灯式信号機 | A Japanese-style five-aspect signal |
-| Relay Signal | 中継信号機 | Repeats the next signal's aspect in advance |
+| Name | Japanese name | ID | Purpose |
+|---|---|---|---|
+| Curve Wand | 曲線レール設置杖 | `createtrainnext:curve_wand` | Draws curves |
+| Angled Track Anchor | 自由角度レールアンカー | `createtrainnext:angled_track_anchor` | The track block at the end of a curve |
+| Survey Marker | 測量標 | `createtrainnext:survey_marker` | Lays a straight line at a set bearing and length |
+| Track Speed Limit | 速度制限標識 | `createtrainnext:track_speed_limit` | A sign that shows a speed limit |
+| Signal Pole | 信号柱 | `createtrainnext:signal_pole` | A pole that carries signals |
+| 5-Aspect Railway Signal | 5灯式信号機 | `createtrainnext:multi_aspect_signal` | A Japanese-style five-aspect signal |
+| Relay Signal | 中継信号機 | `createtrainnext:relay_signal` | Repeats the next signal's aspect in advance |
 
 Create 6.0.10 is the version this has been verified on. The declared range is 6.0 and later, but other versions have not been tried.
 
@@ -98,14 +98,14 @@ The ends of ordinary Create track (flat and straight) can be a start or an end. 
 
 Two points at different heights can be joined. The direction of a curve is always horizontal, and the height is carried by the difference between the ends. The horizontal distance must be at least three times the height difference, and at least 3 blocks.
 
-Breaking an anchor, or right clicking it while sneaking, takes apart the links on both sides of it.
+Breaking an anchor takes apart the links on both sides of it, and so does right clicking it with the wand while sneaking.
 
 ### Straight lines (Survey Marker)
 
 A Survey Marker lays a dead straight line at a bearing and length you give it. Unlike the wand, which you aim by eye, it suits a line that has to leave at a stated angle towards something far away.
 
 1. Place a Survey Marker where the line should start.
-2. Set the bearing and length. The bearing can be changed a degree at a time in the value box, with a wrench in hand. Right click with an empty hand to open a screen where both can be typed in.
+2. Set the bearing and length. Right click the marker with an empty hand to open a screen where both can be typed in.
 3. Look at the marker and the line it would lay is drawn as a ghost. Right click the marker with the wand to lay it.
 
 The bearing is 0 to 359 degrees, with 0 at south and growing clockwise. It is the same bearing the wand shows, so you can read one and type it into the other. The length is 3 to 128 blocks, 16 by default. The real upper limit is Create's maximum track placement length (32 blocks by default).
@@ -161,7 +161,7 @@ A sign stood beside the track that shows a speed limit. It is placed like a sign
 
 ### Signal Pole
 
-A thin pole that carries signals and signs. One block serves as a mast and as a crossbeam between masts. The direction it runs is set by the face you place it on, and it joins neighbouring poles and signals by itself. It joins the 5-Aspect Railway Signal and the Relay Signal, and does not join the Track Speed Limit.
+A thin pole that carries signals. One block serves as a mast and as a crossbeam between masts. The direction it runs is set by the face you place it on, and it joins neighbouring poles and signals by itself. It joins the 5-Aspect Railway Signal and the Relay Signal, and does not join the Track Speed Limit.
 
 It joins a 5-Aspect Railway Signal from behind, below and either side, and not from the front. A right click with a wrench changes the direction. To run a long length, hold a pole and right click a pole already placed, and Create's placement assist suggests the position at the far end.
 
@@ -178,9 +178,9 @@ All start with `/createtrainnext` and need permission level 2 (op).
 | Command | Description |
 |---|---|
 | `junction <pos> [radius]` | Lists what the track blocks near the position report (their axes), whether the graph holds a node there, and whether a train could pass at each angle. The radius is 0 to 8, 2 by default. Use it when trains stop or a signal cannot be placed. |
-| `probe <pos>` | For one anchor, prints the values Create looks at when it decides where a station or signal goes, and how they compare. |
+| `probe <pos>` | For one track block, prints the values Create looks at when it decides where a station or signal goes, and how they compare. It works on Create's own track as well as on anchors. |
 | `curves [radius]` | Lists curves whose shape differs when read the other way round. The wand no longer lays them, but curves laid by older versions can have them. The radius is 1 to 1024, 128 by default. |
-| `repair [radius]` | Rebuilds those curves as two arcs. Up to 16 per run, and the rails move by a little under half a block at most. Trains near a repaired curve are derailed. |
+| `repair [radius]` | Rebuilds those curves as two arcs, up to 16 per run. The rails move a little: under half a block for an east-into-north curve across about 20 blocks. The output says how far each one moved. Trains near a repaired curve are derailed. |
 | `prune [radius]` | Removes graph nodes that no block reports any more, the coloured posts left in the F3 graph. Other track, trains and signals are left as they are. |
 | `reverse <pos>` | Turns the route the anchor belongs to end for end. Running it twice puts it back. |
 | `resetgraph` | **Deletes every train and every track graph in the world.** Nothing is rebuilt automatically. |
@@ -235,7 +235,6 @@ These limitations apply.
 | Junctions | An anchor holds only one curve on each side, so anchors alone cannot make a junction. |
 | Old worlds | They may hold coloured posts left where anchors were broken, and curves whose shape changes when read the other way. `prune`, `curves` and `repair` fix these. |
 | Multiplayer | It has not been tested enough. |
-| Startup log | Two model load errors appear. They do not affect what is drawn. |
 
 ## Roadmap
 
@@ -272,9 +271,11 @@ You need JDK 21.
 ./gradlew runGameTestServer  # run the game tests
 ```
 
+If the IDE reports missing libraries, run `./gradlew --refresh-dependencies` to refresh the local cache. `./gradlew clean` resets the build output. Neither touches your code.
+
 The game tests are in `src/main/java/com/eyunya/createtrainnext/gametest/`. They check curve planning, the wand's click handling, reversing and joining routes, and cleaning and repairing the graph, on a real server. The test world is created in `build/gametest/world` and deleted on every run. GitHub Actions runs the build and the game tests on every push and pull request. Drawing, and trains actually driving over the result, cannot be checked automatically, so check them in a client.
 
-The build is against the Create 6.0.10 release. The Maven build `6.0.10-281` has the same class contents as the distributed `create-1.21.1-6.0.10.jar`. `6.0.11-N` builds are Create's development builds and are not used. The 6.0.10 POM declares Registrate, Ponder and Flywheel only as runtime dependencies. So `build.gradle` takes Create itself alone, and the three versions are pinned in `gradle.properties`.
+The build is against the Create 6.0.10 release. The Maven build `6.0.10-281` matches the distributed `create-1.21.1-6.0.10.jar` apart from the build information (`META-INF/MANIFEST.MF` and `CreateBuildInfo.class`). `6.0.11-N` builds are Create's development builds and are not used; as of October 2026 the latest release is 6.0.10. The 6.0.10 POM declares Registrate, Ponder and Flywheel only as runtime dependencies. So `build.gradle` takes Create itself alone, and the three versions are pinned in `gradle.properties`.
 
 The main packages are as follows.
 
@@ -289,11 +290,15 @@ The main packages are as follows.
 
 The registry, config, networking and commands sit directly in the base package.
 
-`relay_traffic_signal.json` and `housing_left.json` in `assets/createtrainnext/models/block/multi_aspect_signal/` are Blockbench source files. The game does not use them. They were exported with free rotation, so a load error appears in the log at every start, and it does not affect what is drawn.
+Two models the game never uses, `relay_traffic_signal.json` (the Blockbench source of the relay signal's models) and `housing_left.json`, are kept in `src/main/blockbench/`, outside the resources. They contain free rotations that Minecraft 1.21.1 cannot read, and the game logs an error for every unreadable JSON file under `assets/createtrainnext/models/`. Keep other Blockbench sources that use free rotation there too.
 
 Minecraft's names come from Mojang's official mappings. Their license is described at:
 
 https://github.com/NeoForged/NeoForm/blob/main/Mojang.md
+
+General NeoForged documentation is at:
+
+https://docs.neoforged.net/
 
 ## License and credits
 

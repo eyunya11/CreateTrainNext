@@ -13,6 +13,11 @@ jobs:
           fetch-depth: 0
           fetch-tags: true
 
+      # The two READMEs say the same things in two languages, and quote numbers, names and
+      # defaults that live in the code. This takes a second and needs nothing but Python.
+      - name: Check the READMEs
+        run: python3 .github/scripts/check_readmes.py
+
       - name: Setup JDK 21
         uses: actions/setup-java@v4
         with:
