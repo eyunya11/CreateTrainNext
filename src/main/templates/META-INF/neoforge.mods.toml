@@ -37,7 +37,7 @@ the 45 and 90 degree steps Create's own track placement tool allows.
 [[dependencies.${mod_id}]]
     modId="ponder"
     type="required"
-    versionRange="[1.0.85,)"
+    versionRange="[1.0.82,)"
     ordering="AFTER"
     side="BOTH"
 

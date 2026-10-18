@@ -5,7 +5,7 @@ An addon for [Create](https://github.com/Creators-of-Create/Create) that lets
 train track run at arbitrary curve angles, instead of the 45 and 90 degree
 steps Create's own track placement tools allow.
 
-Targets Create 6.0.11 on Minecraft 1.21.1 / NeoForge 21.1.248, and requires
+Targets Create 6.0.10 on Minecraft 1.21.1 / NeoForge 21.1.248, and requires
 Create to be installed.
 
 License
