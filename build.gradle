@@ -158,15 +158,20 @@ dependencies {
     // http://www.gradle.org/docs/current/userguide/artifact_dependencies_tutorial.html
     // http://www.gradle.org/docs/current/userguide/dependency_management.html
 
-    // Create. Brings in Registrate, Ponder and the Flywheel API transitively.
+    // Create, on its own. 6.0.11 brought in Registrate, Ponder and the Flywheel API transitively;
+    // 6.0.10 declares them at runtime scope, along with JEI, Curios and other optional mods that
+    // are not in the repositories above, so what is needed is listed below instead.
     // Catnip (net.createmod.catnip.*) ships as flat classes inside the Ponder jar,
     // so it needs no declaration of its own.
-    implementation "com.simibubi.create:create-1.21.1:${create_version}"
+    implementation("com.simibubi.create:create-1.21.1:${create_version}") {
+        transitive = false
+    }
 
     // Create declares Ponder as "[1.0.85+mc1.21.1,)" and Flywheel as "[1.0.6,2.0)".
     // Those open ranges resolve to whatever is newest at build time, which makes the
     // build non-reproducible, so pin both to a known-good version instead.
     implementation "net.createmod.ponder:ponder-neoforge:${ponder_version}"
+    implementation "com.tterrag.registrate:Registrate:${registrate_version}"
     implementation "dev.engine-room.flywheel:flywheel-neoforge-api-1.21.1:${flywheel_version}"
     runtimeOnly "dev.engine-room.flywheel:flywheel-neoforge-1.21.1:${flywheel_version}"
 }
