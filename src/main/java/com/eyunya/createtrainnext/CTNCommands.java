@@ -146,8 +146,9 @@ public class CTNCommands {
 	 *
 	 * <p>Only a link that is missing is rebuilt. Rebuilding takes the nodes at its ends and at the anchors
 	 * beside them out of the graph and puts them back, which derails any train on those edges, so it is
-	 * not done to a link that is working. Links whose far end is not loaded cannot be judged, and are
-	 * counted so that it is clear there are more to go and look at.
+	 * not done to a link that is working. Links whose far end is not loaded cannot be judged, and nor can
+	 * ones with a rebuild already waiting, which is about to put them in; both are counted so that it is
+	 * clear there are more to go and look at.
 	 */
 	private static int rebuild(CommandSourceStack source, int radius) {
 		ServerLevel level = source.getLevel();
@@ -160,7 +161,7 @@ public class CTNCommands {
 			if (anchor.getNext() == null || Vec3.atCenterOf(anchor.getBlockPos())
 				.distanceTo(centre) > radius)
 				continue;
-			if (anchor.hasUnloadedNeighbour()) {
+			if (anchor.hasUnloadedNeighbour() || anchor.hasRebuildPending()) {
 				unjudged++;
 				continue;
 			}
@@ -181,7 +182,7 @@ public class CTNCommands {
 		if (missing.size() > queued)
 			summary.append(" Run it again for the other " + (missing.size() - queued) + ".");
 		if (unjudged > 0)
-			summary.append(" " + unjudged + " could not be judged, because a chunk beside them is not loaded.");
+			summary.append(" " + unjudged + " could not be judged, because a chunk beside them is not loaded or they are about to be rebuilt.");
 		source.sendSuccess(() -> Component.literal(summary.toString()), true);
 		return queued;
 	}

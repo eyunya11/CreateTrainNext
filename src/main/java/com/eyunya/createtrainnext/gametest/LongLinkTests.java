@@ -13,6 +13,8 @@ import com.simibubi.create.content.trains.graph.TrackGraph;
 import com.simibubi.create.content.trains.graph.TrackNode;
 import com.simibubi.create.content.trains.graph.TrackNodeLocation;
 
+import com.mojang.brigadier.exceptions.CommandSyntaxException;
+
 import net.minecraft.core.BlockPos;
 import net.minecraft.gametest.framework.GameTest;
 import net.minecraft.gametest.framework.GameTestHelper;
@@ -57,6 +59,7 @@ public class LongLinkTests {
 	private static final int ROW_FLOOR = 10000;
 	private static final int ROW_COMMAND = 12000;
 	private static final int ROW_RUN_ON = 14000;
+	private static final int ROW_PENDING = 16000;
 
 	/** How long a chunk takes to go once nothing holds it, with a margin. */
 	private static final long UNLOADED_BY = 60;
@@ -368,15 +371,50 @@ public class LongLinkTests {
 		});
 	}
 
+	/**
+	 * {@code /createtrainnext rebuild} leaves alone a link whose rebuild is already waiting: it is missing
+	 * from the graph only because the rebuild has not run, and asking for another takes the nodes beside it
+	 * out a second time. It reports the link as not judged instead.
+	 */
+	@GameTest(template = EMPTY, timeoutTicks = 80)
+	public static void theRebuildCommandLeavesAlonePendingLinks(GameTestHelper helper) {
+		Line line = line(helper, ROW_PENDING);
+		ServerLevel level = helper.getLevel();
+		Vec3 from = line.middleAnchor()
+			.exitNode();
+		Vec3 to = line.farAnchor()
+			.entryNode();
+
+		helper.runAfterDelay(15, () -> {
+			helper.assertTrue(joined(level, from, to), "setup: the long link should be in the graph by now");
+			loseLink(level, from, to);
+			line.middleAnchor()
+				.requestRebuild(40);
+			helper.assertTrue(line.middleAnchor()
+				.hasRebuildPending(), "setup: the rebuild should be waiting");
+			helper.assertTrue(run(helper, line, "rebuild") == 0, "a link with its rebuild waiting should not be queued again");
+		});
+		helper.runAfterDelay(15 + 60, () -> {
+			helper.assertTrue(joined(level, from, to), "the rebuild that was waiting should have put the link back");
+			releaseAll(helper, line);
+			helper.succeed();
+		});
+	}
+
 	/** Runs one of the mod's commands as an operator standing at the middle anchor. */
-	private static void run(GameTestHelper helper, Line line, String subcommand) {
+	private static int run(GameTestHelper helper, Line line, String subcommand) {
 		ServerLevel level = helper.getLevel();
 		var source = level.getServer()
 			.createCommandSourceStack()
 			.withLevel(level)
 			.withPosition(Vec3.atCenterOf(helper.absolutePos(line.middle())));
-		level.getServer()
-			.getCommands()
-			.performPrefixedCommand(source, CreateTrainNext.ID + " " + subcommand);
+		try {
+			return level.getServer()
+				.getCommands()
+				.getDispatcher()
+				.execute(CreateTrainNext.ID + " " + subcommand, source);
+		} catch (CommandSyntaxException e) {
+			throw new IllegalStateException(e);
+		}
 	}
 }

@@ -566,6 +566,15 @@ public class AngledTrackAnchorBlockEntity extends BlockEntity {
 	}
 
 	/**
+	 * Whether a rebuild of this anchor's neighbourhood is already waiting to run. Until it has, the graph
+	 * may lack the links only because they have not been put in yet.
+	 */
+	public boolean hasRebuildPending() {
+		return level != null && !level.isClientSide && level.getBlockTicks()
+			.hasScheduledTick(worldPosition, getBlockState().getBlock());
+	}
+
+	/**
 	 * Whether the graph holds the curve to the anchor ahead, as an edge each way between its two ends.
 	 *
 	 * <p>True when there is nothing to check: no anchor ahead, or one that is not loaded, since a curve that
