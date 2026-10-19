@@ -52,6 +52,9 @@ import net.minecraft.world.phys.Vec3;
  * anchor reached has nowhere left to carry on from.</li>
  * <li>Sneak and scroll to turn the far end of the curve by hand; right click the air to put it back
  * to the arc the tool picked.</li>
+ * <li>Hold sprint and scroll to lay the route at a grade, five permille a notch. That turns on grade
+ * mode: the far end is then put at the height the grade gives it, whatever height was clicked, and the
+ * route carries on at that grade until a curve is asked to arrive level. See {@link GradeSpec}.</li>
  * <li>Sneak and right click the air to drop the selection, or an anchor to take its curves apart.</li>
  * <li>With nothing selected, sneak and right click beside a curve to put a point on it. That point
  * is an anchor, and an anchor is a track block, so it is somewhere a signal or a station can go —
@@ -154,7 +157,8 @@ public class CurveWandItem extends Item {
 	private InteractionResult finishCurve(Level level, Player player, ItemStack stack,
 		CurveWandSelection selection, BlockPos pos, Direction face) {
 
-		CurvePlanner.Plan plan = CurvePlanner.plan(level, selection.pos(), pos, face, selection.angle());
+		CurvePlanner.Plan plan =
+			CurvePlanner.plan(level, selection.pos(), pos, face, selection.angle(), selection.spec());
 
 		if (!plan.valid()) {
 			if (!level.isClientSide)
@@ -194,8 +198,16 @@ public class CurveWandItem extends Item {
 			// was a bare position on the server that any later click anywhere would join itself to,
 			// whereas this lives on the stack, is drawn as a ghost the whole time it exists, and is
 			// dropped with a sneak right click.
-			stack.set(CTNDataComponents.CURVE_SELECTION, CurveWandSelection.of(level, plan.end()
-				.anchorPos()));
+			//
+			// The grade goes with it, so that the route carries on at the climb it was laid at; but a
+			// curve that was asked to arrive level has done what the mode was for, and the route goes
+			// on in the mode that follows the far end as it is clicked.
+			CurveWandSelection carried = selection.carriedOnTo(plan.end()
+				.anchorPos());
+			if (plan.grade() != null && plan.grade()
+				.permille() == 0)
+				carried = carried.withGrade(0, false);
+			stack.set(CTNDataComponents.CURVE_SELECTION, carried);
 			built(player, plan, "built");
 		}
 
@@ -289,7 +301,7 @@ public class CurveWandItem extends Item {
 
 	@Override
 	public void appendHoverText(ItemStack stack, TooltipContext context, List<Component> tooltip, TooltipFlag flag) {
-		for (String line : new String[] { "start", "adjust", "cancel", "split" })
+		for (String line : new String[] { "start", "adjust", "grade", "cancel", "split" })
 			tooltip.add(Component.translatable("tooltip.createtrainnext.curve_wand." + line)
 				.withStyle(ChatFormatting.GRAY));
 	}

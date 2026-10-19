@@ -31,6 +31,7 @@
   "item.createtrainnext.curve_wand": "Curve Wand",
   "tooltip.createtrainnext.curve_wand.start": "Right click track, then where it should go",
   "tooltip.createtrainnext.curve_wand.adjust": "Sneak + scroll to turn the far end by hand",
+  "tooltip.createtrainnext.curve_wand.grade": "Sprint + scroll to lay the route at a grade",
   "tooltip.createtrainnext.curve_wand.split": "Sneak + right click a curve to put a point on it",
   "tooltip.createtrainnext.curve_wand.cancel": "Sneak + right click to cancel, or to unlink an anchor",
 
@@ -77,5 +78,8 @@
   "message.createtrainnext.wand.doubles_back": "The curve would double back on itself.",
 
   "message.createtrainnext.grade.level": " · level",
-  "message.createtrainnext.grade.climb": "Grade %s‰ (1 in %s) · horizontal %s blocks · height %s"
+  "message.createtrainnext.grade.climb": "Grade %s‰ (1 in %s) · horizontal %s blocks · height %s",
+  "message.createtrainnext.grade.mode": "Grade mode · set %s‰ → actual %s‰ at the far end",
+  "message.createtrainnext.grade.mode_set": "Grade mode · set %s‰",
+  "message.createtrainnext.grade.mode_fixed": "Grade mode · set %s‰ — the far end already has a height, so this curve is drawn as usual"
 }

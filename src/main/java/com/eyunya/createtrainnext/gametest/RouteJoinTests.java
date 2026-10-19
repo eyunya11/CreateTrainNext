@@ -239,7 +239,7 @@ public class RouteJoinTests {
 			new BlockPos(0, level.getMaxBuildHeight() + 8, 0), true, null, false, false, CurvePlanner.Side.EITHER, 0.0);
 		CurvePlanner.Plan doomed = new CurvePlanner.Plan(null, nowhere, plan.end(), plan.startHeading(),
 			plan.endHeading(), plan.curve(), plan.adjustable(), plan.turnDegrees(), plan.forward(),
-			plan.reverseEnd(), null, null, 0, 0, 0);
+			plan.reverseEnd(), null, null, 0, 0, 0, null);
 
 		String failure = CurvePlanner.apply(level, doomed);
 		helper.assertTrue("no_room".equals(failure), "the join should be refused as no_room, not " + failure);

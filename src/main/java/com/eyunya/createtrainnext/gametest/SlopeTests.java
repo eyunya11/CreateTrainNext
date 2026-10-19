@@ -24,24 +24,33 @@ import com.eyunya.createtrainnext.track.AngledTrackAnchorBlockEntity;
 import com.eyunya.createtrainnext.track.CurvePlanner;
 import com.eyunya.createtrainnext.track.CurveRepair;
 import com.eyunya.createtrainnext.track.CurveWandItem;
+import com.eyunya.createtrainnext.track.CurveWandSelection;
+import com.eyunya.createtrainnext.track.GradeSpec;
 import com.eyunya.createtrainnext.track.GradeText;
+import com.eyunya.createtrainnext.track.SetCurveGradePacket;
 import com.simibubi.create.content.trains.graph.EdgePointType;
 import com.simibubi.create.content.trains.graph.TrackGraphLocation;
 import com.simibubi.create.content.trains.track.BezierConnection;
 import com.simibubi.create.content.trains.track.ITrackBlock;
 import com.simibubi.create.content.trains.track.TrackTargetingBlockItem;
 
+import io.netty.buffer.ByteBuf;
+import io.netty.buffer.Unpooled;
+
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.gametest.framework.GameTest;
 import net.minecraft.gametest.framework.GameTestHelper;
 import net.minecraft.nbt.CompoundTag;
+import net.minecraft.nbt.NbtOps;
 import net.minecraft.network.chat.Component;
 import net.minecraft.network.chat.contents.TranslatableContents;
+import net.minecraft.world.InteractionHand;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.GameType;
 import net.minecraft.world.level.Level;
+import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.phys.Vec3;
@@ -712,6 +721,366 @@ public class SlopeTests {
 		helper.succeed();
 	}
 
+	// ------------------------------------------------------------ grade mode
+
+	/**
+	 * In grade mode the height of the far end comes from the grade, and not from where the click was.
+	 *
+	 * <p>A curve that leaves level ground and is to arrive at 150 permille over a run of twenty-four
+	 * blocks has handles eight long, so it rises {@code 1.5 · 8 · 0.15 = 1.8}, which is two blocks, and
+	 * arrives at two over twelve: the climb it was asked for, less nothing, since two was the nearest whole
+	 * number. The slope changes at a steady rate along it, so halfway it is the mean of the two ends'.
+	 */
+	@GameTest(template = EMPTY)
+	public static void gradeModeTakesTheFarEndsHeightFromTheGrade(GameTestHelper helper) {
+		route(helper, EAST, BEFORE, START);
+		GradeSpec spec = new GradeSpec(150);
+
+		CurvePlanner.Plan plan = plan(helper, START, new BlockPos(34, 2, 26), spec);
+		helper.assertTrue(plan.valid(), "the climb should be possible, but was refused: " + plan.error());
+		helper.assertTrue(plan.grade() != null && plan.grade()
+			.permille() == 150, "the plan should say it was laid at 150 permille");
+		helper.assertTrue(plan.junction() == null, "one arc should do");
+
+		double handle = CurvePlanner.levelHandleLength(plan.curve());
+		int rise = (int) Math.round(1.5 * handle * 0.15);
+		helper.assertTrue(rise == 2, "setup: the grade should come to a rise of two blocks, but comes to " + rise);
+		helper.assertTrue(relative(helper, plan.end()
+			.anchorPos()).getY() == START.getY() + rise,
+			"the far end should be two above the start, but is at " + relative(helper, plan.end()
+				.anchorPos()));
+		helper.assertTrue(plan.startSlope() == 0.0, "it should leave the level route level, but climbs " + plan.startSlope());
+		helper.assertTrue(near(plan.endSlope(), rise / (1.5 * handle), 1.0E-6),
+			"it should arrive at " + rise / (1.5 * handle) + ", but arrives at " + plan.endSlope());
+		helper.assertTrue(near(plan.rise(), rise, 1.0E-9), "the plan should rise two blocks, but rises " + plan.rise());
+		helper.assertTrue(near(gradeBetween(plan.curve(), 0.45, 0.55), plan.endSlope() / 2, 0.01),
+			"halfway it should be climbing at the mean of its two ends, but is at "
+				+ gradeBetween(plan.curve(), 0.45, 0.55));
+
+		// The click is only where on the ground. Aimed a long way above, the curve is the same one.
+		CurvePlanner.Plan high = plan(helper, START, new BlockPos(34, 6, 26), spec);
+		helper.assertTrue(high.valid() && high.end()
+			.anchorPos()
+			.equals(plan.end()
+				.anchorPos()) && near(high.endSlope(), plan.endSlope(), 1.0E-9),
+			"the height that was clicked should have no say, but the curve changed");
+
+		// And without the mode, the height clicked is the height got, as it always was.
+		CurvePlanner.Plan plain = plan(helper, START, new BlockPos(34, 6, 26));
+		helper.assertTrue(plain.grade() == null, "a plan made without the mode should not say it was graded");
+		helper.assertTrue(relative(helper, plain.end()
+			.anchorPos()).getY() == 6, "without the mode the far end should be where it was clicked");
+		helper.succeed();
+	}
+
+	/** A negative grade is a descent: the far end is lower, and the curve arrives going down. */
+	@GameTest(template = EMPTY)
+	public static void gradeModeCanDescend(GameTestHelper helper) {
+		BlockPos from = new BlockPos(4, 5, 16);
+		anchor(helper, from);
+
+		CurvePlanner.Plan plan = plan(helper, from, new BlockPos(28, 5, 16), new GradeSpec(-150));
+		helper.assertTrue(plan.valid(), "the descent should be possible, but was refused: " + plan.error());
+
+		double handle = CurvePlanner.levelHandleLength(plan.curve());
+		int rise = (int) Math.round(1.5 * handle * -0.15);
+		helper.assertTrue(rise == -2, "setup: the grade should come to a fall of two blocks, but comes to " + rise);
+		helper.assertTrue(relative(helper, plan.end()
+			.anchorPos()).getY() == from.getY() + rise, "the far end should be two below the start");
+		helper.assertTrue(plan.endSlope() < 0 && near(plan.endSlope(), rise / (1.5 * handle), 1.0E-6),
+			"it should arrive going down at " + rise / (1.5 * handle) + ", but arrives at " + plan.endSlope());
+		helper.succeed();
+	}
+
+	/**
+	 * A route laid at a grade climbs at one grade: each curve starts from the slope the last one arrived
+	 * with, and from the second curve on the slope no longer changes along it.
+	 *
+	 * <p>Laid with the wand, one click for each curve, the grade set the way the wheel sets it. The curves
+	 * are twelve blocks, so their handles are four, and 170 permille comes to a rise of 1.02 from level:
+	 * one block, arriving at a sixth. From a sixth the rise for the next curve is {@code 6 · (1/6 + 0.17)},
+	 * just over two, and two blocks over twelve is a sixth again — so every curve after the first is a
+	 * straight climb at the slope it arrives with, which is the slope the next one starts from.
+	 */
+	@GameTest(template = EMPTY, timeoutTicks = 60)
+	public static void aRouteLaidAtAGradeClimbsAtOneGrade(GameTestHelper helper) {
+		BlockPos[] clicks = { new BlockPos(4, 1, 8), new BlockPos(16, 1, 8), new BlockPos(28, 1, 8), new BlockPos(40, 1, 8) };
+		int[] heights = { 1, 2, 4, 6 };
+		AngledTrackAnchorBlockEntity first = anchor(helper, clicks[0]);
+		Player player = helper.makeMockPlayer(GameType.CREATIVE);
+		ItemStack wand = new ItemStack(CTNRegistry.CURVE_WAND.get());
+		player.setItemInHand(InteractionHand.MAIN_HAND, wand);
+
+		helper.assertTrue(click(helper, player, wand, clicks[0]).consumesAction(), "setup: the first click should pick the start");
+		helper.assertTrue(SetCurveGradePacket.apply(player, 170, true), "setup: the grade should have been put on the selection");
+
+		for (int i = 1; i < clicks.length; i++) {
+			helper.assertTrue(click(helper, player, wand, clicks[i]).consumesAction(), "curve " + i + " should have been built");
+			CurveWandSelection carried = CurveWandItem.selectionIn(wand, helper.getLevel());
+			helper.assertTrue(carried != null && carried.gradeMode() && carried.grade() == 170,
+				"the grade should be carried on from curve " + i + ", but the selection is " + carried);
+		}
+
+		BlockPos[] placed = new BlockPos[clicks.length];
+		for (int i = 0; i < clicks.length; i++)
+			placed[i] = new BlockPos(clicks[i].getX(), heights[i], clicks[i].getZ());
+		assertChain(helper, first, placed);
+
+		double sixth = 1.0 / 6.0;
+		helper.assertTrue(near(first.getSlope(), 0.0, 1.0E-4), "the route should start level, but starts at " + first.getSlope());
+		for (int i = 1; i < placed.length; i++)
+			helper.assertTrue(near(anchorAt(helper, placed[i]).getSlope(), sixth, 1.0E-6),
+				"anchor " + i + " should arrive at a sixth, but arrives at " + anchorAt(helper, placed[i]).getSlope());
+		assertSteady(helper, anchorAt(helper, placed[1]).buildCurveToNext(), sixth, "the second curve");
+		assertSteady(helper, anchorAt(helper, placed[2]).buildCurveToNext(), sixth, "the third curve");
+
+		helper.runAfterDelay(GRAPH_TICKS, () -> {
+			assertConsistent(helper, first);
+			helper.succeed();
+		});
+	}
+
+	/**
+	 * A curve asked to arrive level does: the route levels off, ends flat, and the mode is dropped.
+	 *
+	 * <p>From a sixth, a curve fifteen blocks long has handles five long and rises
+	 * {@code 1.5 · 5 · (1/6 + 0) = 1.25}, which is one block. Arriving at nothing from a sixth over a
+	 * rise of one block would take handles four long, so with the rounding as it falls the curve would
+	 * arrive a thirtieth of the way into a descent. The far slope is exactly nothing instead, so that
+	 * what is carried on from it is a level end.
+	 */
+	@GameTest(template = EMPTY, timeoutTicks = 60)
+	public static void askingForLevelLevelsTheRouteOffAndDropsTheMode(GameTestHelper helper) {
+		BlockPos[] clicks = { new BlockPos(4, 1, 8), new BlockPos(16, 1, 8), new BlockPos(28, 1, 8), new BlockPos(43, 1, 8) };
+		AngledTrackAnchorBlockEntity first = anchor(helper, clicks[0]);
+		Player player = helper.makeMockPlayer(GameType.CREATIVE);
+		ItemStack wand = new ItemStack(CTNRegistry.CURVE_WAND.get());
+		player.setItemInHand(InteractionHand.MAIN_HAND, wand);
+
+		helper.assertTrue(click(helper, player, wand, clicks[0]).consumesAction(), "setup: the first click should pick the start");
+		helper.assertTrue(SetCurveGradePacket.apply(player, 170, true), "setup: the grade should have been put on the selection");
+		helper.assertTrue(click(helper, player, wand, clicks[1]).consumesAction() && click(helper, player, wand, clicks[2]).consumesAction(),
+			"setup: the climb should have been built");
+
+		// Now the wheel back to level, which from a climb leaves the mode on.
+		helper.assertTrue(SetCurveGradePacket.apply(player, 0, true), "setup: the grade should have been put on the selection");
+		CurveWandSelection leveling = CurveWandItem.selectionIn(wand, helper.getLevel());
+		helper.assertTrue(leveling != null && leveling.gradeMode() && leveling.grade() == 0,
+			"from a climb, asking for nothing should leave the mode on to level off, but the selection is " + leveling);
+
+		helper.assertTrue(click(helper, player, wand, clicks[3]).consumesAction(), "the level-off should have been built");
+		BlockPos top = new BlockPos(43, 5, 8);
+		assertChain(helper, first, clicks[0], new BlockPos(16, 2, 8), new BlockPos(28, 4, 8), top);
+
+		AngledTrackAnchorBlockEntity end = anchorAt(helper, top);
+		helper.assertTrue(end.getSlope() == 0.0, "the route should end level, but ends at " + end.getSlope());
+		CurveWandSelection after = CurveWandItem.selectionIn(wand, helper.getLevel());
+		helper.assertTrue(after != null && !after.gradeMode() && after.grade() == 0,
+			"the mode should be dropped once the route has levelled off, but the selection is " + after);
+
+		BezierConnection levelling = anchorAt(helper, new BlockPos(28, 4, 8)).buildCurveToNext();
+		helper.assertTrue(steepest(levelling) <= 1.0 / 6.0 * 1.02,
+			"levelling off should never be steeper than the climb it ends, but is " + steepest(levelling));
+
+		helper.runAfterDelay(GRAPH_TICKS, () -> {
+			assertConsistent(helper, first);
+			helper.succeed();
+		});
+	}
+
+	/**
+	 * From level ground, asking for level asks for nothing, so the mode goes off rather than being left
+	 * on; the wheel and the server come to the same answer.
+	 */
+	@GameTest(template = EMPTY)
+	public static void askingForLevelFromLevelTurnsTheModeOff(GameTestHelper helper) {
+		BlockPos from = new BlockPos(4, 1, 16);
+		anchor(helper, from);
+		Player player = helper.makeMockPlayer(GameType.CREATIVE);
+		ItemStack wand = new ItemStack(CTNRegistry.CURVE_WAND.get());
+		player.setItemInHand(InteractionHand.MAIN_HAND, wand);
+
+		helper.assertTrue(!SetCurveGradePacket.apply(player, 35, true), "with nothing selected there is nothing to put a grade on");
+		helper.assertTrue(click(helper, player, wand, from).consumesAction(), "setup: the first click should pick the start");
+		helper.assertTrue(CurvePlanner.startsLevel(helper.getLevel(), helper.absolutePos(from)), "setup: a lone anchor starts level");
+
+		SetCurveGradePacket.apply(player, 35, true);
+		CurveWandSelection on = CurveWandItem.selectionIn(wand, helper.getLevel());
+		helper.assertTrue(on != null && on.gradeMode() && on.grade() == 35, "35 permille should have been set, but: " + on);
+
+		SetCurveGradePacket.apply(player, 0, true);
+		CurveWandSelection off = CurveWandItem.selectionIn(wand, helper.getLevel());
+		helper.assertTrue(off != null && !off.gradeMode() && off.grade() == 0,
+			"level from level should turn the mode off, but: " + off);
+
+		// A mode that is off has no grade, whatever it was sent.
+		SetCurveGradePacket.apply(player, 80, false);
+		CurveWandSelection none = CurveWandItem.selectionIn(wand, helper.getLevel());
+		helper.assertTrue(none != null && !none.gradeMode() && none.grade() == 0, "an off mode should keep no grade, but: " + none);
+		helper.succeed();
+	}
+
+	/**
+	 * The grade is held to the limit when it is set, and what comes of a limit that moves.
+	 *
+	 * <p>The server does not take the client's word for it, and the setting is put back whether or not the
+	 * checks pass: the tests share one server.
+	 */
+	@GameTest(template = EMPTY)
+	public static void theGradeIsHeldToTheLimit(GameTestHelper helper) {
+		BlockPos from = new BlockPos(4, 1, 16);
+		anchor(helper, from);
+		Player player = helper.makeMockPlayer(GameType.CREATIVE);
+		ItemStack wand = new ItemStack(CTNRegistry.CURVE_WAND.get());
+		player.setItemInHand(InteractionHand.MAIN_HAND, wand);
+		helper.assertTrue(click(helper, player, wand, from).consumesAction(), "setup: the first click should pick the start");
+		int original = CTNConfig.SERVER.maxGrade.get();
+
+		try {
+			SetCurveGradePacket.apply(player, 5000, true);
+			helper.assertTrue(CurveWandItem.selectionIn(wand, helper.getLevel())
+				.grade() == original, "a grade over the limit should be held to it, but is "
+					+ CurveWandItem.selectionIn(wand, helper.getLevel())
+						.grade());
+
+			CTNConfig.SERVER.maxGrade.set(100);
+			SetCurveGradePacket.apply(player, -5000, true);
+			helper.assertTrue(CurveWandItem.selectionIn(wand, helper.getLevel())
+				.grade() == -100, "the limit should follow the setting, but a descent is held to "
+					+ CurveWandItem.selectionIn(wand, helper.getLevel())
+						.grade());
+		} finally {
+			CTNConfig.SERVER.maxGrade.set(original);
+		}
+		helper.succeed();
+	}
+
+	/**
+	 * A far end that already has a height is not moved: the mode has nothing to act on, and the curve is
+	 * the one it always was.
+	 */
+	@GameTest(template = EMPTY)
+	public static void gradeModeDoesNotMoveAnExistingAnchor(GameTestHelper helper) {
+		route(helper, EAST, BEFORE, START);
+		BlockPos there = new BlockPos(34, 4, 26);
+		anchor(helper, there);
+
+		CurvePlanner.Plan plain = plan(helper, START, there);
+		CurvePlanner.Plan graded = plan(helper, START, there, new GradeSpec(150));
+		helper.assertTrue(graded.valid() && plain.valid(), "setup: the join should be possible: " + graded.error() + ", " + plain.error());
+		helper.assertTrue(graded.grade() == null, "the mode should not claim to have acted on an anchor that is where it is");
+		helper.assertTrue(graded.end()
+			.anchorPos()
+			.equals(helper.absolutePos(there)), "the anchor should not have been moved");
+		helper.assertTrue(graded.startSlope() == plain.startSlope() && graded.endSlope() == plain.endSlope()
+			&& CurvePlanner.deviation(graded.curve(), plain.curve()) < 1.0E-9, "the curve should be the one made without the mode");
+		helper.succeed();
+	}
+
+	/**
+	 * The height a grade gives the far end has to be somewhere an anchor can go, and the block that was
+	 * clicked does not: it is the ground the curve arrives over, not the place.
+	 */
+	@GameTest(template = EMPTY)
+	public static void gradeModeIsRefusedWhereTheHeightItGivesHasNoRoom(GameTestHelper helper) {
+		route(helper, EAST, BEFORE, START);
+		GradeSpec spec = new GradeSpec(150);
+		BlockPos click = new BlockPos(34, 2, 26);
+		BlockPos arrival = new BlockPos(34, 4, 26);
+
+		// The block clicked, and the one above it where an anchor would go without the mode, being in the
+		// way says nothing about where the anchor goes with it.
+		helper.setBlock(click, Blocks.STONE);
+		helper.setBlock(click.above(), Blocks.STONE);
+		helper.assertTrue("no_room".equals(plan(helper, START, click).error()),
+			"setup: without the mode a block in the way of the anchor should refuse it");
+		CurvePlanner.Plan overGround = plan(helper, START, click, spec);
+		helper.assertTrue(overGround.valid(), "a block at the height clicked should not matter, but: " + overGround.error());
+		helper.assertTrue(relative(helper, overGround.end()
+			.anchorPos()).getY() == 4, "the far end should still be two above the start, at " + relative(helper, overGround.end()
+				.anchorPos()));
+
+		helper.setBlock(arrival, Blocks.STONE);
+		CurvePlanner.Plan blocked = plan(helper, START, click, spec);
+		helper.assertTrue("no_room".equals(blocked.error()), "a block where the anchor would go should refuse it, but: " + blocked.error());
+		helper.assertTrue(blocked.curve() != null, "the curve should still be there to be drawn in red");
+
+		helper.setBlock(arrival, Blocks.AIR);
+		helper.assertTrue(plan(helper, START, click, spec).valid(), "with the block gone it should be possible again");
+		helper.succeed();
+	}
+
+	/**
+	 * A route turned by hand in grade mode is two arcs, and the anchor between them is on a slope
+	 * between the two ends'.
+	 */
+	@GameTest(template = EMPTY, timeoutTicks = 60)
+	public static void aGradedCurveTurnedByHandIsTwoArcsOnOneClimb(GameTestHelper helper) {
+		route(helper, EAST, BEFORE, START);
+		GradeSpec spec = new GradeSpec(150);
+
+		CurvePlanner.Plan plan = CurvePlanner.plan(helper.getLevel(), helper.absolutePos(START), helper.absolutePos(new BlockPos(34, 2, 26)),
+			Direction.UP, 25.0F, spec);
+		helper.assertTrue(plan.valid() && plan.grade() != null, "the curve should be possible, but was refused: " + plan.error());
+		helper.assertTrue(plan.junction() != null && plan.secondCurve() != null, "turned by hand it should be two arcs");
+		// By how far along the link it is: where a slope that changed at a steady rate would be.
+		Vec3 middle = plan.junction()
+			.point();
+		double firstRun = Math.hypot(middle.x - plan.curve().starts.getFirst().x, middle.z - plan.curve().starts.getFirst().z);
+		double secondRun = Math.hypot(plan.secondCurve().starts.getSecond().x - middle.x,
+			plan.secondCurve().starts.getSecond().z - middle.z);
+		double expected = plan.startSlope() + (plan.endSlope() - plan.startSlope()) * firstRun / (firstRun + secondRun);
+		helper.assertTrue(near(plan.junctionSlope(), expected, 1.0E-6),
+			"the point between the arcs should be on " + expected + ", between the ends' " + plan.startSlope() + " and "
+				+ plan.endSlope() + ", but is on " + plan.junctionSlope());
+		helper.assertTrue(near(plan.rise(), 2.0, 1.0E-9), "the whole should rise two blocks, but rises " + plan.rise());
+
+		// And it can be built, with the graph agreeing with what is drawn on both arcs.
+		helper.assertTrue(CurvePlanner.apply(helper.getLevel(), plan) == null, "the curve should have been built");
+		AngledTrackAnchorBlockEntity start = anchorAt(helper, START);
+		helper.runAfterDelay(GRAPH_TICKS, () -> {
+			assertConsistent(helper, start);
+			helper.succeed();
+		});
+	}
+
+	// ------------------------------------------------------ what is saved
+
+	/**
+	 * A selection keeps its grade through saving, and a wand saved before there was one is read as being
+	 * in the mode it was in: off.
+	 */
+	@GameTest(template = EMPTY)
+	public static void aSelectionKeepsItsGradeThroughSavingAndOldOnesAreReadAsOff(GameTestHelper helper) {
+		Level level = helper.getLevel();
+		CurveWandSelection selection = CurveWandSelection.of(level, helper.absolutePos(START))
+			.withAngle(12.5F)
+			.withGrade(-35, true);
+
+		CompoundTag saved = (CompoundTag) CurveWandSelection.CODEC.encodeStart(NbtOps.INSTANCE, selection)
+			.getOrThrow();
+		CurveWandSelection loaded = CurveWandSelection.CODEC.parse(NbtOps.INSTANCE, saved)
+			.getOrThrow();
+		helper.assertTrue(selection.equals(loaded), "a saved selection should load as it was: " + selection + " became " + loaded);
+
+		saved.remove("grade");
+		saved.remove("grade_mode");
+		CurveWandSelection old = CurveWandSelection.CODEC.parse(NbtOps.INSTANCE, saved)
+			.getOrThrow();
+		helper.assertTrue(old.grade() == 0 && !old.gradeMode() && old.angle() == 12.5F && old.pos()
+			.equals(selection.pos()), "a wand saved before grades should load in the old mode, but loads as " + old);
+
+		ByteBuf buffer = Unpooled.buffer();
+		CurveWandSelection.STREAM_CODEC.encode(buffer, selection);
+		helper.assertTrue(selection.equals(CurveWandSelection.STREAM_CODEC.decode(buffer)),
+			"a selection sent to the client should arrive as it was");
+
+		// A selection that is not in the mode has no grade to speak of, so two that mean the same are equal.
+		helper.assertTrue(selection.withGrade(50, false)
+			.equals(selection.withGrade(0, false)), "a selection with the mode off should keep no grade");
+		helper.succeed();
+	}
+
 	// --------------------------------------------------------------- helpers
 
 	private static TranslatableContents translatable(GameTestHelper helper, Component component) {
@@ -735,6 +1104,19 @@ public class SlopeTests {
 
 	private static CurvePlanner.Plan plan(GameTestHelper helper, BlockPos start, BlockPos end) {
 		return CurvePlanner.plan(helper.getLevel(), helper.absolutePos(start), helper.absolutePos(end), Direction.UP, 0);
+	}
+
+	private static CurvePlanner.Plan plan(GameTestHelper helper, BlockPos start, BlockPos end, GradeSpec spec) {
+		return CurvePlanner.plan(helper.getLevel(), helper.absolutePos(start), helper.absolutePos(end), Direction.UP, 0,
+			spec);
+	}
+
+	/** The steepest a curve is anywhere along it, as the largest grade between neighbouring samples. */
+	private static double steepest(BezierConnection curve) {
+		double steepest = 0;
+		for (int i = 0; i < SAMPLES; i++)
+			steepest = Math.max(steepest, Math.abs(gradeBetween(curve, i / (double) SAMPLES, (i + 1) / (double) SAMPLES)));
+		return steepest;
 	}
 
 	private static AngledTrackAnchorBlockEntity anchorAt(GameTestHelper helper, BlockPos relative) {

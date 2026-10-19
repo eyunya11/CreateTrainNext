@@ -42,6 +42,29 @@ public final class GradeText {
 	}
 
 	/**
+	 * What grade mode was asked for and what the curve does about it: the grade set, and the one the curve
+	 * arrives at, which differs from it by what the rounding of the far end's height took. The route carries
+	 * on from the second, and aims at the first again.
+	 *
+	 * @param set     the grade the player dialled in, in permille.
+	 * @param endGrade the climb of the curve where it arrives, as a fraction.
+	 */
+	public static MutableComponent mode(int set, double endGrade) {
+		return Component.translatable("message.createtrainnext.grade.mode", String.format("%+d", set),
+			String.format("%+d", permille(endGrade)));
+	}
+
+	/** Just the grade that is set, for when there is no curve being aimed at to say what it comes to. */
+	public static MutableComponent modeSet(int set) {
+		return Component.translatable("message.createtrainnext.grade.mode_set", String.format("%+d", set));
+	}
+
+	/** The same where the mode had nothing to act on: the far end has a height of its own. */
+	public static MutableComponent modeFixed(int set) {
+		return Component.translatable("message.createtrainnext.grade.mode_fixed", String.format("%+d", set));
+	}
+
+	/**
 	 * A line about a curve that climbs or falls: the grade, how far it takes to gain a block, the run
 	 * and the rise. The two signs go with the rise, so a descent reads as one.
 	 *

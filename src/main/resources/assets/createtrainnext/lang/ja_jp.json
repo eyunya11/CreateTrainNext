@@ -31,6 +31,7 @@
   "item.createtrainnext.curve_wand": "曲線レール設置杖",
   "tooltip.createtrainnext.curve_wand.start": "線路を右クリック → 敷きたい場所を右クリック",
   "tooltip.createtrainnext.curve_wand.adjust": "スニーク＋ホイールで先端の向きを手動調整",
+  "tooltip.createtrainnext.curve_wand.grade": "ダッシュ＋ホイールで勾配を設定",
   "tooltip.createtrainnext.curve_wand.split": "スニーク＋右クリックで曲線上に接続点を追加",
   "tooltip.createtrainnext.curve_wand.cancel": "スニーク＋右クリックで取り消し／アンカーの接続解除",
 
@@ -77,5 +78,8 @@
   "message.createtrainnext.wand.doubles_back": "曲線が折り返してしまいます。",
 
   "message.createtrainnext.grade.level": " ・ 水平",
-  "message.createtrainnext.grade.climb": "勾配 %s‰（水平 %s ブロックで 1 ブロック） ・ 水平距離 %s ブロック ・ 高低差 %s ブロック"
+  "message.createtrainnext.grade.climb": "勾配 %s‰（水平 %s ブロックで 1 ブロック） ・ 水平距離 %s ブロック ・ 高低差 %s ブロック",
+  "message.createtrainnext.grade.mode": "勾配モード ・ 設定 %s‰ → 実際 %s‰（終点）",
+  "message.createtrainnext.grade.mode_set": "勾配モード ・ 設定 %s‰",
+  "message.createtrainnext.grade.mode_fixed": "勾配モード ・ 設定 %s‰（終点の高さが決まっているため、通常どおり引きます）"
 }
