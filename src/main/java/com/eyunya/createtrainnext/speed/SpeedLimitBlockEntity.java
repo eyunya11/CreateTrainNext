@@ -61,14 +61,22 @@ public class SpeedLimitBlockEntity extends SmartBlockEntity implements Transform
 			new SpeedLimitValueBox());
 		limit.between(SpeedLimitEdgePoint.MIN_LIMIT, SpeedLimitEdgePoint.maxLimit());
 		limit.withFormatter(SpeedLimitBlockEntity::format);
+		// The sign that ends a limit has no number to set, so nothing of the slider or the value box is
+		// offered on it. Asked each time: the block is not known yet when the behaviours are made.
+		limit.onlyActiveWhen(() -> !isRelease());
 		limit.value = SpeedLimitEdgePoint.DEFAULT_LIMIT;
 		limit.withCallback(this::onLimitChanged);
 		behaviours.add(limit);
 	}
 
+	/** Whether this is the sign that ends a limit, which shows no number and is as high as any train goes. */
+	public boolean isRelease() {
+		return getBlockState().getBlock() instanceof SpeedReleaseBlock;
+	}
+
 	/** The limit in km/h. */
 	public int getLimit() {
-		return limit.getValue();
+		return isRelease() ? SpeedLimitEdgePoint.maxLimit() : limit.getValue();
 	}
 
 	/** A limit as it is written wherever it is shown. */

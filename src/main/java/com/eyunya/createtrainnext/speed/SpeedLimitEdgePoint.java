@@ -31,6 +31,7 @@ import net.minecraft.world.level.block.entity.BlockEntity;
 public class SpeedLimitEdgePoint extends SingleBlockEntityEdgePoint {
 
 	private static final String TAG_LIMIT = "Limit";
+	private static final String TAG_RELEASE = "Release";
 
 	/**
 	 * Limits are held in kilometres per hour, which is the number the sign shows. Zero is a legal
@@ -62,9 +63,23 @@ public class SpeedLimitEdgePoint extends SingleBlockEntityEdgePoint {
 
 	private int limit = DEFAULT_LIMIT;
 
+	/**
+	 * Whether this is the sign that ends a limit. It has no number of its own: its limit is
+	 * {@link #maxLimit()} as it stands, so it stays the highest there is when the config changes.
+	 */
+	private boolean release;
+
 	/** The limit in km/h, held to the config as it stands now: a config lowered since is no excuse for a faster sign. */
 	public int getLimit() {
-		return Math.min(limit, maxLimit());
+		return release ? maxLimit() : Math.min(limit, maxLimit());
+	}
+
+	public boolean isRelease() {
+		return release;
+	}
+
+	public void setRelease(boolean release) {
+		this.release = release;
 	}
 
 	public void setLimit(int limit) {
@@ -81,6 +96,8 @@ public class SpeedLimitEdgePoint extends SingleBlockEntityEdgePoint {
 		ScrollValueBehaviour scrollValue = BlockEntityBehaviour.get(blockEntity, ScrollValueBehaviour.TYPE);
 		if (scrollValue != null)
 			setLimit(scrollValue.getValue());
+		if (blockEntity instanceof SpeedLimitBlockEntity sign)
+			release = sign.isRelease();
 	}
 
 	@Override
@@ -91,23 +108,28 @@ public class SpeedLimitEdgePoint extends SingleBlockEntityEdgePoint {
 		// window where a point is rebuilt from migration data before its block entity is consulted.
 		if (nbt.contains(TAG_LIMIT))
 			limit = nbt.getInt(TAG_LIMIT);
+		release = nbt.getBoolean(TAG_RELEASE);
 	}
 
 	@Override
 	public void write(CompoundTag nbt, HolderLookup.Provider registries, DimensionPalette dimensions) {
 		super.write(nbt, registries, dimensions);
 		nbt.putInt(TAG_LIMIT, limit);
+		if (release)
+			nbt.putBoolean(TAG_RELEASE, true);
 	}
 
 	@Override
 	public void read(FriendlyByteBuf buffer, DimensionPalette dimensions) {
 		super.read(buffer, dimensions);
 		limit = buffer.readVarInt();
+		release = buffer.readBoolean();
 	}
 
 	@Override
 	public void write(FriendlyByteBuf buffer, DimensionPalette dimensions) {
 		super.write(buffer, dimensions);
 		buffer.writeVarInt(limit);
+		buffer.writeBoolean(release);
 	}
 }

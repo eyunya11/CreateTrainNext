@@ -1,0 +1,36 @@
+{
+	"format_version": "1.21.11",
+	"credit": "The sign that ends a speed limit: a post with a plate on it, drawn facing north; the renderer turns it. It has its own texture, textures/block/track_speed_release.png, and no number is drawn over it, so both this model and that texture can be edited freely. Keep the plate where it is (from 2.5, 5, 7 to 13.5, 14, 9): the shape of the block is measured from it. The plate's two broad faces map the whole texture rather than the slice their own size would take.",
+	"parent": "block/block",
+	"textures": {
+		"2": "createtrainnext:block/track_speed_limit_piller",
+		"sign": "createtrainnext:block/track_speed_release"
+	},
+	"elements": [
+		{
+			"from": [7, 0, 7],
+			"to": [9, 5, 9],
+			"rotation": {"angle": 0, "axis": "y", "origin": [1, 0, 1]},
+			"faces": {
+				"north": {"uv": [0, 0, 2, 6], "texture": "#2"},
+				"east": {"uv": [0, 0, 2, 6], "texture": "#2"},
+				"south": {"uv": [0, 0, 2, 6], "texture": "#2"},
+				"west": {"uv": [0, 0, 2, 6], "texture": "#2"},
+				"up": {"uv": [4, 2, 2, 0], "texture": "#2"},
+				"down": {"uv": [4, 0, 2, 2], "texture": "#2"}
+			}
+		},
+		{
+			"from": [2.5, 5, 7],
+			"to": [13.5, 14, 9],
+			"faces": {
+				"north": {"uv": [0, 0, 16, 16], "texture": "#sign"},
+				"east": {"uv": [0, 0, 16, 16], "texture": "#sign"},
+				"south": {"uv": [0, 0, 16, 16], "texture": "#sign"},
+				"west": {"uv": [0, 0, 16, 16], "texture": "#sign"},
+				"up": {"uv": [0, 0, 16, 16], "texture": "#sign"},
+				"down": {"uv": [0, 0, 16, 16], "texture": "#sign"}
+			}
+		}
+	]
+}

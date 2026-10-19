@@ -34,6 +34,7 @@ There are no crafting recipes yet either. Take the items from the "Create Train 
 | Angled Track Anchor | 自由角度レールアンカー | `createtrainnext:angled_track_anchor` | The track block at the end of a curve |
 | Survey Marker | 測量標 | `createtrainnext:survey_marker` | Lays a straight line at a set bearing, length and grade |
 | Track Speed Limit | 速度制限標識 | `createtrainnext:track_speed_limit` | A sign that shows a speed limit |
+| Track Speed Limit Release | 最高速度解除標識 | `createtrainnext:track_speed_release` | A sign that ends a speed limit |
 | Signal Pole | 信号柱 | `createtrainnext:signal_pole` | A pole that carries signals |
 | 5-Aspect Railway Signal | 5灯式信号機 | `createtrainnext:multi_aspect_signal` | A Japanese-style five-aspect signal |
 | Relay Signal | 中継信号機 | `createtrainnext:relay_signal` | Repeats the next signal's aspect in advance |
@@ -211,7 +212,9 @@ Where the line divides ahead, it shows the strictest aspect among the signals on
 
 A sign stood beside the track that shows a speed limit. It is placed like a signal: right click the track, then where it should stand. Hold right click on the sign to open the slider and set the limit in km/h, from 0 up to the fastest a train can go under Create's config. That is the larger of `trainTopSpeed` and `poweredTrainTopSpeed` in the `trains` settings, with one block per second counted as 3.6 km/h, so 144 with Create's default speeds. The limit is 40 by default. The direction is set by which way you face when you place it, in 22.5 degree steps.
 
-**For now it only displays and stores the number, and does not affect trains.** Applying it to trains is planned.
+The Track Speed Limit Release is the sign that ends a limit. It is placed the same way and has a plate of its own with no number on it. Its limit is the highest one, so trains past it are held to nothing but their top speed.
+
+**For now the signs only display and store the number, and do not affect trains.** Applying them to trains is planned.
 
 ### Signal Pole
 

@@ -34,6 +34,7 @@ Createの列車用レールを、45度や90度の刻みにとらわれず、好�
 | 自由角度レールアンカー | Angled Track Anchor | `createtrainnext:angled_track_anchor` | 曲線の端になるレールのブロック |
 | 測量標 | Survey Marker | `createtrainnext:survey_marker` | 方位、長さ、勾配を決めて直線を引く |
 | 速度制限標識 | Track Speed Limit | `createtrainnext:track_speed_limit` | 制限速度を表示する標識 |
+| 最高速度解除標識 | Track Speed Limit Release | `createtrainnext:track_speed_release` | 制限速度を解除する標識 |
 | 信号柱 | Signal Pole | `createtrainnext:signal_pole` | 信号機を支える柱 |
 | 5灯式信号機 | 5-Aspect Railway Signal | `createtrainnext:multi_aspect_signal` | 日本式の5灯式信号機 |
 | 中継信号機 | Relay Signal | `createtrainnext:relay_signal` | 次の信号機の現示を手前で知らせる |
@@ -213,7 +214,9 @@ Createの通常の線路（平らな直線）の端も、始点と終点にで�
 
 線路脇に立てて、制限速度の数字を表示する標識です。置き方は信号機と同じで、線路を右クリックしてから置きたい場所を右クリックします。標識に向けて右クリックを押し続けるとスライダーが開き、制限速度をkm/hで設定します。範囲は0から、Createの設定で列車が出せる最高速度までです。最高速度は、`trains`の設定にある`trainTopSpeed`と`poweredTrainTopSpeed`の大きいほうで、1ブロック毎秒を3.6km/hとして換算します。Createの初期設定では144になり、標識の初期値は40です。向きは置いたときの自分の向きで決まり、22.5度刻みです。
 
-**現時点では、表示と設定だけで、列車には効きません。** 列車への反映は実装予定です。
+最高速度解除標識を置くと、制限速度を解除できます。置き方は同じで、数字のない専用の板が付きます。制限速度は最高値として扱うため、通過した列車は、その列車自身の最高速度でしか抑えられません。
+
+**現時点では、標識は表示と設定だけで、列車には効きません。** 列車への反映は実装予定です。
 
 ### 信号柱
 

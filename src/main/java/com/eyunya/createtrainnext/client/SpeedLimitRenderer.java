@@ -3,6 +3,7 @@ package com.eyunya.createtrainnext.client;
 import com.eyunya.createtrainnext.CTNConfig;
 import com.eyunya.createtrainnext.speed.SpeedLimitBlock;
 import com.eyunya.createtrainnext.speed.SpeedLimitBlockEntity;
+import com.eyunya.createtrainnext.speed.SpeedReleaseBlock;
 import com.mojang.blaze3d.vertex.PoseStack;
 import com.mojang.math.Axis;
 import com.simibubi.create.content.trains.track.ITrackBlock;
@@ -112,7 +113,9 @@ public class SpeedLimitRenderer extends SmartBlockEntityRenderer<SpeedLimitBlock
 			return;
 
 		renderSign(be.getBlockState(), ms, buffer, light);
-		renderLimit(be, be.getBlockState(), ms, buffer, light);
+		// The sign that ends a limit has no number: its plate says it all.
+		if (!be.isRelease())
+			renderLimit(be, be.getBlockState(), ms, buffer, light);
 		renderTrackMarker(be, level, ms, buffer, light, overlay);
 	}
 
@@ -158,7 +161,8 @@ public class SpeedLimitRenderer extends SmartBlockEntityRenderer<SpeedLimitBlock
 			return;
 		// The model is authored facing north, which is segment 0, so the whole of the turn is this
 		// one rotation about the block's centre.
-		CachedBuffers.partial(CreateTrainNextClient.SPEED_LIMIT_SIGN, state)
+		CachedBuffers.partial(state.getBlock() instanceof SpeedReleaseBlock ? CreateTrainNextClient.SPEED_RELEASE_SIGN
+			: CreateTrainNextClient.SPEED_LIMIT_SIGN, state)
 			.rotateCenteredDegrees(-SpeedLimitBlock.modelYaw(state), Direction.Axis.Y)
 			.light(light)
 			.renderInto(ms, buffer.getBuffer(RenderType.cutoutMipped()));

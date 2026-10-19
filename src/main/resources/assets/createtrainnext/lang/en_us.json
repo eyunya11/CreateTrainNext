@@ -3,6 +3,7 @@
   "block.createtrainnext.angled_track_anchor": "Angled Track Anchor",
   "block.createtrainnext.curve_filler": "Curve Floor",
   "block.createtrainnext.track_speed_limit": "Track Speed Limit",
+  "block.createtrainnext.track_speed_release": "Track Speed Limit Release",
   "block.createtrainnext.signal_pole": "Signal Pole",
   "createtrainnext.speed_limit.limit": "Speed Limit",
   "createtrainnext.speed_limit.row": "Speed",

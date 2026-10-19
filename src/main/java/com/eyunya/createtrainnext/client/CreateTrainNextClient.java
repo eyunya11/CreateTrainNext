@@ -48,6 +48,14 @@ public class CreateTrainNextClient {
 		PartialModel.of(CreateTrainNext.asResource("block/track_speed_limit"));
 
 	/**
+	 * The sign that ends a limit, its own model with its own texture and no number drawn over it.
+	 * Meant to be edited by hand: the plate keeps the position the renderer expects, and anything else
+	 * about it is free.
+	 */
+	public static final PartialModel SPEED_RELEASE_SIGN =
+		PartialModel.of(CreateTrainNext.asResource("block/track_speed_release"));
+
+	/**
 	 * The signal's lamps, one model per state a socket can be in.
 	 *
 	 * <p>Four models rather than twenty: every socket is drawn from the same lamp, moved up or down

@@ -60,6 +60,51 @@ public class SpeedLimitTests {
 	}
 
 	/**
+	 * The sign that ends a limit has no number of its own: it reads as the ceiling whatever that is,
+	 * offers no slider, and its point does the same.
+	 */
+	@GameTest(template = EMPTY)
+	public static void theSignThatEndsALimitIsAlwaysAsHighAsTheCeiling(GameTestHelper helper) {
+		CTrains trains = AllConfigs.server().trains;
+		float standard = trains.trainTopSpeed.getF();
+		float powered = trains.poweredTrainTopSpeed.getF();
+		BlockPos pos = new BlockPos(4, 2, 4);
+		helper.setBlock(pos, CTNRegistry.TRACK_SPEED_RELEASE.get()
+			.defaultBlockState());
+		BlockEntity entity = helper.getBlockEntity(pos);
+		helper.assertTrue(entity instanceof SpeedLimitBlockEntity, "a release sign should have the sign block entity");
+		SpeedLimitBlockEntity sign = (SpeedLimitBlockEntity) entity;
+		SpeedLimitEdgePoint point = new SpeedLimitEdgePoint();
+		point.setLimit(20);
+		point.setRelease(true);
+
+		try {
+			trains.trainTopSpeed.set(28.0);
+			trains.poweredTrainTopSpeed.set(40.0);
+			helper.assertTrue(sign.isRelease(), "it should know it is the one that ends a limit");
+			helper.assertTrue(sign.getLimit() == 144, "it should read the ceiling, 144, but reads " + sign.getLimit());
+			helper.assertTrue(!sign.limit.isActive(), "there should be no slider to set a number on it");
+			helper.assertTrue(point.getLimit() == 144, "its point should be as high, but reads " + point.getLimit());
+
+			trains.trainTopSpeed.set(20.0);
+			trains.poweredTrainTopSpeed.set(20.0);
+			helper.assertTrue(sign.getLimit() == 72 && point.getLimit() == 72,
+				"it should follow the config, to 72, but reads " + sign.getLimit() + " and " + point.getLimit());
+		} finally {
+			trains.trainTopSpeed.set((double) standard);
+			trains.poweredTrainTopSpeed.set((double) powered);
+		}
+
+		BlockPos limitPos = new BlockPos(8, 2, 4);
+		helper.setBlock(limitPos, CTNRegistry.TRACK_SPEED_LIMIT.get()
+			.defaultBlockState());
+		SpeedLimitBlockEntity ordinary = (SpeedLimitBlockEntity) helper.getBlockEntity(limitPos);
+		helper.assertTrue(!ordinary.isRelease() && ordinary.limit.isActive(),
+			"the ordinary sign is not a release and keeps its slider");
+		helper.succeed();
+	}
+
+	/**
 	 * A sign cannot be set above the ceiling, and one that was set when the ceiling was higher reads
 	 * as the ceiling is now, on the block and at the point trains consult.
 	 */
