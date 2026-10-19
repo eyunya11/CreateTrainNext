@@ -198,6 +198,7 @@ The server setting affects what is in the world, so the same value applies to ev
 | Key | Default | Range | Description |
 |---|---|---|---|
 | `curves.collision` | true | true, false | Whether to lay the floor along curves |
+| `curves.maxGrade` | 333 | 10 to 1000 | The steepest a curve may climb, in permille. 333 is one block of rise in three blocks of run. |
 
 The client settings change only how things are drawn, so each player can pick their own.
 

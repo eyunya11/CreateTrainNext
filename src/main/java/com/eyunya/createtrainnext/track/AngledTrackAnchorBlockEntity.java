@@ -80,8 +80,25 @@ public class AngledTrackAnchorBlockEntity extends BlockEntity {
 	private static final String TAG_PREV = "Prev";
 	private static final String TAG_NEXT = "Next";
 	private static final String TAG_AXIS_FLIPPED = "AxisFlipped";
+	private static final String TAG_SLOPE = "Slope";
 
 	private float yaw = 0.0F;
+
+	/**
+	 * How steeply the route climbs through this anchor: the rise over the run, so 0.05 is 50 permille
+	 * and a minus sign is a descent. It belongs to the route's direction, like {@link #yaw}, and
+	 * turning the route round negates it.
+	 *
+	 * <p>Zero for every anchor that was never given one, which includes all of those in saves made
+	 * before there was any, so they read exactly as they did: flat headings, and a climb carried by
+	 * the difference in height between the two ends of a curve.
+	 *
+	 * <p>It is kept as a slope and not as an angle because that is the form Create's own axes take. Its
+	 * bezier works the handles out from the horizontal part of an axis alone, so an axis written as a
+	 * horizontal unit vector plus {@code (0, slope, 0)} leaves the curve's shape seen from above exactly
+	 * what it was and only changes how it climbs. Create's sloped track uses {@code (0, 1, 1)} the same way.
+	 */
+	private float slope = 0.0F;
 
 	/** The anchor this route arrives from, and the one it continues to. Either may be absent. */
 	@Nullable
@@ -135,6 +152,30 @@ public class AngledTrackAnchorBlockEntity extends BlockEntity {
 
 	public float getYaw() {
 		return yaw;
+	}
+
+	/** See {@link #slope}. */
+	public float getSlope() {
+		return slope;
+	}
+
+	/**
+	 * A direction of travel written the way the curves take it: the horizontal unit vector
+	 * {@code heading} with the climb as its y component, which is not a unit vector.
+	 */
+	public static Vec3 tangentOf(Vec3 heading, double slope) {
+		return new Vec3(heading.x, slope, heading.z);
+	}
+
+	/** The climb in a vector made by {@link #tangentOf}: its y over the length of its horizontal part. */
+	public static double slopeOf(Vec3 tangent) {
+		double run = Math.sqrt(tangent.x * tangent.x + tangent.z * tangent.z);
+		return run < 1.0E-9 ? 0 : tangent.y / run;
+	}
+
+	/** Which way the route runs through this anchor, and how steeply it climbs there. */
+	public Vec3 tangent() {
+		return tangentOf(heading(), slope);
 	}
 
 	/** See {@link #flipped}. */
@@ -238,7 +279,9 @@ public class AngledTrackAnchorBlockEntity extends BlockEntity {
 	 * intermediate state where one end has been turned and the other has not, which is a shape the
 	 * graph would have had to accept as real for a tick.
 	 *
-	 * @param thisHeading  where this anchor should point afterwards, or null to leave it.
+	 * @param thisHeading  where this anchor should point afterwards, or null to leave it. The y of the
+	 *                     vector is the climb, as {@link #tangentOf} writes it: a vector with none
+	 *                     leaves the anchor level.
 	 * @param otherHeading where {@code other} should point afterwards, or null to leave it.
 	 */
 	public void linkTo(AngledTrackAnchorBlockEntity other, @Nullable Vec3 thisHeading,
@@ -262,10 +305,12 @@ public class AngledTrackAnchorBlockEntity extends BlockEntity {
 
 		if (thisHeading != null) {
 			yaw = yawOf(thisHeading);
+			slope = (float) slopeOf(thisHeading);
 			alignAxisToYaw();
 		}
 		if (otherHeading != null) {
 			other.yaw = yawOf(otherHeading);
+			other.slope = (float) slopeOf(otherHeading);
 			other.alignAxisToYaw();
 		}
 
@@ -416,6 +461,8 @@ public class AngledTrackAnchorBlockEntity extends BlockEntity {
 		next = behind;
 
 		yaw = Mth.wrapDegrees(yaw + 180.0F);
+		// Running the other way, what was a climb is a descent.
+		slope = -slope;
 
 		// What was recorded is the curve this anchor used to own, which it no longer does, and
 		// clearing it would take up a floor that its new neighbour is about to renew.
@@ -576,7 +623,7 @@ public class AngledTrackAnchorBlockEntity extends BlockEntity {
 		// axis. Reporting the heading there had it refused at every angle where the two differ,
 		// which is why only multiples of 45 worked. Both directions already work there, because the
 		// span runs both ways out of the block's centre and each way matches the axis exactly.
-		if (!usesCentreNode(heading(), isInterior()))
+		if (!usesCentreNode(heading(), isInterior(), slope != 0))
 			return AngledTrackAnchorBlock.axisVector(getBlockState());
 
 		return routeTargetingAxis();
@@ -731,7 +778,16 @@ public class AngledTrackAnchorBlockEntity extends BlockEntity {
 	 * the nearest axis, was never reconciling anything.
 	 */
 	public static boolean usesCentreNode(Vec3 heading, boolean interior) {
-		if (interior)
+		return usesCentreNode(heading, interior, false);
+	}
+
+	/**
+	 * The same, for an anchor that may be climbing. One that is has its node at the block's centre
+	 * whatever its heading: a span lying along an axis at the block's own height cannot continue a
+	 * climb, and the curve leaving its end would bend away from it by the whole of the slope.
+	 */
+	public static boolean usesCentreNode(Vec3 heading, boolean interior, boolean sloped) {
+		if (interior || sloped)
 			return true;
 		if (heading.lengthSqr() < 1.0E-8)
 			return true;
@@ -744,14 +800,22 @@ public class AngledTrackAnchorBlockEntity extends BlockEntity {
 
 	/** Where {@link #entryNode} would fall for an anchor at {@code pos} pointed along {@code heading}. */
 	public static Vec3 entryNode(BlockPos pos, Vec3 heading, boolean interior) {
+		return entryNode(pos, heading, interior, false);
+	}
+
+	public static Vec3 entryNode(BlockPos pos, Vec3 heading, boolean interior, boolean sloped) {
 		Vec3 centre = Vec3.atBottomCenterOf(pos);
-		return usesCentreNode(heading, interior) ? centre : centre.subtract(forwardOffset(heading));
+		return usesCentreNode(heading, interior, sloped) ? centre : centre.subtract(forwardOffset(heading));
 	}
 
 	/** Where {@link #exitNode} would fall for an anchor at {@code pos} pointed along {@code heading}. */
 	public static Vec3 exitNode(BlockPos pos, Vec3 heading, boolean interior) {
+		return exitNode(pos, heading, interior, false);
+	}
+
+	public static Vec3 exitNode(BlockPos pos, Vec3 heading, boolean interior, boolean sloped) {
 		Vec3 centre = Vec3.atBottomCenterOf(pos);
-		return usesCentreNode(heading, interior) ? centre : centre.add(forwardOffset(heading));
+		return usesCentreNode(heading, interior, sloped) ? centre : centre.add(forwardOffset(heading));
 	}
 
 	/**
@@ -767,12 +831,12 @@ public class AngledTrackAnchorBlockEntity extends BlockEntity {
 	 * puts its nodes and sharing one is what lets the two dock.
 	 */
 	public Vec3 entryNode() {
-		return entryNode(worldPosition, heading(), isInterior());
+		return entryNode(worldPosition, heading(), isInterior(), slope != 0);
 	}
 
 	/** The node the curve to {@link #next} leaves from. The block's centre when interior. */
 	public Vec3 exitNode() {
-		return exitNode(worldPosition, heading(), isInterior());
+		return exitNode(worldPosition, heading(), isInterior(), slope != 0);
 	}
 
 	/**
@@ -830,7 +894,8 @@ public class AngledTrackAnchorBlockEntity extends BlockEntity {
 			// Both tangents point into the curve: ours forwards along the route, the far end's
 			// backwards along it. Create's determineHandles negates the second before measuring
 			// the turn, so a tangent pointing out of the curve there puts a cusp in the bezier.
-			Couple.create(heading(), ahead.heading()
+			// Each carries its anchor's climb, which Create reads only for where the handles point.
+			Couple.create(tangent(), ahead.tangent()
 				.scale(-1)),
 			Couple.create(up, up), true, false, TrackMaterial.ANDESITE);
 	}
@@ -916,6 +981,8 @@ public class AngledTrackAnchorBlockEntity extends BlockEntity {
 		long key = next == null ? 0L : next.asLong();
 		key = key * 31 + Float.floatToIntBits(yaw);
 		key = key * 31 + Float.floatToIntBits(ahead == null ? 0.0F : ahead.yaw);
+		key = key * 31 + Float.floatToIntBits(slope);
+		key = key * 31 + Float.floatToIntBits(ahead == null ? 0.0F : ahead.slope);
 		return key;
 	}
 
@@ -1000,6 +1067,8 @@ public class AngledTrackAnchorBlockEntity extends BlockEntity {
 	protected void saveAdditional(CompoundTag tag, HolderLookup.Provider registries) {
 		super.saveAdditional(tag, registries);
 		tag.putFloat(TAG_YAW, yaw);
+		if (slope != 0)
+			tag.putFloat(TAG_SLOPE, slope);
 		if (flipped)
 			tag.putBoolean(TAG_AXIS_FLIPPED, true);
 		if (prev != null)
@@ -1012,6 +1081,7 @@ public class AngledTrackAnchorBlockEntity extends BlockEntity {
 	protected void loadAdditional(CompoundTag tag, HolderLookup.Provider registries) {
 		super.loadAdditional(tag, registries);
 		yaw = tag.getFloat(TAG_YAW);
+		slope = tag.getFloat(TAG_SLOPE);
 		prev = tag.contains(TAG_PREV) ? BlockPos.of(tag.getLong(TAG_PREV)) : null;
 		next = tag.contains(TAG_NEXT) ? BlockPos.of(tag.getLong(TAG_NEXT)) : null;
 		flipped = tag.getBoolean(TAG_AXIS_FLIPPED);

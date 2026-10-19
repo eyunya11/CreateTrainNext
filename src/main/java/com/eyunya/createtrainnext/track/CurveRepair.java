@@ -187,10 +187,20 @@ public final class CurveRepair {
 		if (junction == null)
 			return Outcome.left(link, "uneven");
 
+		// The two ends keep whatever climb they have. The anchor between the arcs climbs at the slope of
+		// the whole link, as the planner gives one when it splits a curve, so a link between two
+		// heights is two arcs on the same grade rather than a flat spot where they meet.
+		double run = CurvePlanner.flat(junction.point()
+			.subtract(startPoint))
+			.length()
+			+ CurvePlanner.flat(endPoint.subtract(junction.point()))
+				.length();
+		double junctionSlope = (float) ((endPoint.y - startPoint.y) / run);
+
 		BezierConnection first = CurvePlanner.curveBetween(from.getBlockPos(), junction.pos(), startPoint,
-			junction.point(), startHeading, junction.heading());
+			junction.point(), startHeading, junction.heading(), from.getSlope(), junctionSlope);
 		BezierConnection second = CurvePlanner.curveBetween(junction.pos(), toPos, junction.point(), endPoint,
-			junction.heading(), endHeading);
+			junction.heading(), endHeading, junctionSlope, to.getSlope());
 
 		// Each arc against the track already on the far side of the anchor it starts or ends at. An
 		// anchor with a curve on both sides is asked about the one that is staying: the link being
@@ -222,7 +232,7 @@ public final class CurveRepair {
 			return Outcome.left(link, "no_room");
 		}
 
-		from.linkTo(middle, null, junction.heading());
+		from.linkTo(middle, null, AngledTrackAnchorBlockEntity.tangentOf(junction.heading(), junctionSlope));
 		middle.linkTo(to, null, null);
 		return new Outcome(link, null, junction.pos(), moved);
 	}

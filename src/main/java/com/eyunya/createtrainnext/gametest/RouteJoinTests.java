@@ -236,10 +236,10 @@ public class RouteJoinTests {
 			"setup: the join should turn the far route round: " + plan.error());
 
 		CurvePlanner.Endpoint nowhere = new CurvePlanner.Endpoint(null,
-			new BlockPos(0, level.getMaxBuildHeight() + 8, 0), true, null, false, false, CurvePlanner.Side.EITHER);
+			new BlockPos(0, level.getMaxBuildHeight() + 8, 0), true, null, false, false, CurvePlanner.Side.EITHER, 0.0);
 		CurvePlanner.Plan doomed = new CurvePlanner.Plan(null, nowhere, plan.end(), plan.startHeading(),
 			plan.endHeading(), plan.curve(), plan.adjustable(), plan.turnDegrees(), plan.forward(),
-			plan.reverseEnd(), null, null);
+			plan.reverseEnd(), null, null, 0, 0, 0);
 
 		String failure = CurvePlanner.apply(level, doomed);
 		helper.assertTrue("no_room".equals(failure), "the join should be refused as no_room, not " + failure);
