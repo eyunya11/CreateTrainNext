@@ -195,10 +195,22 @@ def constant(file, name, kind=r"[\d.]+"):
 
 
 planner, preview, repair = "track/CurvePlanner.java", "client/CurveWandPreview.java", "track/CurveRepair.java"
+commands_file = "CTNCommands.java"
 survey, speed = "track/SurveyMarkerBlockEntity.java", "speed/SpeedLimitEdgePoint.java"
+grade = "track/GradeSpec.java"
 tick_rate = constant("signal/MultiAspectSignalBlockEntity.java", "ASPECT_TICK_RATE")
-steep = re.search(r"Math\.max\(ascend \* (\d+), (\d+)\)", read(JAVA / planner))
 joint = constant(planner, "MIN_JOINT_DOT")
+
+# The limit on a climb is a setting, so what the READMEs say about it is checked against the setting's
+# default, and a miss is reported. The rule about the height difference that was checked here before was
+# found by a pattern, and once the code dropped it the pattern came back empty without a word, so the
+# READMEs went on quoting a rule that no longer existed.
+snap_angle = config.get("curves.snapAngle")
+if snap_angle is None:
+    fail("cannot find curves.snapAngle in CTNConfig")
+max_grade = config.get("curves.maxGrade")
+if max_grade is None:
+    fail("cannot find curves.maxGrade in CTNConfig")
 
 # (what, [expected values], English pattern, Japanese pattern); every group must match in order.
 facts = [
@@ -214,7 +226,9 @@ facts = [
      r"([\d.]+) degrees per notch, (\d+) while the sprint key is held, up to ±(\d+)",
      r"1目盛り([\d.]+)度、ダッシュキーを押している間は(\d+)度で、最大±(\d+)度"),
     ("links mended per run", [constant(repair, "MAX_PER_RUN")],
-     r"up to (\d+) per run", r"1回に最大(\d+)本"),
+     r"as two arcs, up to (\d+) per run", r"2本の円弧に直します。1回に最大(\d+)本"),
+    ("links rebuilt per run", [constant(commands_file, "MAX_REBUILDS_PER_RUN")],
+     r"A link that works is not touched\. Up to (\d+) per run", r"働いているリンクは変えません。1回に最大(\d+)本"),
     ("survey marker length", [constant(survey, "MIN_LENGTH"), constant(survey, "MAX_LENGTH"), constant(survey, "DEFAULT_LENGTH")],
      r"The length is (\d+) to (\d+) blocks, (\d+) by default", r"長さは(\d+)から(\d+)ブロックで、初期値は(\d+)です"),
     ("survey marker bearing", [constant(survey, "MIN_BEARING"), constant(survey, "MAX_BEARING")],
@@ -223,10 +237,19 @@ facts = [
      r"from (\d+) to (\d+), (\d+) by default", r"(\d+)から(\d+)の範囲で制限速度を設定します。初期値は(\d+)で"),
     ("lamp refresh", [tick_rate / 20 if tick_rate else None],
      r"refresh about every ([\d.]+) seconds", r"約([\d.]+)秒ごとに更新"),
-    ("climb", [float(steep.group(1)) if steep else None, float(steep.group(2)) if steep else None],
-     r"at least (\w+) times the height difference, and at least (\d+) blocks", r"高低差の(\d+)倍（最低(\d+)ブロック）"),
+    ("grade step", [constant(grade, "STEP")],
+     r"(\d+) permille per notch", r"1目盛り(\d+)‰"),
+    ("steepest grade", [float(max_grade[0]) if max_grade else None],
+     r"(\d+) permille by default", r"初期値は(\d+)‰"),
+    ("one block in three", [round(1000 / 3)],
+     r"(\d+) is one block of rise in three blocks of run", r"(\d+)は、水平3ブロックで1ブロック上がる勾配です"),
+    ("angle grid window", [constant(planner, "SNAP_WINDOW") * float(snap_angle[0]) if snap_angle and constant(planner, "SNAP_WINDOW") else None],
+     r"which is ([\d.]+) degrees for 15", r"15度なら([\d.]+)度です"),
+    ("angle grid search", [constant(planner, "SNAP_SEARCH")],
+     r"a block up to (\d+) blocks from the one you aim at", r"狙ったブロックから(\d+)ブロック以内に"),
+    ("distance laid for a grade", [constant(planner, "STRAIGHT_LENGTH_TOLERANCE")],
+     r"within ([\d.]+) blocks of the distance", r"指定した距離との差は([\d.]+)ブロック以内"),
 ]
-WORDS = {"two": 2, "three": 3, "four": 4, "five": 5}
 
 for what, expected, en, ja in facts:
     if None in expected:
@@ -240,7 +263,6 @@ for what, expected, en, ja in facts:
             continue
         for match in found:
             values = match if isinstance(match, tuple) else (match,)
-            values = tuple(WORDS.get(v, v) for v in values)
             if not all(same_number(v, e) for v, e in zip(values, expected)):
                 fail("%s: the %s is %s in the code but %s here" % (READMES[lang].name, what, expected, list(values)))
 

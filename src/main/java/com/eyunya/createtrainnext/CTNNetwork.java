@@ -1,6 +1,8 @@
 package com.eyunya.createtrainnext;
 
+import com.eyunya.createtrainnext.track.ApplyGradePacket;
 import com.eyunya.createtrainnext.track.SetCurveAnglePacket;
+import com.eyunya.createtrainnext.track.SetCurveGradePacket;
 import com.eyunya.createtrainnext.track.SetSurveyMarkerPacket;
 
 import net.neoforged.bus.api.IEventBus;
@@ -22,7 +24,7 @@ public class CTNNetwork {
 	 * <p>Clients whose version does not match are refused, which is the point — the alternative is
 	 * a client that connects and then misreads every packet it is sent.
 	 */
-	private static final String VERSION = "1";
+	private static final String VERSION = "2";
 
 	public static void init(IEventBus modEventBus) {
 		modEventBus.addListener(CTNNetwork::register);
@@ -32,6 +34,9 @@ public class CTNNetwork {
 		PayloadRegistrar registrar = event.registrar(VERSION);
 		registrar.playToServer(SetCurveAnglePacket.TYPE, SetCurveAnglePacket.STREAM_CODEC,
 			SetCurveAnglePacket::handle);
+		registrar.playToServer(SetCurveGradePacket.TYPE, SetCurveGradePacket.STREAM_CODEC,
+			SetCurveGradePacket::handle);
+		registrar.playToServer(ApplyGradePacket.TYPE, ApplyGradePacket.STREAM_CODEC, ApplyGradePacket::handle);
 		registrar.playToServer(SetSurveyMarkerPacket.TYPE, SetSurveyMarkerPacket.STREAM_CODEC,
 			SetSurveyMarkerPacket::handle);
 	}

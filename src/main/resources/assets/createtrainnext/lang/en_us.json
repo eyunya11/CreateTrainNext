@@ -25,12 +25,21 @@
   "createtrainnext.survey_marker.apply": "Apply",
   "createtrainnext.survey_marker.hint": "Lay the line with the Curve Wand",
   "createtrainnext.survey_marker.bearing": "Bearing",
+  "createtrainnext.survey_marker.grade": "Grade (‰)",
+  "createtrainnext.grade_screen.title": "Lay at a Grade",
+  "createtrainnext.grade_screen.grade": "Grade (‰)",
+  "createtrainnext.grade_screen.distance": "Distance (blocks)",
+  "createtrainnext.grade_screen.apply": "Apply",
+  "createtrainnext.grade_screen.hint": "Limit ±%s‰. Leave the distance empty to set only the grade",
   "message.createtrainnext.survey.ready": "Ready — bearing %s°, %s blocks",
   "message.createtrainnext.survey.laid": "Line laid — bearing %s°, %s blocks",
+  "message.createtrainnext.survey.laid_climbing": "Line laid — bearing %s°, %s blocks, grade %s‰, height %s",
 
   "item.createtrainnext.curve_wand": "Curve Wand",
   "tooltip.createtrainnext.curve_wand.start": "Right click track, then where it should go",
   "tooltip.createtrainnext.curve_wand.adjust": "Sneak + scroll to turn the far end by hand",
+  "tooltip.createtrainnext.curve_wand.grade": "Sprint + scroll to lay the route at a grade",
+  "tooltip.createtrainnext.curve_wand.grade_screen": "In grade mode, sneak + right click the air to type a grade and a distance",
   "tooltip.createtrainnext.curve_wand.split": "Sneak + right click a curve to put a point on it",
   "tooltip.createtrainnext.curve_wand.cancel": "Sneak + right click to cancel, or to unlink an anchor",
 
@@ -56,6 +65,9 @@
   "message.createtrainnext.wand.split_done": "Point added. Signals and stations can go on it.",
   "message.createtrainnext.wand.cleared": "Selection cleared.",
   "message.createtrainnext.wand.angle_reset": "Angle back to the arc.",
+  "message.createtrainnext.wand.grade_set": "Grade set to %s‰.",
+  "message.createtrainnext.wand.grade_off": "Grade mode off.",
+  "message.createtrainnext.wand.laid": "Laid at %s‰ · %s blocks along the ground · height %s.",
   "message.createtrainnext.wand.unlinked": "Took this anchor's curves apart.",
 
   "message.createtrainnext.wand.invalid_start": "The track this curve started from is gone.",
@@ -73,5 +85,12 @@
   "message.createtrainnext.wand.too_far": "Too far.",
   "message.createtrainnext.wand.too_sharp": "Too sharp for a train to take.",
   "message.createtrainnext.wand.too_steep": "Too steep — go further out, or come down less.",
-  "message.createtrainnext.wand.doubles_back": "The curve would double back on itself."
+  "message.createtrainnext.wand.too_steep_by": "Too steep — %s‰ at its steepest, and the limit is %s‰. Go further out, or come down less.",
+  "message.createtrainnext.wand.doubles_back": "The curve would double back on itself.",
+
+  "message.createtrainnext.grade.level": " · level",
+  "message.createtrainnext.grade.climb": "Grade %s‰ (1 in %s) · horizontal %s blocks · height %s",
+  "message.createtrainnext.grade.mode": "Grade mode · set %s‰ → actual %s‰ at the far end",
+  "message.createtrainnext.grade.mode_set": "Grade mode · set %s‰",
+  "message.createtrainnext.grade.mode_fixed": "Grade mode · set %s‰ — the far end already has a height, so this curve is drawn as usual"
 }

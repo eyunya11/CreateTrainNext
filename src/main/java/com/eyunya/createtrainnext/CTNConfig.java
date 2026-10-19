@@ -35,6 +35,10 @@ public class CTNConfig {
 
 		public final ModConfigSpec.BooleanValue curveCollision;
 
+		public final ModConfigSpec.IntValue maxGrade;
+
+		public final ModConfigSpec.IntValue snapAngle;
+
 		private Server(ModConfigSpec.Builder builder) {
 			builder.comment("Free angle curves")
 				.push("curves");
@@ -51,6 +55,24 @@ public class CTNConfig {
 					"building over one simply takes it out. Turning this off stops new ones being",
 					"placed; the ones already down expire on their own within a few minutes.")
 				.define("collision", true);
+
+			maxGrade = builder
+				.comment("The steepest a curve may climb, in permille: metres of rise per thousand metres of run.",
+					"It is measured along the curve at its steepest point, so a gentle slope that has to",
+					"steepen to meet the track at either end is held to the steepest part of it, and the",
+					"number is rounded to a whole permille, which is the figure the wand shows.",
+					"333 is one block of rise in three of run, which is as steep as this mod has always",
+					"let a curve climb.")
+				.defineInRange("maxGrade", 333, 10, 1000);
+
+			snapAngle = builder
+				.comment("The step, in degrees, of the angles the wand prefers for the free end of a curve.",
+					"Compass angles that are a multiple of it - 0, 15, 30, 45 and so on for 15 - win over",
+					"the angle the aimed block would give, when that is within a quarter of the step of one.",
+					"The block aimed at is moved up to two blocks if that makes the angle exact, and the",
+					"angle is turned to it if not. A step that divides 45 keeps 45 and 90 degrees among them.",
+					"0 turns it off, and the curve takes whatever angle the aimed block gives.")
+				.defineInRange("snapAngle", 15, 0, 45);
 
 			builder.pop();
 		}

@@ -8,6 +8,7 @@ import java.util.Map;
 
 import org.jetbrains.annotations.Nullable;
 
+import com.eyunya.createtrainnext.CTNConfig;
 import com.eyunya.createtrainnext.CTNRegistry;
 import com.simibubi.create.content.trains.track.BezierConnection;
 import com.simibubi.create.content.trains.track.ITrackBlock;
@@ -147,6 +148,38 @@ public final class CurvePlanner {
 
 	private static final int ORIENTATION_SAMPLES = 120;
 
+	/** {@code curves.maxGrade} where the config cannot be read, in permille. One block of rise in three of run. */
+	static final int DEFAULT_MAX_GRADE = 333;
+
+	/** {@code curves.snapAngle} where the config cannot be read, in degrees. */
+	static final int DEFAULT_SNAP_ANGLE = 15;
+
+	/**
+	 * How near to an angle on the grid a heading has to be for the grid to win, as a fraction of the step:
+	 * a quarter either side, so that half of all headings are drawn to one and the other half are left as
+	 * they are, and the hand-turning notches of two and a half degrees stop on each angle three times.
+	 */
+	private static final double SNAP_WINDOW = 0.25;
+
+	/** A heading this near to an angle on the grid is on it, in degrees. */
+	private static final double SNAP_EXACT = 1.0E-6;
+
+	/**
+	 * How many blocks either way an aimed block may be moved to make its curve arrive at an angle on the
+	 * grid exactly. Far enough to cover the window at the longest span, not so far that the curve ends
+	 * somewhere the player was not looking.
+	 */
+	private static final int SNAP_SEARCH = 2;
+
+	/** The least climb an end that is meant to climb is given: about a hundredth of a permille. */
+	private static final double MIN_SLOPE = 1.0E-5;
+
+	/** How many steps along a curve its steepest point is looked for in. */
+	private static final int GRADE_SAMPLES = 48;
+
+	/** How many steps a curve is measured in, to be told how long it is seen from above. */
+	private static final int LENGTH_SAMPLES = 96;
+
 	private CurvePlanner() {}
 
 	// --------------------------------------------------------------- results
@@ -165,12 +198,25 @@ public final class CurvePlanner {
 	 * @param docked       whether this end shares its node with a piece of Create's own track, which
 	 *                     is a thing the route must not later be extended through.
 	 * @param side         which of the anchor's two sides this curve may attach to.
+	 * @param fixedSlope   the climb this end is obliged to have, in the direction the curve travels,
+	 *                     where {@code fixedHeading} is set: zero for Create's flat track. Not read
+	 *                     where the end is free.
 	 */
 	public record Endpoint(@Nullable String error, BlockPos anchorPos, boolean mustPlace,
-		@Nullable Vec3 fixedHeading, boolean interior, boolean docked, Side side) {
+		@Nullable Vec3 fixedHeading, boolean interior, boolean docked, Side side, double fixedSlope) {
 
 		static Endpoint failed(String error) {
-			return new Endpoint(error, BlockPos.ZERO, false, null, false, false, Side.EITHER);
+			return new Endpoint(error, BlockPos.ZERO, false, null, false, false, Side.EITHER, 0.0);
+		}
+
+		/** This end moved to another height in the same column, for a grade to choose where it goes. */
+		Endpoint atHeight(int y) {
+			return new Endpoint(error, anchorPos.atY(y), mustPlace, fixedHeading, interior, docked, side, fixedSlope);
+		}
+
+		/** This end moved to another block at the same height, for an angle to choose where it goes. */
+		Endpoint movedTo(BlockPos pos) {
+			return new Endpoint(error, pos, mustPlace, fixedHeading, interior, docked, side, fixedSlope);
 		}
 
 		/** Whether this end's heading has to be written to the anchor when the curve is built. */
@@ -194,19 +240,29 @@ public final class CurvePlanner {
 	 * way round, so it is not built as one curve: {@link #junction} is where an anchor goes to make
 	 * it two circular arcs, {@link #curve} is then the first of them and {@link #secondCurve} the
 	 * second. See {@link Biarc}.
+	 *
+	 * <p>The headings are horizontal. How steeply the route climbs at each end is {@link #startSlope}
+	 * and {@link #endSlope}, in the direction the curve was drawn, and {@link #junctionSlope} is the
+	 * same at the anchor between two arcs.
+	 *
+	 * <p>{@link #grade} is the grade the curve was laid at, and is null for a curve that was not: either
+	 * grade mode was off, or the far end was something that already has a height — an anchor, or Create's
+	 * track — and the curve was worked out the way it is without the mode. When it is set, the far end
+	 * of {@link #end} has been moved to the height the grade gives it.
 	 */
 	public record Plan(@Nullable String error, @Nullable Endpoint start, @Nullable Endpoint end,
 		@Nullable Vec3 startHeading, @Nullable Vec3 endHeading, @Nullable BezierConnection curve,
 		boolean adjustable, double turnDegrees, boolean forward, boolean reverseEnd,
-		@Nullable Biarc.Junction junction, @Nullable BezierConnection secondCurve) {
+		@Nullable Biarc.Junction junction, @Nullable BezierConnection secondCurve, double startSlope,
+		double endSlope, double junctionSlope, @Nullable GradeSpec grade) {
 
 		static Plan failed(String error) {
-			return new Plan(error, null, null, null, null, null, false, 0, true, false, null, null);
+			return new Plan(error, null, null, null, null, null, false, 0, true, false, null, null, 0, 0, 0, null);
 		}
 
 		Plan withError(String newError) {
 			return new Plan(newError, start, end, startHeading, endHeading, curve, adjustable, turnDegrees,
-				forward, reverseEnd, junction, secondCurve);
+				forward, reverseEnd, junction, secondCurve, startSlope, endSlope, junctionSlope, grade);
 		}
 
 		public boolean valid() {
@@ -225,6 +281,37 @@ public final class CurvePlanner {
 			for (BezierConnection each : curves())
 				length += each.getLength();
 			return length;
+		}
+
+		/**
+		 * How far the link goes up from its first node to its last, in blocks; minus for a descent. Whole
+		 * blocks, because a node is at the height of its block.
+		 */
+		public double rise() {
+			if (curve == null)
+				return 0;
+			BezierConnection last = secondCurve != null ? secondCurve : curve;
+			return last.starts.getSecond().y - curve.starts.getFirst().y;
+		}
+
+		/** How far the link goes along the ground: the length of its curves seen from above. */
+		public double horizontalLength() {
+			double length = 0;
+			for (BezierConnection each : curves())
+				length += CurvePlanner.horizontalLength(each);
+			return length;
+		}
+
+		/**
+		 * The steepest the link is anywhere along it, as a fraction. This is what the limit is held to,
+		 * and it can be well over {@code rise / horizontalLength}: a curve that eases into a climb is
+		 * steeper than its average where it finishes.
+		 */
+		public double steepestGrade() {
+			double steepest = 0;
+			for (BezierConnection each : curves())
+				steepest = Math.max(steepest, maxLocalGrade(each));
+			return steepest;
 		}
 	}
 
@@ -254,12 +341,49 @@ public final class CurvePlanner {
 	}
 
 	/**
-	 * The curve that clicking {@code hitPos} would draw, given a selection made at {@code startClick}.
-	 *
-	 * @param angleOffsetDegrees the player's hand adjustment to the free end's tangent.
+	 * The slope a curve drawn from the block {@code startClick} would leave it at: that of the route
+	 * through an anchor there, in the direction the new curve would go, and nothing for anywhere else.
+	 * Create's own track is flat, and an anchor with no curve on it yet has no slope to keep.
 	 */
+	public static double startSlope(Level level, BlockPos startClick) {
+		if (!(level.getBlockEntity(startClick) instanceof AngledTrackAnchorBlockEntity anchor))
+			return 0;
+		Endpoint endpoint = fromExisting(anchor, Role.START);
+		return endpoint.error() != null || endpoint.fixedHeading() == null ? 0 : endpoint.fixedSlope();
+	}
+
+	/**
+	 * Whether a curve drawn from {@code startClick} leaves level, to the permille that is shown. This
+	 * is what decides whether asking for no grade is asking for anything: from level ground it is not,
+	 * and from a climb it is the request to level off.
+	 */
+	public static boolean startsLevel(Level level, BlockPos startClick) {
+		return GradeText.permille(startSlope(level, startClick)) == 0;
+	}
+
+	/** {@link #plan(Level, BlockPos, BlockPos, Direction, float, GradeSpec)} with no grade asked for. */
 	public static Plan plan(Level level, BlockPos startClick, BlockPos hitPos, Direction hitFace,
 		float angleOffsetDegrees) {
+		return plan(level, startClick, hitPos, hitFace, angleOffsetDegrees, null);
+	}
+
+	/**
+	 * The curve that clicking {@code hitPos} would draw, given a selection made at {@code startClick}.
+	 *
+	 * <p>With a grade, the click decides where the curve arrives on the ground and the grade decides how
+	 * high: the far end is moved to the height that lets the curve change from the climb it leaves the
+	 * start with to the grade asked for, at a steady rate along the way. For a curve whose horizontal
+	 * handles are {@code h} long, whose climb at the start is {@code s0} and which is to arrive at
+	 * {@code g}, that is a rise of {@code 1.5·h·(s0 + g)}, to a whole block because that is how high a
+	 * node can be, and so it arrives at {@code rise / (1.5·h) − s0}, which is {@code g} less what the
+	 * rounding took. Asking for no grade makes the curve arrive level instead. None of this applies
+	 * where the far end already has a height of its own, which is any end but a new anchor on open ground.
+	 *
+	 * @param angleOffsetDegrees the player's hand adjustment to the free end's tangent.
+	 * @param grade              the grade asked for, or null to take the far end at the height it was clicked.
+	 */
+	public static Plan plan(Level level, BlockPos startClick, BlockPos hitPos, Direction hitFace,
+		float angleOffsetDegrees, @Nullable GradeSpec grade) {
 
 		// Which side of a track block the curve should leave from depends on where the other end
 		// is, and the other end has the same question about this one. Block centres break the
@@ -268,14 +392,26 @@ public final class CurvePlanner {
 		Vec3 roughStart = Vec3.atBottomCenterOf(startClick);
 		Vec3 roughEnd = Vec3.atBottomCenterOf(hitPos);
 
-		Endpoint start = resolve(level, startClick, null, roughEnd, Role.START);
+		Endpoint start = resolve(level, startClick, null, roughEnd, Role.START, false);
 		if (start.error() != null)
 			return Plan.failed(start.error());
 
-		Endpoint end = resolve(level, hitPos, hitFace, roughStart, Role.END);
+		// In grade mode the height of a new anchor is not the height that was clicked, so whether there
+		// is room at that height is not the question; it is asked once the real height is known.
+		Endpoint end = resolve(level, hitPos, hitFace, roughStart, Role.END, grade != null);
 		if (end.error() != null)
 			return Plan.failed(end.error());
 
+		return connect(level, start, end, angleOffsetDegrees, grade, snapStepDegrees());
+	}
+
+	/**
+	 * The curve between two ends that have been resolved: which way round the link runs, and the
+	 * geometry. Shared by a click, which resolves the far end from the block that was aimed at, and by
+	 * a distance, which chooses it.
+	 */
+	private static Plan connect(Level level, Endpoint start, Endpoint end, float angleOffsetDegrees,
+		@Nullable GradeSpec grade, int snap) {
 		if (start.anchorPos()
 			.equals(end.anchorPos()))
 			return Plan.failed("same_anchor");
@@ -312,7 +448,114 @@ public final class CurvePlanner {
 			forward = start.side() == Side.NEXT;
 		}
 
-		return solve(level, start, end, angleOffsetDegrees, forward, reverseEnd);
+		Endpoint aimed = end;
+		if (snap > 0 && Math.abs(angleOffsetDegrees) < 1.0E-4)
+			end = snappedTarget(level, start, end, grade, snap);
+
+		Plan plan = roomAtEnd(level, solve(level, start, end, angleOffsetDegrees, forward, reverseEnd, grade, snap));
+
+		// The grid is a preference. A curve it makes impossible — a turn it makes too sharp, an anchor it has
+		// nowhere to put — is not worth an angle, so the curve is the one the aimed block gives, whether that
+		// is any better or not: the preview should say what pointing there does, not what the grid wished.
+		if (snap > 0 && !plan.valid())
+			return roomAtEnd(level, solve(level, start, aimed, angleOffsetDegrees, forward, reverseEnd, grade, 0));
+		return plan;
+	}
+
+	/**
+	 * A plan whose far end was put at a height of the grade's choosing, refused if there is no room for
+	 * an anchor at that height. The ghost still draws the curve in red, which shows where the block that
+	 * is in the way is.
+	 */
+	private static Plan roomAtEnd(Level level, Plan plan) {
+		if (!plan.valid() || plan.grade() == null)
+			return plan;
+
+		BlockPos pos = plan.end()
+			.anchorPos();
+		boolean room = !level.isOutsideBuildHeight(pos) && level.isLoaded(pos) && level.getBlockState(pos)
+			.canBeReplaced() && !(level.getBlockEntity(pos) instanceof AngledTrackAnchorBlockEntity);
+		return room ? plan : plan.withError("no_room");
+	}
+
+	/**
+	 * The curve that leaves the block {@code startClick} straight ahead and runs {@code horizontalLength}
+	 * along the ground at a grade, for when the place it should go is a distance and not a block that
+	 * can be aimed at.
+	 *
+	 * <p>Ahead is the way the route already runs there: out of the side of an anchor that is free, or
+	 * away from a piece of Create's track on whichever of its two sides {@code look} faces. An anchor
+	 * that is on no route yet can be left either way, and goes the way it points or the other, whichever
+	 * {@code look} is nearer to.
+	 *
+	 * <p>The far end is a block, and the one nearest the line ahead whose distance is within a block and
+	 * a half of the one asked for, the way {@link #planStraight} chooses; the curve to it is then worked
+	 * out as any other. So it is straight to within the width of a block, and a little over or under the
+	 * length asked for, which is said when it is laid.
+	 *
+	 * @param look which way the player faces, horizontally; used only where the start does not decide.
+	 */
+	public static Plan planByDistance(Level level, BlockPos startClick, GradeSpec grade, double horizontalLength,
+		Vec3 look) {
+		if (horizontalLength < MIN_SPAN + 1)
+			return Plan.failed("too_close");
+		if (horizontalLength > AllConfigs.server().trains.maxTrackPlacementLength.get())
+			return Plan.failed("too_far");
+
+		Vec3 facing = flatUnit(look);
+		Endpoint start = resolve(level, startClick, null, Vec3.atBottomCenterOf(startClick)
+			.add(facing.scale(8)), Role.START, false);
+		if (start.error() != null)
+			return Plan.failed(start.error());
+
+		Vec3 ahead;
+		if (start.fixedHeading() != null) {
+			ahead = flatUnit(start.fixedHeading());
+		} else if (level.getBlockEntity(start.anchorPos()) instanceof AngledTrackAnchorBlockEntity anchor) {
+			Vec3 pointing = flatUnit(anchor.heading());
+			ahead = pointing.dot(facing) >= 0 ? pointing : pointing.scale(-1);
+		} else {
+			return Plan.failed("invalid_start");
+		}
+
+		// Where the line ahead leaves the start's node, which is the block's centre if it climbs and is
+		// on a route, and its boundary otherwise; the climb is not known yet, so a start that has none of
+		// its own is taken to be climbing.
+		boolean climbs = start.fixedHeading() == null || start.fixedSlope() != 0;
+		Vec3 from = AngledTrackAnchorBlockEntity.exitNode(start.anchorPos(), ahead, start.interior(), climbs);
+		BlockPos around = BlockPos.containing(from.add(ahead.scale(horizontalLength)));
+
+		BlockPos best = null;
+		double bestScore = Double.MAX_VALUE;
+		for (int x = -STRAIGHT_SEARCH; x <= STRAIGHT_SEARCH; x++) {
+			for (int z = -STRAIGHT_SEARCH; z <= STRAIGHT_SEARCH; z++) {
+				BlockPos candidate = new BlockPos(around.getX() + x, start.anchorPos()
+					.getY(), around.getZ() + z);
+				if (candidate.equals(start.anchorPos()) || !level.isLoaded(candidate))
+					continue;
+
+				Vec3 reach = flat(Vec3.atBottomCenterOf(candidate)
+					.subtract(from));
+				double along = reach.dot(ahead);
+				if (along < MIN_SPAN || Math.abs(along - horizontalLength) > STRAIGHT_LENGTH_TOLERANCE)
+					continue;
+
+				double sideways = reach.subtract(ahead.scale(along))
+					.length();
+				double score = sideways + 0.02 * Math.abs(along - horizontalLength);
+				if (score < bestScore) {
+					bestScore = score;
+					best = candidate;
+				}
+			}
+		}
+		if (best == null)
+			return Plan.failed("no_room");
+
+		// Open ground, at the start's height: the grade moves it to the height it gives.
+		// Straight ahead is the way the route runs, which the angle grid has no business bending, so none.
+		Endpoint end = new Endpoint(null, best, true, null, false, false, Side.EITHER, 0.0);
+		return connect(level, start, end, 0.0F, grade, 0);
 	}
 
 	/**
@@ -358,12 +601,12 @@ public final class CurvePlanner {
 		// heading it already had, which is what leaves the curve on its other side undisturbed.
 		AngledTrackAnchorBlockEntity from = plan.forward() ? startAnchor : endAnchor;
 		AngledTrackAnchorBlockEntity to = plan.forward() ? endAnchor : startAnchor;
-		Vec3 fromHeading = plan.forward() ? plan.startHeading()
-			: plan.endHeading()
-				.scale(-1);
-		Vec3 toHeading = plan.forward() ? plan.endHeading()
-			: plan.startHeading()
-				.scale(-1);
+		// The climb goes with the heading, as the y of the vector. Turning a vector round turns the
+		// climb round with it, so an anchor continued backwards gets the slope it had.
+		Vec3 startAim = AngledTrackAnchorBlockEntity.tangentOf(plan.startHeading(), plan.startSlope());
+		Vec3 endAim = AngledTrackAnchorBlockEntity.tangentOf(plan.endHeading(), plan.endSlope());
+		Vec3 fromHeading = plan.forward() ? startAim : endAim.scale(-1);
+		Vec3 toHeading = plan.forward() ? endAim : startAim.scale(-1);
 		Endpoint fromEnd = plan.forward() ? plan.start() : plan.end();
 		Endpoint toEnd = plan.forward() ? plan.end() : plan.start();
 
@@ -384,8 +627,8 @@ public final class CurvePlanner {
 		// Two arcs, and an anchor where they meet. It points the way the route runs there, which is
 		// the junction's heading when the link runs the way the curve was drawn and its opposite when
 		// it runs the other way, like the two ends'.
-		Vec3 middleHeading = plan.forward() ? junction.heading() : junction.heading()
-			.scale(-1);
+		Vec3 middleAim = AngledTrackAnchorBlockEntity.tangentOf(junction.heading(), plan.junctionSlope());
+		Vec3 middleHeading = plan.forward() ? middleAim : middleAim.scale(-1);
 		placeAnchor(level, junction.pos(), middleHeading);
 		placed.add(junction.pos());
 		if (!(level.getBlockEntity(junction.pos()) instanceof AngledTrackAnchorBlockEntity middle))
@@ -459,8 +702,11 @@ public final class CurvePlanner {
 	 *                ground. Null for the stored selection, whose face was not kept.
 	 * @param towards roughly where the other end of the curve is, which decides which side of a
 	 *                track block to work from.
+	 * @param heightFree whether a new anchor on open ground is going to be moved to a height of the
+	 *                grade's choosing, so that whether the block clicked is empty says nothing about it.
 	 */
-	private static Endpoint resolve(Level level, BlockPos hitPos, @Nullable Direction face, Vec3 towards, Role role) {
+	private static Endpoint resolve(Level level, BlockPos hitPos, @Nullable Direction face, Vec3 towards, Role role,
+		boolean heightFree) {
 		// An anchor was clicked outright.
 		if (level.getBlockEntity(hitPos) instanceof AngledTrackAnchorBlockEntity anchor)
 			return fromExisting(anchor, role);
@@ -495,7 +741,7 @@ public final class CurvePlanner {
 			// Headings always point downstream, so a route leaving a track points away from it and
 			// one arriving points into it. Both put the anchor's shared node on the track's side.
 			Vec3 heading = (role == Role.START ? side : side.scale(-1)).normalize();
-			return new Endpoint(null, anchorPos, true, heading, false, true, Side.EITHER);
+			return new Endpoint(null, anchorPos, true, heading, false, true, Side.EITHER, 0.0);
 		}
 
 		// Open ground: the anchor goes where a block would have gone. Only ever the far end of a
@@ -508,11 +754,11 @@ public final class CurvePlanner {
 		BlockPos placePos = state.canBeReplaced() ? hitPos : hitPos.relative(face == null ? Direction.UP : face);
 		if (level.getBlockEntity(placePos) instanceof AngledTrackAnchorBlockEntity existing)
 			return fromExisting(existing, role);
-		if (!level.getBlockState(placePos)
+		if (!heightFree && !level.getBlockState(placePos)
 			.canBeReplaced())
 			return Endpoint.failed("no_room");
 
-		return new Endpoint(null, placePos, true, null, false, false, Side.EITHER);
+		return new Endpoint(null, placePos, true, null, false, false, Side.EITHER, 0.0);
 	}
 
 	/**
@@ -536,28 +782,114 @@ public final class CurvePlanner {
 		// whether that is forwards or backwards is decided by which side was left free rather than
 		// by which of the two clicks landed here first.
 		Vec3 outward = side == Side.EITHER ? null
-			: side == Side.NEXT ? anchor.heading()
-				: anchor.heading()
+			: side == Side.NEXT ? anchor.tangent()
+				: anchor.tangent()
 					.scale(-1);
 
 		// solve() wants the curve's own direction of travel at each end: leaving it at the start,
 		// carrying on past it at the end. Those are opposite ways round from "outward".
 		Vec3 fixed = outward == null ? null : role == Role.START ? outward : outward.scale(-1);
 
-		return new Endpoint(null, anchor.getBlockPos(), false, fixed, anchor.isLinked(), false, side);
+		// The climb is read off the same vector, so it turns round with the heading: an anchor whose
+		// route climbs, continued backwards out of its first anchor, is a descent for the new curve.
+		return new Endpoint(null, anchor.getBlockPos(), false, fixed == null ? null : flatUnit(fixed),
+			anchor.isLinked(), false, side, fixed == null ? 0.0 : AngledTrackAnchorBlockEntity.slopeOf(fixed));
 	}
 
 	// ------------------------------------------------------------- geometry
 
-	private static Plan solve(Level level, Endpoint start, Endpoint end, float angleOffsetDegrees,
-		boolean forward, boolean reverseEnd) {
+	private static Plan solve(Level level, Endpoint start, Endpoint clicked, float angleOffsetDegrees,
+		boolean forward, boolean reverseEnd, @Nullable GradeSpec grade, int snap) {
 		Vec3 fixedStart = start.fixedHeading() == null ? null : flatUnit(start.fixedHeading());
-		Vec3 fixedEnd = end.fixedHeading() == null ? null : flatUnit(end.fixedHeading());
+		Vec3 fixedEnd = clicked.fixedHeading() == null ? null : flatUnit(clicked.fixedHeading());
 
+		// The climb each end is obliged to have, where something already decides it: an anchor with a
+		// route through it, or Create's flat track, which has none. A free end has nothing to answer
+		// to and is given one below, from how far the curve has to climb.
+		Double fixedStartSlope = fixedStart == null ? null : start.fixedSlope();
+		Double fixedEndSlope = fixedEnd == null ? null : clicked.fixedSlope();
+
+		// Only a new anchor on open ground has a height for the grade to choose. One that exists, or
+		// Create's own track, is where it is, and the curve to it is worked out as it always was.
+		GradeSpec laid = grade != null && clicked.mustPlace() && fixedEnd == null ? grade : null;
+
+		Endpoint end = clicked;
+		Layout layout;
+		double[] slopes;
+		if (laid == null) {
+			// Whether an end climbs decides where its anchor puts its node, at the block's centre if it
+			// does, so it has to be known before the geometry is, while how much it climbs can only be
+			// worked out from that geometry. Nodes are at the height of their block whichever of the two
+			// places they are in, so how far the curve rises is known from the blocks alone, and that is
+			// what settles it.
+			double rise = end.anchorPos()
+				.getY()
+				- start.anchorPos()
+					.getY();
+			boolean startSloped = sloped(fixedStartSlope, fixedEndSlope, rise);
+			boolean endSloped = sloped(fixedEndSlope, fixedStartSlope, rise);
+
+			layout = layout(start, end, fixedStart, fixedEnd, startSloped, endSloped, angleOffsetDegrees, snap);
+			if (layout == null)
+				return Plan.failed("too_close");
+			slopes = slopesBetween(layout.startPoint(), layout.endPoint(), layout.startHeading(), layout.endHeading(),
+				fixedStartSlope, fixedEndSlope, startSloped, endSloped);
+		} else {
+			Graded graded = gradedEnd(start, clicked, fixedStart, fixedStartSlope, laid, angleOffsetDegrees, snap);
+			if (graded == null)
+				return Plan.failed("too_close");
+			end = graded.end();
+			layout = graded.layout();
+			slopes = graded.slopes();
+		}
+
+		Vec3 startHeading = layout.startHeading();
+		Vec3 endHeading = layout.endHeading();
+		Vec3 startPoint = layout.startPoint();
+		Vec3 endPoint = layout.endPoint();
+
+		BezierConnection curve = curveBetween(start.anchorPos(), end.anchorPos(), startPoint, endPoint, startHeading,
+			endHeading, slopes[0], slopes[1]);
+
+		Plan plan = new Plan(null, start, end, startHeading, endHeading, curve, layout.adjustable(), layout.turn(),
+			forward, reverseEnd, null, null, slopes[0], slopes[1], 0, laid);
+
+		String error = validateSpan(startPoint, endPoint, startHeading, endHeading, layout.turn());
+		if (error != null)
+			return plan.withError(error);
+
+		// A curve whose tangents make unequal angles with its chord is a different shape read the
+		// other way round, so it would be drawn one way and driven another. That is what a free end
+		// avoids by being aimed at the arc, and what a fixed one — two anchors already pointing
+		// somewhere, or an end turned by hand — cannot: it is built as two arcs instead.
+		if (orientationDeviation(curve) > MAX_ORIENTATION_DEVIATION)
+			return splitPlan(level, plan, startPoint, endPoint);
+
+		error = validateCurve(level, curve, startPoint, endPoint, startHeading, endHeading, start, end);
+		return error == null ? plan : plan.withError(error);
+	}
+
+	/**
+	 * Where the nodes of a curve are and which way it leaves and arrives, once the headings and the nodes
+	 * have settled against one another and the player's turn of the free end has been put on.
+	 */
+	private record Layout(Vec3 startHeading, Vec3 endHeading, Vec3 startPoint, Vec3 endPoint, boolean adjustable,
+		double turn) {}
+
+	/**
+	 * The layout of a curve between two anchors, or null where their blocks are in one column and
+	 * there is no direction to aim in.
+	 *
+	 * @param fixedStart the heading the start is obliged to have, or null if it is free to be aimed.
+	 * @param fixedEnd   the same for the end.
+	 */
+	@Nullable
+	private static Layout layout(Endpoint start, Endpoint end, @Nullable Vec3 fixedStart, @Nullable Vec3 fixedEnd,
+		boolean startSloped, boolean endSloped, float angleOffsetDegrees, int snap) {
 		Vec3 seed = flat(Vec3.atBottomCenterOf(end.anchorPos())
 			.subtract(Vec3.atBottomCenterOf(start.anchorPos())));
 		if (seed.lengthSqr() < 1.0E-6)
-			return Plan.failed("too_close");
+			return null;
 		seed = seed.normalize();
 
 		Vec3 startHeading = fixedStart != null ? fixedStart : seed;
@@ -570,8 +902,9 @@ public final class CurvePlanner {
 		Vec3 startPoint = null;
 		Vec3 endPoint = null;
 		for (int pass = 0; pass < 3; pass++) {
-			startPoint = AngledTrackAnchorBlockEntity.exitNode(start.anchorPos(), startHeading, start.interior());
-			endPoint = AngledTrackAnchorBlockEntity.entryNode(end.anchorPos(), endHeading, end.interior());
+			startPoint = AngledTrackAnchorBlockEntity.exitNode(start.anchorPos(), startHeading, start.interior(),
+				startSloped);
+			endPoint = AngledTrackAnchorBlockEntity.entryNode(end.anchorPos(), endHeading, end.interior(), endSloped);
 
 			Vec3 chord = flat(endPoint.subtract(startPoint));
 			if (chord.lengthSqr() < 1.0E-6)
@@ -597,42 +930,125 @@ public final class CurvePlanner {
 				endHeading = rotateY(endHeading, angleOffsetDegrees);
 			else
 				startHeading = rotateY(startHeading, angleOffsetDegrees);
-			startPoint = AngledTrackAnchorBlockEntity.exitNode(start.anchorPos(), startHeading, start.interior());
-			endPoint = AngledTrackAnchorBlockEntity.entryNode(end.anchorPos(), endHeading, end.interior());
+			startPoint = AngledTrackAnchorBlockEntity.exitNode(start.anchorPos(), startHeading, start.interior(),
+				startSloped);
+			endPoint = AngledTrackAnchorBlockEntity.entryNode(end.anchorPos(), endHeading, end.interior(), endSloped);
+		}
+
+		// The angles on the grid win over the ones the aimed block and the hand gave, for the end that is free
+		// to be aimed. A start that is free as well is one that has nothing to answer to, so it is drawn
+		// to the grid too. A free start whose end is fixed is left to the arc that meets the end.
+		if (snap > 0 && fixedEnd == null) {
+			Vec3 snappedEnd = snapHeading(endHeading, snap);
+			Vec3 snappedStart = fixedStart == null ? snapHeading(startHeading, snap) : null;
+			if (snappedEnd != null || snappedStart != null) {
+				if (snappedEnd != null)
+					endHeading = snappedEnd;
+				if (snappedStart != null)
+					startHeading = snappedStart;
+				startPoint = AngledTrackAnchorBlockEntity.exitNode(start.anchorPos(), startHeading, start.interior(),
+					startSloped);
+				endPoint = AngledTrackAnchorBlockEntity.entryNode(end.anchorPos(), endHeading, end.interior(), endSloped);
+			}
 		}
 
 		double turn = Math.toDegrees(Math.acos(Mth.clamp(startHeading.dot(endHeading), -1, 1)));
+		return new Layout(startHeading, endHeading, startPoint, endPoint, adjustable, turn);
+	}
 
-		BezierConnection curve =
-			curveBetween(start.anchorPos(), end.anchorPos(), startPoint, endPoint, startHeading, endHeading);
+	/** How many times the height of a graded end is looked for again, once its nodes have moved. */
+	private static final int GRADE_PASSES = 4;
 
-		Plan plan = new Plan(null, start, end, startHeading, endHeading, curve, adjustable, turn, forward,
-			reverseEnd, null, null);
+	/** A far end put at the height its grade gives it, with the curve's layout and the slopes at its two ends. */
+	private record Graded(Endpoint end, Layout layout, double[] slopes) {}
 
-		String error = validateSpan(startPoint, endPoint, startHeading, endHeading, turn);
-		if (error != null)
-			return plan.withError(error);
+	/**
+	 * Puts the far end of a curve at the height the grade asks for, and works out how the curve climbs
+	 * at each end.
+	 *
+	 * <p>The height of a bezier is a cubic of its own, whose control points sit {@code h·slope} above or
+	 * below the two ends, {@code h} being the length of the horizontal handles. Slopes that change at a
+	 * steady rate from {@code s0} to {@code s1} are the case where the middle control points are the
+	 * average of those, and the rise is then {@code 1.5·h·(s0 + s1)}. So a curve that is to arrive at the
+	 * grade {@code g} rises {@code 1.5·h·(s0 + g)}. A node is at the height of a block, which makes that a
+	 * whole number, and it is the far end's slope that gives way: {@code s1 = rise / (1.5·h) − s0}.
+	 * What is missed is a fraction of a block of rise over the length of the curve, and not carried
+	 * on, since the next curve starts from the slope this one arrived with and aims at the grade again.
+	 *
+	 * <p>A curve asked to arrive level does, whatever that makes of the rise: it levels off, which is
+	 * what the player meant by asking, and the next curve starts from level.
+	 *
+	 * <p>The handles are as long as the curve seen from above says, which depends on where the nodes are,
+	 * which depends on whether the ends climb, which depends on the rise. So the rise is looked for
+	 * until it comes out as it went in. It does within a pass or two; where it does not, the curve is
+	 * built at the height last tried and its far slope worked out from the handles it has, so it is still
+	 * a steady change of grade, and the same one on the client and on the server.
+	 *
+	 * @param fixedStart      the heading the start is obliged to have, or null if it is free to be aimed.
+	 * @param fixedStartSlope the climb the start is obliged to have, or null if it is free. A free start is
+	 *                        taken to leave level, which is what it is: it is not on a route yet.
+	 * @return null where the ends are in one column.
+	 */
+	@Nullable
+	private static Graded gradedEnd(Endpoint start, Endpoint clicked, @Nullable Vec3 fixedStart,
+		@Nullable Double fixedStartSlope, GradeSpec grade, float angleOffsetDegrees, int snap) {
+		double s0 = fixedStartSlope == null ? 0 : fixedStartSlope;
+		double g = grade.grade();
+		int startY = start.anchorPos()
+			.getY();
 
-		// A curve whose tangents make unequal angles with its chord is a different shape read the
-		// other way round, so it would be drawn one way and driven another. That is what a free end
-		// avoids by being aimed at the arc, and what a fixed one — two anchors already pointing
-		// somewhere, or an end turned by hand — cannot: it is built as two arcs instead.
-		if (orientationDeviation(curve) > MAX_ORIENTATION_DEVIATION)
-			return splitPlan(level, plan, startPoint, endPoint);
+		int rise = 0;
+		Endpoint end = clicked;
+		Layout layout = null;
+		boolean startSloped = false;
+		boolean endSloped = false;
+		for (int pass = 0; pass < GRADE_PASSES; pass++) {
+			end = clicked.atHeight(startY + rise);
+			// A curve asked to arrive level does, whatever the rounding of its rise leaves over; any other
+			// arrives climbing unless it has neither a climb to start from nor a rise to make.
+			endSloped = g != 0 && (rise != 0 || s0 != 0);
+			startSloped = fixedStartSlope != null ? fixedStartSlope != 0 : rise != 0 || endSloped;
+			layout = layout(start, end, fixedStart, null, startSloped, endSloped, angleOffsetDegrees, snap);
+			if (layout == null)
+				return null;
 
-		error = validateCurve(level, curve, startPoint, endPoint, startHeading, endHeading, start, end);
-		return error == null ? plan : plan.withError(error);
+			int wanted = (int) Math.round(1.5 * handleOf(layout) * (s0 + g));
+			if (wanted == rise)
+				break;
+			if (pass + 1 < GRADE_PASSES)
+				rise = wanted;
+		}
+
+		double handle = handleOf(layout);
+		double endSlope = handle < 1.0E-6 ? 0 : rise / (1.5 * handle) - s0;
+		return new Graded(end, layout, new double[] { keepSloped(s0, startSloped), keepSloped(endSlope, endSloped) });
+	}
+
+	/** How long the handles of the curve a layout describes are. */
+	private static double handleOf(Layout layout) {
+		return handleLength(layout.startPoint(), layout.endPoint(), layout.startHeading(), layout.endHeading());
 	}
 
 	/**
 	 * The curve between two points as an anchor builds the one it owns. Both tangents point into the
 	 * curve: the first forwards along the route, the second backwards along it.
+	 *
+	 * <p>The headings are horizontal unit vectors and the slopes are the climb in the direction of
+	 * travel at each end. See {@link AngledTrackAnchorBlockEntity#tangentOf}.
 	 */
 	static BezierConnection curveBetween(BlockPos from, BlockPos to, Vec3 fromPoint, Vec3 toPoint,
-		Vec3 fromHeading, Vec3 toHeading) {
+		Vec3 fromHeading, Vec3 toHeading, double fromSlope, double toSlope) {
 		return new BezierConnection(Couple.create(from, to), Couple.create(fromPoint, toPoint),
-			Couple.create(fromHeading, toHeading.scale(-1)), Couple.create(UP, UP), true, false,
-			TrackMaterial.ANDESITE);
+			Couple.create(AngledTrackAnchorBlockEntity.tangentOf(fromHeading, fromSlope),
+				AngledTrackAnchorBlockEntity.tangentOf(toHeading, toSlope)
+					.scale(-1)),
+			Couple.create(UP, UP), true, false, TrackMaterial.ANDESITE);
+	}
+
+	/** The same level curve this always was: no climb at either end. */
+	static BezierConnection curveBetween(BlockPos from, BlockPos to, Vec3 fromPoint, Vec3 toPoint,
+		Vec3 fromHeading, Vec3 toHeading) {
+		return curveBetween(from, to, fromPoint, toPoint, fromHeading, toHeading, 0, 0);
 	}
 
 	/**
@@ -642,6 +1058,15 @@ public final class CurvePlanner {
 	 * Chunks that are not loaded are not searched, since asking for a block in one makes a server
 	 * load it. What the plan keeps from the single curve is its curve, when there is no junction to
 	 * be had, so that the ghost still shows where the player was aiming.
+	 *
+	 * <p>The climb is shared out as the junction's height already is, by the length of each arc: the
+	 * anchor between them climbs at the slope of the whole link, and each arc then works its own free
+	 * end out from that, the way a single curve does from a neighbour that is already there.
+	 *
+	 * <p>A link laid at a grade has both its slopes already, from the single curve it would have been:
+	 * the start's, and the one the far end arrives with. The anchor between the arcs takes a slope
+	 * between the two, by how far along the link it is, which is where the slope of a curve that changes
+	 * at a steady rate would be, and each arc then has both of its slopes given.
 	 */
 	private static Plan splitPlan(Level level, Plan single, Vec3 startPoint, Vec3 endPoint) {
 		Endpoint start = single.start();
@@ -654,12 +1079,38 @@ public final class CurvePlanner {
 		if (junction == null)
 			return single.withError("uneven");
 
+		boolean graded = single.grade() != null;
+		Double fixedStartSlope = start.fixedHeading() == null ? null : start.fixedSlope();
+		Double fixedEndSlope = end.fixedHeading() == null ? null : end.fixedSlope();
+		if (graded) {
+			fixedStartSlope = single.startSlope();
+			fixedEndSlope = single.endSlope();
+		}
+		double wholeRise = endPoint.y - startPoint.y;
+		boolean startSloped = graded ? single.startSlope() != 0 : sloped(fixedStartSlope, fixedEndSlope, wholeRise);
+		boolean endSloped = graded ? single.endSlope() != 0 : sloped(fixedEndSlope, fixedStartSlope, wholeRise);
+
+		double firstRun = flat(junction.point()
+			.subtract(startPoint)).length();
+		double secondRun = flat(endPoint.subtract(junction.point())).length();
+		double junctionSlope = (float) (graded
+			? single.startSlope() + (single.endSlope() - single.startSlope()) * firstRun / (firstRun + secondRun)
+			: wholeRise / (firstRun + secondRun));
+
+		double[] firstSlopes = solveSlopes(handleLength(startPoint, junction.point(), startHeading, junction.heading()),
+			junction.point().y - startPoint.y, fixedStartSlope, junctionSlope);
+		double[] secondSlopes = solveSlopes(handleLength(junction.point(), endPoint, junction.heading(), endHeading),
+			endPoint.y - junction.point().y, junctionSlope, fixedEndSlope);
+		double startSlope = keepSloped(firstSlopes[0], startSloped);
+		double endSlope = keepSloped(secondSlopes[1], endSloped);
+
 		BezierConnection first = curveBetween(start.anchorPos(), junction.pos(), startPoint, junction.point(),
-			startHeading, junction.heading());
+			startHeading, junction.heading(), startSlope, junctionSlope);
 		BezierConnection second = curveBetween(junction.pos(), end.anchorPos(), junction.point(), endPoint,
-			junction.heading(), endHeading);
+			junction.heading(), endHeading, junctionSlope, endSlope);
 		Plan plan = new Plan(null, start, end, startHeading, endHeading, first, single.adjustable(),
-			single.turnDegrees(), single.forward(), single.reverseEnd(), junction, second);
+			single.turnDegrees(), single.forward(), single.reverseEnd(), junction, second, startSlope, endSlope,
+			junctionSlope, single.grade());
 
 		// Each arc is held to what a curve of its own would be, against whatever is already at the
 		// end it shares with the route; the junction has no neighbour yet, only the other arc.
@@ -751,12 +1202,9 @@ public final class CurvePlanner {
 	@Nullable
 	static String validateCurve(BezierConnection curve, Vec3 startPoint, Vec3 endPoint, Vec3 startHeading,
 		Vec3 endHeading, @Nullable Vec3 arriving, @Nullable Vec3 leaving) {
-		Vec3 span = endPoint.subtract(startPoint);
-		double horizontal = flat(span).length();
-		double ascend = Math.abs(span.y);
 		int maxLength = AllConfigs.server().trains.maxTrackPlacementLength.get();
 
-		if (tooSteep(horizontal, ascend))
+		if (steeperThanAllowed(maxLocalGrade(curve)))
 			return "too_steep";
 
 		double length = curve.getLength();
@@ -779,11 +1227,14 @@ public final class CurvePlanner {
 			return "too_sharp";
 
 		if (startChord.normalize()
-			.dot(arriving == null ? startHeading : arriving) < MIN_JOINT_DOT)
+			.dot(arriving == null ? curve.axes.getFirst()
+				.normalize() : arriving) < MIN_JOINT_DOT)
 			return "too_sharp";
 
 		if (endChord.normalize()
-			.dot(leaving == null ? endHeading : leaving) < MIN_JOINT_DOT)
+			.dot(leaving == null ? curve.axes.getSecond()
+				.scale(-1)
+				.normalize() : leaving) < MIN_JOINT_DOT)
 			return "too_sharp";
 
 		return null;
@@ -831,7 +1282,7 @@ public final class CurvePlanner {
 			return null;
 
 		BlockPos pos = anchor.getBlockPos();
-		Vec3 anchorHeading = anchor.heading();
+		Vec3 anchorHeading = anchor.tangent();
 
 		// The existing curve, written from this node outwards, so both it and the new curve are
 		// measured leaving the same place and the comparison is between like and like.
@@ -842,8 +1293,8 @@ public final class CurvePlanner {
 			return null;
 
 		Vec3 outward = neighbourIsNext ? anchorHeading : anchorHeading.scale(-1);
-		Vec3 farTangent = neighbourIsNext ? neighbour.heading()
-			.scale(-1) : neighbour.heading();
+		Vec3 farTangent = neighbourIsNext ? neighbour.tangent()
+			.scale(-1) : neighbour.tangent();
 
 		BezierConnection adjoining = new BezierConnection(Couple.create(pos, neighbourPos),
 			Couple.create(here, there), Couple.create(outward, farTangent), Couple.create(UP, UP), true, false,
@@ -897,12 +1348,23 @@ public final class CurvePlanner {
 	 * two of those — and the one nearest the bearing asked for is rarely exactly on it. Aiming both
 	 * ends at the line between the two centres is what keeps the track perfectly straight; the
 	 * price is a bearing off by a fraction of a degree, which is reported rather than hidden.
+	 *
+	 * <p>The same goes for a line that climbs. {@link #length} is how far it goes along the ground,
+	 * and {@link #rise} how many blocks it gains, which is a whole number because a node is at the
+	 * height of a block. The grade asked for is rarely exactly that over this run, so the grade the
+	 * line has, {@link #slope}, is reported too. It is the same all along: the tangents at both ends
+	 * lean by it, and a straight line leaning by the rise over the run is straight in three dimensions.
 	 */
 	public record StraightPlan(@Nullable String error, BlockPos endPos, Vec3 heading, double bearing,
-		double length) {
+		double length, int rise) {
 
 		static StraightPlan failed(String error) {
-			return new StraightPlan(error, BlockPos.ZERO, Vec3.ZERO, 0, 0);
+			return new StraightPlan(error, BlockPos.ZERO, Vec3.ZERO, 0, 0, 0);
+		}
+
+		/** How steeply the line climbs, as a fraction: the rise over the run, minus for a descent. */
+		public double slope() {
+			return length < 1.0E-6 ? 0 : rise / length;
 		}
 
 		public boolean valid() {
@@ -924,6 +1386,20 @@ public final class CurvePlanner {
 	 * search wandering, and what it settles on is reported back.
 	 */
 	public static StraightPlan planStraight(Level level, BlockPos from, float requestedBearing, int requestedLength) {
+		return planStraight(level, from, requestedBearing, requestedLength, 0);
+	}
+
+	/**
+	 * The same for a line that climbs, at {@code permille} over the run; a minus sign is a descent.
+	 *
+	 * <p>Where the line ends on the ground is chosen exactly as for a level one, and its height follows:
+	 * the grade over the run it came out with, to the nearest whole block. The grade the line really
+	 * has is that rise over that run, which is off from the one asked for by up to half a block over the
+	 * run — more for a short line or a gentle grade — and is what the plan reports. A line that comes
+	 * out steeper than {@code curves.maxGrade} allows is refused, as a curve is.
+	 */
+	public static StraightPlan planStraight(Level level, BlockPos from, float requestedBearing, int requestedLength,
+		int permille) {
 		int maxLength = AllConfigs.server().trains.maxTrackPlacementLength.get();
 		if (requestedLength > maxLength)
 			return StraightPlan.failed("too_far");
@@ -974,14 +1450,18 @@ public final class CurvePlanner {
 			.subtract(start));
 		Vec3 heading = span.normalize();
 
+		int rise = (int) Math.round(permille / 1000.0 * span.length());
+		BlockPos end = best.atY(from.getY() + rise);
+
 		// Blocked, but the line is still worked out — the preview draws it in red, which says far
 		// more than the message does on its own: it is the difference between being told "no room"
 		// and being shown where the obstruction is.
-		String error = level.getBlockState(best)
-			.canBeReplaced() || level.getBlockEntity(best) instanceof AngledTrackAnchorBlockEntity ? null
-				: "no_room";
+		String error = !level.isOutsideBuildHeight(end) && (level.getBlockState(end)
+			.canBeReplaced() || level.getBlockEntity(end) instanceof AngledTrackAnchorBlockEntity) ? null : "no_room";
+		if (error == null && steeperThanAllowed(Math.abs(rise) / span.length()))
+			error = "too_steep";
 
-		return new StraightPlan(error, best, heading, AngledTrackAnchorBlockEntity.yawOf(heading), span.length());
+		return new StraightPlan(error, end, heading, AngledTrackAnchorBlockEntity.yawOf(heading), span.length(), rise);
 	}
 
 	/**
@@ -994,10 +1474,14 @@ public final class CurvePlanner {
 	 */
 	public static BezierConnection straightCurve(BlockPos from, StraightPlan plan) {
 		Vec3 heading = plan.heading();
+		// A line that climbs has its nodes at the centres of its blocks, and tangents that lean by the
+		// climb: the same two things an anchor does once it holds a slope.
+		boolean climbs = plan.rise() != 0;
+		Vec3 tangent = AngledTrackAnchorBlockEntity.tangentOf(heading, plan.slope());
 		return new BezierConnection(Couple.create(from, plan.endPos()),
-			Couple.create(AngledTrackAnchorBlockEntity.exitNode(from, heading, false),
-				AngledTrackAnchorBlockEntity.entryNode(plan.endPos(), heading, false)),
-			Couple.create(heading, heading.scale(-1)), Couple.create(UP, UP), true, false, TrackMaterial.ANDESITE);
+			Couple.create(AngledTrackAnchorBlockEntity.exitNode(from, heading, false, climbs),
+				AngledTrackAnchorBlockEntity.entryNode(plan.endPos(), heading, false, climbs)),
+			Couple.create(tangent, tangent.scale(-1)), Couple.create(UP, UP), true, false, TrackMaterial.ANDESITE);
 	}
 
 	/** Builds what {@link #planStraight} described. Server side only. */
@@ -1015,7 +1499,9 @@ public final class CurvePlanner {
 		if (!(level.getBlockEntity(plan.endPos()) instanceof AngledTrackAnchorBlockEntity end))
 			return false;
 
-		start.linkTo(end, plan.heading(), plan.heading());
+		// The climb goes with the heading, as the y of the vector, the way a curve's anchors are aimed.
+		Vec3 tangent = AngledTrackAnchorBlockEntity.tangentOf(plan.heading(), plan.slope());
+		start.linkTo(end, tangent, tangent);
 		return true;
 	}
 
@@ -1028,11 +1514,12 @@ public final class CurvePlanner {
 	 * @param t        where along the curve, as a bezier parameter.
 	 * @param point    where that is in the world.
 	 * @param tangent  which way the route is going there, and so which way the new anchor points.
+	 * @param slope    how steeply the route climbs there, which the new anchor takes with it.
 	 * @param anchorPos the block the new anchor would occupy.
 	 * @param error    why it cannot be done there, or null if it can.
 	 */
 	public record SplitTarget(@Nullable AngledTrackAnchorBlockEntity owner, double t, Vec3 point, Vec3 tangent,
-		BlockPos anchorPos, @Nullable String error) {
+		double slope, BlockPos anchorPos, @Nullable String error) {
 
 		public boolean valid() {
 			return error == null && owner != null;
@@ -1095,25 +1582,31 @@ public final class CurvePlanner {
 		// The tangent as a difference across a short step rather than the bezier's derivative, so
 		// this needs nothing but the curve's public shape.
 		double step = 1.0 / Math.max(8, (int) (length * 4));
-		Vec3 tangent = flat(curve.getPosition(Math.min(1, t + step))
-			.subtract(curve.getPosition(Math.max(0, t - step))));
-		tangent = tangent.lengthSqr() < 1.0E-8 ? owner.heading() : tangent.normalize();
+		Vec3 along = curve.getPosition(Math.min(1, t + step))
+			.subtract(curve.getPosition(Math.max(0, t - step)));
+		Vec3 tangent = flat(along);
+		boolean upright = tangent.lengthSqr() < 1.0E-8;
+		double slope = upright ? owner.getSlope() : (float) (along.y / tangent.length());
+		tangent = upright ? owner.heading() : tangent.normalize();
 
-		BlockPos anchorPos = BlockPos.containing(point);
+		// The block whose floor is nearest the curve, not the one the curve is in: an anchor's node is
+		// at the bottom of its block, and on a climb the curve is part way up it. Level curves are
+		// at a whole height, where the two come to the same block.
+		BlockPos anchorPos = BlockPos.containing(point.x, Mth.floor(point.y + 0.5), point.z);
 
 		// Both halves have to be a curve in their own right afterwards. The same MIN_SPAN the wand
 		// holds a new curve to, measured along this one.
 		if (t * length < MIN_SPAN + 1 || (1 - t) * length < MIN_SPAN + 1)
-			return new SplitTarget(owner, t, point, tangent, anchorPos, "split_too_close");
+			return new SplitTarget(owner, t, point, tangent, slope, anchorPos, "split_too_close");
 		if (anchorPos.equals(owner.getBlockPos()) || anchorPos.equals(owner.getNext()))
-			return new SplitTarget(owner, t, point, tangent, anchorPos, "split_too_close");
+			return new SplitTarget(owner, t, point, tangent, slope, anchorPos, "split_too_close");
 		if (level.getBlockEntity(anchorPos) instanceof AngledTrackAnchorBlockEntity)
-			return new SplitTarget(owner, t, point, tangent, anchorPos, "split_occupied");
+			return new SplitTarget(owner, t, point, tangent, slope, anchorPos, "split_occupied");
 		if (!level.getBlockState(anchorPos)
 			.canBeReplaced())
-			return new SplitTarget(owner, t, point, tangent, anchorPos, "no_room");
+			return new SplitTarget(owner, t, point, tangent, slope, anchorPos, "no_room");
 
-		return new SplitTarget(owner, t, point, tangent, anchorPos, null);
+		return new SplitTarget(owner, t, point, tangent, slope, anchorPos, null);
 	}
 
 	/**
@@ -1149,7 +1642,7 @@ public final class CurvePlanner {
 
 		// The first link takes the far end off the owner, so the anchor ahead has to be caught
 		// before it, not looked up again after.
-		owner.linkTo(inserted, null, target.tangent());
+		owner.linkTo(inserted, null, AngledTrackAnchorBlockEntity.tangentOf(target.tangent(), target.slope()));
 		inserted.linkTo(ahead, null, null);
 		return true;
 	}
@@ -1246,12 +1739,307 @@ public final class CurvePlanner {
 		return new Vec3(vector.x * cos - vector.z * sin, vector.y, vector.x * sin + vector.z * cos);
 	}
 
+	// ---------------------------------------------------------------- angle grid
+
+	/** {@code curves.snapAngle}, in degrees; the default where the config cannot be read yet. 0 is off. */
+	public static int snapStepDegrees() {
+		try {
+			return CTNConfig.SERVER.snapAngle.get();
+		} catch (IllegalStateException notLoaded) {
+			return DEFAULT_SNAP_ANGLE;
+		}
+	}
+
+	/** The way a horizontal vector points, in compass degrees: 0 is east and 90 north, as on a map of the world. */
+	public static double bearingOf(Vec3 heading) {
+		return Math.toDegrees(Math.atan2(-heading.z, heading.x));
+	}
+
 	/**
-	 * Create's own rule for how much rise a length of track may carry, which is about how much a
-	 * train can climb rather than anything to do with the curve.
+	 * The horizontal unit vector for a compass bearing. The multiples of 45 are written out rather than
+	 * worked out, because {@code cos(90°)} is six parts in 10^17 and not nothing, and a heading that is
+	 * meant to lie along an axis should lie along it exactly.
+	 */
+	public static Vec3 headingAt(double bearing) {
+		double wrapped = ((bearing % 360) + 360) % 360;
+		double diagonal = Math.sqrt(0.5);
+		if (wrapped % 90 == 0)
+			return switch ((int) (wrapped / 90)) {
+				case 0 -> new Vec3(1, 0, 0);
+				case 1 -> new Vec3(0, 0, -1);
+				case 2 -> new Vec3(-1, 0, 0);
+				default -> new Vec3(0, 0, 1);
+			};
+		if (wrapped % 45 == 0)
+			return switch ((int) (wrapped / 45)) {
+				case 1 -> new Vec3(diagonal, 0, -diagonal);
+				case 3 -> new Vec3(-diagonal, 0, -diagonal);
+				case 5 -> new Vec3(-diagonal, 0, diagonal);
+				default -> new Vec3(diagonal, 0, diagonal);
+			};
+		double radians = Math.toRadians(wrapped);
+		return new Vec3(Math.cos(radians), 0, -Math.sin(radians));
+	}
+
+	/**
+	 * The angle on the grid that wins for a bearing, or NaN if it is not near enough to any. A bearing that
+	 * is already on one is left to be.
+	 */
+	static double gridAngle(double bearing, int step) {
+		double nearest = Math.round(bearing / step) * (double) step;
+		double off = Math.abs(bearing - nearest);
+		return off <= step * SNAP_WINDOW && off >= SNAP_EXACT ? nearest : Double.NaN;
+	}
+
+	/** The heading drawn to the grid, or null if it is on it already or too far from it to be drawn. */
+	@Nullable
+	private static Vec3 snapHeading(Vec3 heading, int step) {
+		double wanted = gridAngle(bearingOf(heading), step);
+		return Double.isNaN(wanted) ? null : headingAt(wanted);
+	}
+
+	/**
+	 * The layout of the curve to a far end as the planner would have it with nothing drawn to the grid: what
+	 * {@link #solve} works out first, without the slopes.
+	 */
+	@Nullable
+	private static Layout naturalLayout(Endpoint start, Endpoint clicked, @Nullable GradeSpec grade) {
+		Vec3 fixedStart = start.fixedHeading() == null ? null : flatUnit(start.fixedHeading());
+		Vec3 fixedEnd = clicked.fixedHeading() == null ? null : flatUnit(clicked.fixedHeading());
+		Double fixedStartSlope = fixedStart == null ? null : start.fixedSlope();
+		Double fixedEndSlope = fixedEnd == null ? null : clicked.fixedSlope();
+		GradeSpec laid = grade != null && clicked.mustPlace() && fixedEnd == null ? grade : null;
+
+		if (laid != null) {
+			Graded graded = gradedEnd(start, clicked, fixedStart, fixedStartSlope, laid, 0, 0);
+			return graded == null ? null : graded.layout();
+		}
+
+		double rise = clicked.anchorPos()
+			.getY()
+			- start.anchorPos()
+				.getY();
+		return layout(start, clicked, fixedStart, fixedEnd, sloped(fixedStartSlope, fixedEndSlope, rise),
+			sloped(fixedEndSlope, fixedStartSlope, rise), 0, 0);
+	}
+
+	/**
+	 * The block to aim the curve at so that it arrives at an angle on the grid exactly, if there is one a
+	 * couple of blocks from the one that was aimed at; otherwise the block that was.
+	 *
+	 * <p>Where the aimed block gives an angle near the grid but not on it, some block beside it often gives
+	 * one on it. That is so for every multiple of 45 degrees, since a diagonal and an axis both run through
+	 * the corners of blocks; for the other angles on the grid there is none, and the heading is turned to
+	 * them instead (see {@link #layout}), with the block left where it was. Taking the exact block when
+	 * there is one is what keeps a right angle one clean arc, rather than an arc with an anchor and a
+	 * second one added to correct it.
+	 *
+	 * <p>Only a new anchor on open ground can be moved. The aimed block is the nearest of those that are
+	 * right, so the curve ends as near to where the player pointed as it can and still be square.
+	 */
+	private static Endpoint snappedTarget(Level level, Endpoint start, Endpoint end, @Nullable GradeSpec grade,
+		int step) {
+		if (!end.mustPlace() || end.fixedHeading() != null)
+			return end;
+
+		Layout natural = naturalLayout(start, end, grade);
+		if (natural == null || !natural.adjustable())
+			return end;
+		double wanted = gridAngle(bearingOf(natural.endHeading()), step);
+		if (Double.isNaN(wanted))
+			return end;
+
+		Endpoint best = null;
+		int bestDistance = Integer.MAX_VALUE;
+		for (int dx = -SNAP_SEARCH; dx <= SNAP_SEARCH; dx++)
+			for (int dz = -SNAP_SEARCH; dz <= SNAP_SEARCH; dz++) {
+				int distance = dx * dx + dz * dz;
+				if (distance == 0 || distance >= bestDistance)
+					continue;
+
+				BlockPos pos = end.anchorPos()
+					.offset(dx, 0, dz);
+				if (pos.equals(start.anchorPos()) || !roomForAnchor(level, pos, grade != null))
+					continue;
+
+				Endpoint candidate = end.movedTo(pos);
+				Layout layout = naturalLayout(start, candidate, grade);
+				if (layout != null && Math.abs(Mth.wrapDegrees(bearingOf(layout.endHeading()) - wanted)) < SNAP_EXACT) {
+					best = candidate;
+					bestDistance = distance;
+				}
+			}
+		return best == null ? end : best;
+	}
+
+	/**
+	 * Whether an anchor could go at a block: loaded, and nothing in it that is not as easily built over. In
+	 * grade mode the height is not the block's own, and is asked again once the grade has chosen it.
+	 */
+	private static boolean roomForAnchor(Level level, BlockPos pos, boolean heightFree) {
+		if (level.isOutsideBuildHeight(pos) || !level.isLoaded(pos))
+			return false;
+		if (level.getBlockEntity(pos) instanceof AngledTrackAnchorBlockEntity)
+			return false;
+		BlockState state = level.getBlockState(pos);
+		return !(state.getBlock() instanceof ITrackBlock) && (heightFree || state.canBeReplaced());
+	}
+
+	/**
+	 * Whether a rise of {@code ascend} over {@code horizontal} of run is steeper than a curve may be,
+	 * which is about how much a train can climb rather than anything to do with the shape of the
+	 * curve. The limit is {@code curves.maxGrade}, rounded to the whole permille the wand shows, so a
+	 * rise of one block in three of run is allowed at the default and one in two and a half is not.
 	 */
 	static boolean tooSteep(double horizontal, double ascend) {
-		return ascend > 1.0E-4 && horizontal < Math.max(ascend * 3, 3);
+		return ascend > 1.0E-4 && (horizontal < 1.0E-6 || steeperThanAllowed(ascend / horizontal));
+	}
+
+	/** {@code curves.maxGrade}, in permille; the default where the config cannot be read yet. */
+	public static int maxGradePermille() {
+		try {
+			return CTNConfig.SERVER.maxGrade.get();
+		} catch (IllegalStateException notLoaded) {
+			// A client that has joined a server and not yet been sent its settings, or a test that is
+			// not running with them. The preview still has to say something.
+			return DEFAULT_MAX_GRADE;
+		}
+	}
+
+	/** Whether a grade, as a fraction, rounds to more permille than the limit. */
+	static boolean steeperThanAllowed(double grade) {
+		return Math.round(grade * 1000) > maxGradePermille();
+	}
+
+	/**
+	 * The steepest the curve is anywhere along it, as a fraction: the rise over the horizontal run,
+	 * the way a railway counts it. Local rather than average, because a curve that eases into a
+	 * climb or out of one is steeper in the middle than its ends are apart.
+	 */
+	static double maxLocalGrade(BezierConnection curve) {
+		Vec3 previous = curve.getPosition(0);
+		double worst = 0;
+		for (int i = 1; i <= GRADE_SAMPLES; i++) {
+			Vec3 point = curve.getPosition(i / (double) GRADE_SAMPLES);
+			double run = Math.sqrt((point.x - previous.x) * (point.x - previous.x)
+				+ (point.z - previous.z) * (point.z - previous.z));
+			double rise = Math.abs(point.y - previous.y);
+			if (run > 1.0E-6)
+				worst = Math.max(worst, rise / run);
+			else if (rise > 1.0E-6)
+				return Double.MAX_VALUE;
+			previous = point;
+		}
+		return worst;
+	}
+
+	/**
+	 * How long a curve is seen from above, in blocks: the run it covers on the ground, whatever it
+	 * climbs. Summed in short straight steps, which for a bezier this gentle is good to a thousandth of
+	 * a block.
+	 */
+	public static double horizontalLength(BezierConnection curve) {
+		double length = 0;
+		Vec3 previous = curve.getPosition(0);
+		for (int i = 1; i <= LENGTH_SAMPLES; i++) {
+			Vec3 point = curve.getPosition(i / (double) LENGTH_SAMPLES);
+			length += Math.sqrt((point.x - previous.x) * (point.x - previous.x)
+				+ (point.z - previous.z) * (point.z - previous.z));
+			previous = point;
+		}
+		return length;
+	}
+
+	/**
+	 * Whether an end of a curve will climb at all, given the climb of the ends that are decided and
+	 * how far the curve rises. See where {@link #solve} uses it for why this has to be known first.
+	 *
+	 * @param own   the climb this end is obliged to have, or null if it is free.
+	 * @param other the same for the other end.
+	 */
+	private static boolean sloped(@Nullable Double own, @Nullable Double other, double rise) {
+		if (own != null)
+			return own != 0;
+		return rise != 0 || (other != null && other != 0);
+	}
+
+	/**
+	 * A slope as the anchor will hold it, which is a float, and never zero for an end that was worked
+	 * out to climb. A free end can come out of the arithmetic as exactly nothing — a curve that
+	 * climbs out of a slope at the rate it has to climb to end level — and an anchor with none puts
+	 * its node on the block's boundary, away from where the plan put it.
+	 */
+	private static double keepSloped(double slope, boolean sloped) {
+		if (!sloped)
+			return 0;
+		float held = (float) slope;
+		return Math.abs(held) < MIN_SLOPE ? (held < 0 ? -MIN_SLOPE : MIN_SLOPE) : held;
+	}
+
+	/**
+	 * How long the handles of {@code curve} are seen from above: those of the same curve laid level. This
+	 * is the {@code h} in the grade formulas, and it is not what the curve reports for itself. Create
+	 * normalises an axis with its climb in it and takes a straight curve's handles from its length in
+	 * three dimensions, so {@link BezierConnection#getHandleLength} comes out longer than this by the
+	 * secant of the angle it climbs at.
+	 */
+	public static double levelHandleLength(BezierConnection curve) {
+		return handleLength(curve.starts.getFirst(), curve.starts.getSecond(), flatUnit(curve.axes.getFirst()),
+			flatUnit(curve.axes.getSecond()
+				.scale(-1)));
+	}
+
+	/**
+	 * How long a bezier's handles are between these two points, as Create works them out from the shape
+	 * of the curve seen from above. The ends are put at one height to ask: for a curve that is straight
+	 * Create measures its length in three dimensions, so the answer would otherwise grow with the climb,
+	 * and what the grade formulas want is that of the level curve whatever the climb.
+	 */
+	static double handleLength(Vec3 from, Vec3 to, Vec3 fromHeading, Vec3 toHeading) {
+		return curveBetween(BlockPos.ZERO, BlockPos.ZERO, from, new Vec3(to.x, from.y, to.z), fromHeading,
+			toHeading).getHandleLength();
+	}
+
+	/**
+	 * The climb at the two ends of a curve that rises {@code rise}, given those of them that are
+	 * already decided.
+	 *
+	 * <p>The curve's height along it is a cubic bezier whose control points sit {@code handle × slope}
+	 * above or below the ends, because Create makes each handle the end's axis times the handle
+	 * length. So {@code rise}, the two slopes and {@code handle} are tied together, and with one
+	 * slope given the other has a choice to be made:
+	 * <ul>
+	 * <li>Neither given: the same at both ends, a third of the rise over the handle, which makes the
+	 * height a straight line along the curve and so a constant grade.</li>
+	 * <li>One given: the other that makes the height change at the gentlest rate where it arrives, its
+	 * second derivative nothing there. For a curve that has to end at a given height this comes out
+	 * as a gradual easing into or out of the slope.</li>
+	 * <li>Both given: nothing to work out.</li>
+	 * </ul>
+	 *
+	 * @return the slope at the start and at the end, in the direction of travel.
+	 */
+	static double[] solveSlopes(double handle, double rise, @Nullable Double fixedStart, @Nullable Double fixedEnd) {
+		if (handle < 1.0E-6)
+			return new double[] { fixedStart == null ? 0 : fixedStart, fixedEnd == null ? 0 : fixedEnd };
+		if (fixedStart != null && fixedEnd != null)
+			return new double[] { fixedStart, fixedEnd };
+		if (fixedStart != null)
+			return new double[] { fixedStart, (rise - handle * fixedStart) / (2 * handle) };
+		if (fixedEnd != null)
+			return new double[] { (rise - handle * fixedEnd) / (2 * handle), fixedEnd };
+		double slope = rise / (3 * handle);
+		return new double[] { slope, slope };
+	}
+
+	/** {@link #solveSlopes} for the two ends of a planned curve, with the level case left alone. */
+	private static double[] slopesBetween(Vec3 startPoint, Vec3 endPoint, Vec3 startHeading, Vec3 endHeading,
+		@Nullable Double fixedStart, @Nullable Double fixedEnd, boolean startSloped, boolean endSloped) {
+		if (!startSloped && !endSloped)
+			return new double[] { 0, 0 };
+		double[] slopes = solveSlopes(handleLength(startPoint, endPoint, startHeading, endHeading),
+			endPoint.y - startPoint.y, fixedStart, fixedEnd);
+		return new double[] { keepSloped(slopes[0], startSloped), keepSloped(slopes[1], endSloped) };
 	}
 
 	/** Headings are horizontal; a curve climbs by having its ends at different heights, not by tilting. */

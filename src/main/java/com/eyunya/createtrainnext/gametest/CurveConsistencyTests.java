@@ -361,7 +361,7 @@ public class CurveConsistencyTests {
 		}
 	}
 
-	private static InteractionResult click(GameTestHelper helper, Player player, ItemStack wand, BlockPos relative) {
+	static InteractionResult click(GameTestHelper helper, Player player, ItemStack wand, BlockPos relative) {
 		BlockPos pos = helper.absolutePos(relative);
 		BlockHitResult hit = new BlockHitResult(Vec3.atCenterOf(pos), Direction.UP, pos, false);
 		return CTNRegistry.CURVE_WAND.get()

@@ -95,20 +95,36 @@ public final class CurveOccupancy {
 		heights.merge(pos, height, Math::min);
 	}
 
-	/** Puts the curve's floor down, or renews it where it is already standing. */
+	/**
+	 * Puts the curve's floor down, or renews it where it is already standing, in the chunks that are
+	 * loaded.
+	 *
+	 * <p>Asking a level about a block in a chunk that is not loaded loads it, there and then, and a
+	 * long curve crosses a good many chunks. What is not loaded is left: it is put down at the next
+	 * refresh once it is.
+	 */
 	public static void place(Level level, BezierConnection curve) {
 		if (level.isClientSide || !CTNConfig.SERVER.curveCollision.get())
 			return;
-		rasterise(curve).forEach((pos, height) -> CurveFillerBlock.placeOrRenew(level, pos, height));
+		rasterise(curve).forEach((pos, height) -> {
+			if (level.isLoaded(pos))
+				CurveFillerBlock.placeOrRenew(level, pos, height);
+		});
 	}
 
-	/** Takes the curve's floor away. */
+	/**
+	 * Takes the curve's floor away, in the chunks that are loaded. What is left in the others goes by
+	 * itself: see {@link CurveFillerBlock}'s upkeep.
+	 */
 	public static void clear(Level level, BezierConnection curve) {
 		if (level.isClientSide)
 			return;
 		// Not gated on the config: a curve that had a floor when the setting was on still has to be
 		// able to lose it, otherwise turning the setting off would strand every floor already laid.
 		rasterise(curve).keySet()
-			.forEach(pos -> CurveFillerBlock.remove(level, pos));
+			.forEach(pos -> {
+				if (level.isLoaded(pos))
+					CurveFillerBlock.remove(level, pos);
+			});
 	}
 }

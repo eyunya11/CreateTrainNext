@@ -52,6 +52,9 @@ import net.minecraft.world.phys.Vec3;
  * anchor reached has nowhere left to carry on from.</li>
  * <li>Sneak and scroll to turn the far end of the curve by hand; right click the air to put it back
  * to the arc the tool picked.</li>
+ * <li>Hold sprint and scroll to lay the route at a grade, five permille a notch. That turns on grade
+ * mode: the far end is then put at the height the grade gives it, whatever height was clicked, and the
+ * route carries on at that grade until a curve is asked to arrive level. See {@link GradeSpec}.</li>
  * <li>Sneak and right click the air to drop the selection, or an anchor to take its curves apart.</li>
  * <li>With nothing selected, sneak and right click beside a curve to put a point on it. That point
  * is an anchor, and an anchor is a track block, so it is somewhere a signal or a station can go —
@@ -106,6 +109,11 @@ public class CurveWandItem extends Item {
 			return InteractionResultHolder.pass(stack);
 
 		if (player.isShiftKeyDown()) {
+			// In grade mode the air is where the grade screen is opened from, by the client before this is
+			// reached; if it was reached anyway there is nothing to cancel by. Taking the selection back is a
+			// sneak click on a block, which is the same gesture in either mode.
+			if (selection.gradeMode())
+				return InteractionResultHolder.pass(stack);
 			if (!level.isClientSide) {
 				stack.remove(CTNDataComponents.CURVE_SELECTION);
 				message(player, "cleared");
@@ -154,11 +162,12 @@ public class CurveWandItem extends Item {
 	private InteractionResult finishCurve(Level level, Player player, ItemStack stack,
 		CurveWandSelection selection, BlockPos pos, Direction face) {
 
-		CurvePlanner.Plan plan = CurvePlanner.plan(level, selection.pos(), pos, face, selection.angle());
+		CurvePlanner.Plan plan =
+			CurvePlanner.plan(level, selection.pos(), pos, face, selection.angle(), selection.spec());
 
 		if (!plan.valid()) {
 			if (!level.isClientSide)
-				message(player, plan.error());
+				player.displayClientMessage(refusal(plan), true);
 			AllSoundEvents.DENY.playFrom(player, 1, 1);
 			return InteractionResult.FAIL;
 		}
@@ -166,6 +175,37 @@ public class CurveWandItem extends Item {
 		if (level.isClientSide)
 			return InteractionResult.SUCCESS;
 
+		return build(level, player, stack, selection, plan, false);
+	}
+
+	/**
+	 * Lays a curve from the selection straight ahead for a distance, at the grade the player typed in.
+	 * Server side only, from {@link ApplyGradePacket}.
+	 *
+	 * @return whether a curve was laid.
+	 */
+	static boolean layByDistance(Level level, Player player, ItemStack stack, CurveWandSelection selection,
+		int horizontalLength) {
+		CurvePlanner.Plan plan = CurvePlanner.planByDistance(level, selection.pos(), new GradeSpec(selection.grade()),
+			horizontalLength, AngledTrackAnchorBlockEntity.directionFromYaw(player.getYRot()));
+
+		if (!plan.valid()) {
+			player.displayClientMessage(refusal(plan).withStyle(ChatFormatting.RED), true);
+			AllSoundEvents.DENY.playFrom(player, 1, 1);
+			return false;
+		}
+		return build(level, player, stack, selection, plan, true).consumesAction();
+	}
+
+	/**
+	 * Builds a plan that has been checked, and moves the selection on from the end it reached. Server
+	 * side only.
+	 *
+	 * @param byDistance whether the curve was laid from a distance rather than aimed at, so that nothing
+	 *                   showed what it would be and the message has to say how it came out.
+	 */
+	private static InteractionResult build(Level level, Player player, ItemStack stack, CurveWandSelection selection,
+		CurvePlanner.Plan plan, boolean byDistance) {
 		String failure = CurvePlanner.apply(level, plan);
 		if (failure != null) {
 			message(player, failure);
@@ -194,9 +234,20 @@ public class CurveWandItem extends Item {
 			// was a bare position on the server that any later click anywhere would join itself to,
 			// whereas this lives on the stack, is drawn as a ghost the whole time it exists, and is
 			// dropped with a sneak right click.
-			stack.set(CTNDataComponents.CURVE_SELECTION, CurveWandSelection.of(level, plan.end()
-				.anchorPos()));
-			built(player, plan, "built");
+			//
+			// The grade goes with it, so that the route carries on at the climb it was laid at; but a
+			// curve that was asked to arrive level has done what the mode was for, and the route goes
+			// on in the mode that follows the far end as it is clicked.
+			CurveWandSelection carried = selection.carriedOnTo(plan.end()
+				.anchorPos());
+			if (plan.grade() != null && plan.grade()
+				.permille() == 0)
+				carried = carried.withGrade(0, false);
+			stack.set(CTNDataComponents.CURVE_SELECTION, carried);
+			if (byDistance)
+				laid(player, plan);
+			else
+				built(player, plan, "built");
 		}
 
 		level.playSound(null, plan.end()
@@ -289,7 +340,7 @@ public class CurveWandItem extends Item {
 
 	@Override
 	public void appendHoverText(ItemStack stack, TooltipContext context, List<Component> tooltip, TooltipFlag flag) {
-		for (String line : new String[] { "start", "adjust", "cancel", "split" })
+		for (String line : new String[] { "start", "adjust", "grade", "grade_screen", "cancel", "split" })
 			tooltip.add(Component.translatable("tooltip.createtrainnext.curve_wand." + line)
 				.withStyle(ChatFormatting.GRAY));
 	}
@@ -310,6 +361,46 @@ public class CurveWandItem extends Item {
 		if (plan.junction() != null)
 			text.append(Component.translatable("message.createtrainnext.wand.point_added"));
 		player.displayClientMessage(text, true);
+	}
+
+	/**
+	 * What is said when a curve has been laid from a distance. Nothing showed what it would be, so this
+	 * is where the player is told how it came out: the grade it averages, how far it goes along the
+	 * ground, and how high it gets.
+	 */
+	private static void laid(Player player, CurvePlanner.Plan plan) {
+		double run = plan.horizontalLength();
+		MutableComponent text = Component.translatable("message.createtrainnext.wand.laid",
+			String.format("%+d", GradeText.permille(plan.rise() / run)), String.format("%.1f", run),
+			String.format("%+d", Math.round(plan.rise())));
+		if (plan.junction() != null)
+			text.append(Component.translatable("message.createtrainnext.wand.point_added"));
+		player.displayClientMessage(text, true);
+	}
+
+	/**
+	 * The words for why a plan was refused, with the numbers that go with the reason where it has any.
+	 *
+	 * <p>Shared by the ghost and by the click, so that what the player is told while aiming is what
+	 * they are told when it is refused. A climb that is too steep says how steep it is at its steepest
+	 * and what the limit is: the limit can be changed, and the figure it is held to is the steepest
+	 * point of the curve, which is not the grade shown for the whole of it.
+	 */
+	public static MutableComponent refusal(CurvePlanner.Plan plan) {
+		return refusal(plan.error(), "too_steep".equals(plan.error()) ? plan.steepestGrade() : 0);
+	}
+
+	/**
+	 * The same for a refusal that did not come from a {@link CurvePlanner.Plan}, such as a survey
+	 * marker's line.
+	 *
+	 * @param steepestGrade how steep it is at its steepest, as a fraction; read only for {@code too_steep}.
+	 */
+	public static MutableComponent refusal(String error, double steepestGrade) {
+		if ("too_steep".equals(error))
+			return Component.translatable("message.createtrainnext.wand.too_steep_by",
+				GradeText.permille(steepestGrade), CurvePlanner.maxGradePermille());
+		return Component.translatable("message.createtrainnext.wand." + error);
 	}
 
 	static void message(Player player, String key, Object... args) {

@@ -184,6 +184,7 @@ public class CreateTrainNextClient {
 		modContainer.registerConfig(ModConfig.Type.CLIENT, CTNConfig.CLIENT_SPEC);
 		modEventBus.addListener(CreateTrainNextClient::onRegisterRenderers);
 		CurveWandPreview.init();
+		WandHud.init(modEventBus);
 		SurveyMarkerPreview.init();
 		NeoForge.EVENT_BUS.addListener(CreateTrainNextClient::onRightClickBlock);
 	}
@@ -207,7 +208,8 @@ public class CreateTrainNextClient {
 			return;
 
 		Minecraft.getInstance()
-			.setScreen(new SurveyMarkerScreen(event.getPos(), marker.getBearing(), marker.getLength()));
+			.setScreen(new SurveyMarkerScreen(event.getPos(), marker.getBearing(), marker.getLength(),
+				marker.getGrade()));
 		event.setCanceled(true);
 	}
 
