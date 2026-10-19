@@ -3,6 +3,7 @@
   "block.createtrainnext.angled_track_anchor": "自由角度レールアンカー",
   "block.createtrainnext.curve_filler": "曲線の床",
   "block.createtrainnext.track_speed_limit": "速度制限標識",
+  "block.createtrainnext.track_speed_release": "最高速度解除標識",
   "block.createtrainnext.signal_pole": "信号柱",
   "createtrainnext.speed_limit.limit": "制限速度",
   "createtrainnext.speed_limit.row": "速度",

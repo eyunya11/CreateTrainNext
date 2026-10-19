@@ -34,6 +34,7 @@ There are no crafting recipes yet either. Take the items from the "Create Train 
 | Angled Track Anchor | 自由角度レールアンカー | `createtrainnext:angled_track_anchor` | The track block at the end of a curve |
 | Survey Marker | 測量標 | `createtrainnext:survey_marker` | Lays a straight line at a set bearing, length and grade |
 | Track Speed Limit | 速度制限標識 | `createtrainnext:track_speed_limit` | A sign that shows a speed limit |
+| Track Speed Limit Release | 最高速度解除標識 | `createtrainnext:track_speed_release` | A sign that ends a speed limit |
 | Signal Pole | 信号柱 | `createtrainnext:signal_pole` | A pole that carries signals |
 | 5-Aspect Railway Signal | 5灯式信号機 | `createtrainnext:multi_aspect_signal` | A Japanese-style five-aspect signal |
 | Relay Signal | 中継信号機 | `createtrainnext:relay_signal` | Repeats the next signal's aspect in advance |
@@ -188,9 +189,11 @@ Restricted is a step for places where the section ahead is too short to stop in 
 
 It is placed as Create's signals are. Hold the signal, right click the track, then right click where it should stand. The placed signal is a signal boundary just like Create's own, and trains stop at red. It can be used together with Create's signals.
 
+A signal also holds the trains that pass it to a speed, by the aspect it shows as the train passes: Restricted 25 km/h, Approach 45 km/h and Reduced speed 75 km/h by default, which the server settings `signals.restrictedSpeed`, `signals.approachSpeed` and `signals.reducedSpeed` change. The speed lasts until the train passes the next signal, and Proceed holds it to nothing. A train that passes at red, which only a driver at the controls can do, is held to the Restricted speed. A signal of Create's own lifts the limit as Proceed does. A speed limit sign holds the train separately, and the slower of the two applies. As with a sign, the train slows in time, so that it is at that speed as its front passes the signal. The train slows for the aspect the lamps show at the time, and a signal at Stop does not slow it, since Create stops the train there.
+
 The housing can be moved to the centre, left or right. That is handy when a pole stands between two tracks and heads are shared out to either side. Pick it in the value box. The direction is set by which way you face when you place it, in 22.5 degree steps. A placed signal cannot be turned.
 
-Stopping trains and reserving sections is Create's job, and this signal only decides its lamps. So there is no slowing down to match an aspect yet. The lamps refresh about every 0.5 seconds.
+Stopping trains and reserving sections is Create's job, and this signal decides its lamps and the speed set by them. The lamps refresh about every 0.5 seconds.
 
 ### Relay Signal
 
@@ -209,9 +212,11 @@ Where the line divides ahead, it shows the strictest aspect among the signals on
 
 ### Track Speed Limit
 
-A sign stood beside the track that shows a speed limit. It is placed like a signal: right click the track, then where it should stand. Hold right click on the sign to open the slider and set the limit, from 0 to 100, 40 by default, in the same unit as Create's train speed readout. The direction is set by which way you face when you place it, in 22.5 degree steps.
+A sign stood beside the track that shows a speed limit. It is placed like a signal: right click the track, then where it should stand. Hold right click on the sign to open the slider and set the limit in km/h, from 1 up to the fastest a train can go under Create's config. That is the larger of `trainTopSpeed` and `poweredTrainTopSpeed` in the `trains` settings, with one block per second counted as 3.6 km/h, so 144 with Create's default speeds. The limit is 40 by default. The direction is set by which way you face when you place it, in 22.5 degree steps.
 
-**For now it only displays and stores the number, and does not affect trains.** Applying it to trains is planned.
+The Track Speed Limit Release is the sign that ends a limit. It is placed the same way and has a plate of its own with no number on it. Its limit is the highest one, so trains past it are held to nothing but their top speed.
+
+A train that passes a sign going the way it faces is held to its number from there until it passes the next sign, and the Track Speed Limit Release lifts the limit. A train starts slowing before the sign, at its own braking rate, so that it is at the limit's speed as its front passes the sign. Trains going the other way take no notice. The lowest limit is 1 km/h, so that no train is held still for good. What each train is held to is saved with the world.
 
 ### Signal Pole
 
@@ -255,6 +260,9 @@ The server setting affects what is in the world, so the same value applies to ev
 | `curves.collision` | true | true, false | Whether to lay the floor along curves |
 | `curves.maxGrade` | 333 | 10 to 1000 | The steepest any curve or straight line may be anywhere along it, in permille. 333 is one block of rise in three blocks of run. |
 | `curves.snapAngle` | 15 | 0 to 45 | The step, in degrees, of the angles the free end of a curve is drawn to. 0 turns it off. Use a step that divides 45, so that 45 and 90 are on the grid. |
+| `signals.restrictedSpeed` | 25 | 1 to 1000 | The speed in km/h that a signal at Restricted holds a train to |
+| `signals.approachSpeed` | 45 | 1 to 1000 | The speed in km/h that a signal at Approach holds a train to |
+| `signals.reducedSpeed` | 75 | 1 to 1000 | The speed in km/h that a signal at Reduced speed holds a train to |
 
 The client settings change only how things are drawn, so each player can pick their own.
 
@@ -289,7 +297,7 @@ These limitations apply.
 | Recipes | None. Take items from the creative tab or with `/give`. |
 | Create track that cannot be an end | Track with a junction and sloped track cannot be a start or an end of the wand. |
 | Heights | A curve gains a whole number of blocks, so the grade it really has differs from the one set, much more for a short curve or a gentle grade. A grade under one block per curve length, about 31 permille for 32 blocks, stays level. |
-| Speed limits | The number on a sign is not applied to trains. There are no speed limits per signal aspect either. |
+| Speed limits | A train is slowed in time for a limit by looking ahead along the route it is navigating or the way it is steered. One that is already too fast for a limit that appears close ahead reaches it faster. If the lamps of a signal change as the train comes up, the train slows by the aspect they show at the time. |
 | Signals along a curve | They cannot be placed directly on the stretch of a curve. Add a point first, then place them. |
 | Junctions | An anchor holds only one curve on each side, so anchors alone cannot make a junction. |
 | Old worlds | They may hold coloured posts left where anchors were broken, and curves whose shape changes when read the other way. `prune`, `curves` and `repair` fix these. |
@@ -299,12 +307,11 @@ These limitations apply.
 
 ### Planned
 
-These three are planned.
+These two are planned.
 
 | Item | Where it stands | Aim |
 |---|---|---|
 | Sloped Create track | Routes made with this mod climb at any grade, but sloped Create track cannot be a start or an end of the wand. | Join sloped Create track, the 45 degree kind. |
-| Enforcing speed limits | The number on a sign can be set, but does not affect trains. There are no limits per signal aspect either. | Apply the number on a sign, and a limit per aspect, to trains that pass. The per-aspect values will be configurable. |
 | Placing directly on a curve | A point has to be added with the wand before a signal can be placed. | Support Create's own curve targeting, so signals and stations can be placed along a curve without a point. |
 
 ### Under consideration
