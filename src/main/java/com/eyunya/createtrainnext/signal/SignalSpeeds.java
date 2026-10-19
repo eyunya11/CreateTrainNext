@@ -52,6 +52,22 @@ public final class SignalSpeeds {
 	 * @return a speed in km/h, {@link #NONE} or {@link #UNKNOWN}.
 	 */
 	public static int seenFrom(MinecraftServer server, TrackGraph graph, SignalBoundary signal, TrackNode toward) {
+		return scan(server, graph, signal, toward, true);
+	}
+
+	/**
+	 * What a train still some way off will meet at this signal: what the lamps show now, as they were
+	 * last worked out. A signal at stop says nothing here, since it is the train being stopped by it,
+	 * and not a speed, that is going to happen.
+	 *
+	 * @return a speed in km/h, {@link #NONE} or {@link #UNKNOWN}.
+	 */
+	public static int shownTo(MinecraftServer server, SignalBoundary signal, TrackNode toward) {
+		return scan(server, null, signal, toward, false);
+	}
+
+	private static int scan(MinecraftServer server, TrackGraph graph, SignalBoundary signal, TrackNode toward,
+		boolean fresh) {
 		boolean side = signal.isPrimary(toward);
 		ServerLevel level = server.getLevel(signal.edgeLocation.getFirst().dimension);
 		if (level == null)
@@ -67,7 +83,12 @@ public final class SignalSpeeds {
 			}
 			if (!(level.getBlockEntity(pos) instanceof MultiAspectSignalBlockEntity head))
 				continue;
-			int speed = speedOf(head.aspectSeenFrom(graph, signal, side));
+			SignalAspect aspect = fresh ? head.aspectSeenFrom(graph, signal, side) : head.getAspect();
+			if (!fresh && aspect == SignalAspect.STOP) {
+				unloaded = true;
+				continue;
+			}
+			int speed = speedOf(aspect);
 			if (speed != NONE)
 				result = result == NONE ? speed : Math.min(result, speed);
 		}

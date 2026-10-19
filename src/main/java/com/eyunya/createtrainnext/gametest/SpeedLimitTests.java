@@ -2,7 +2,20 @@ package com.eyunya.createtrainnext.gametest;
 
 import com.eyunya.createtrainnext.CTNRegistry;
 import com.eyunya.createtrainnext.CreateTrainNext;
+import static com.eyunya.createtrainnext.gametest.CurveConsistencyTests.EAST;
+import static com.eyunya.createtrainnext.gametest.CurveConsistencyTests.GRAPH_TICKS;
+import static com.eyunya.createtrainnext.gametest.CurveConsistencyTests.route;
+
 import com.eyunya.createtrainnext.CTNConfig;
+import com.eyunya.createtrainnext.speed.CTNEdgePointTypes;
+import com.eyunya.createtrainnext.track.AngledTrackAnchorBlockEntity;
+import com.simibubi.create.Create;
+import com.simibubi.create.content.trains.entity.TravellingPoint;
+import com.simibubi.create.content.trains.entity.TravellingPoint.SteerDirection;
+import com.simibubi.create.content.trains.graph.TrackEdge;
+import com.simibubi.create.content.trains.graph.TrackGraph;
+import java.util.List;
+import com.eyunya.createtrainnext.signal.MultiAspectSignalBlockEntity;
 import com.eyunya.createtrainnext.signal.SignalAspect;
 import com.eyunya.createtrainnext.signal.SignalSpeeds;
 import com.eyunya.createtrainnext.speed.SpeedLimitBlockEntity;
@@ -20,6 +33,7 @@ import net.createmod.catnip.data.Couple;
 import net.createmod.catnip.data.Pair;
 import net.minecraft.core.BlockPos;
 import net.minecraft.nbt.CompoundTag;
+import net.minecraft.server.MinecraftServer;
 import net.minecraft.world.phys.Vec3;
 import net.minecraft.gametest.framework.GameTest;
 import net.minecraft.gametest.framework.GameTestHelper;
@@ -145,6 +159,16 @@ public class SpeedLimitTests {
 	private static void pass(Train train, TrackEdgePoint point, TrackNode from, TrackNode to) {
 		train.frontSignalListener()
 			.test(5.0, Pair.of(point, Couple.create(from, to)));
+	}
+
+	/** Makes a signal head show an aspect, by saving it, changing what it saved and reading it back as the world does. */
+	private static void setAspect(GameTestHelper helper, MultiAspectSignalBlockEntity head, String aspect) {
+		CompoundTag tag = head.saveWithFullMetadata(helper.getLevel()
+			.registryAccess());
+		tag.putString("Aspect", aspect);
+		head.loadWithComponents(tag, helper.getLevel()
+			.registryAccess());
+		helper.assertTrue(head.getAspect() == SignalAspect.valueOf(aspect), "setup: the head should show " + aspect + ", but shows " + head.getAspect());
 	}
 
 	private static float configuredTopSpeed() {
@@ -303,6 +327,17 @@ public class SpeedLimitTests {
 			TrainSpeedLimits.passedSignal(train, facing, toNode);
 			helper.assertTrue(Math.abs(train.maxSpeed() - 60 / 3.6F / 20) < 1.0E-6, "the sign's 60 should hold now");
 
+			// A train still far off meets what the lamps show now, and a signal at stop says nothing to it.
+			MinecraftServer server = helper.getLevel()
+				.getServer();
+			MultiAspectSignalBlockEntity head = (MultiAspectSignalBlockEntity) helper.getBlockEntity(pos);
+			setAspect(helper, head, "STOP");
+			helper.assertTrue(SignalSpeeds.shownTo(server, facing, toNode) == SignalSpeeds.UNKNOWN, "a signal showing stop says nothing to a train far off");
+			setAspect(helper, head, "REDUCED_SPEED");
+			helper.assertTrue(SignalSpeeds.shownTo(server, facing, toNode) == CTNConfig.SERVER.reducedSpeed.get(), "a signal showing 減速 holds a train far off to its speed");
+			setAspect(helper, head, "PROCEED");
+			helper.assertTrue(SignalSpeeds.shownTo(server, facing, toNode) == SignalSpeeds.NONE, "a signal showing 進行 holds a train far off to nothing");
+
 			// Not knowing leaves it; a signal with no head of the mod's lifts it.
 			TrainSpeedLimits.passedSignal(train, unloaded, toNode);
 			helper.assertTrue(Integer.valueOf(90)
@@ -319,6 +354,126 @@ public class SpeedLimitTests {
 			trains.poweredTrainTopSpeed.set((double) powered);
 		}
 		helper.succeed();
+	}
+
+	// ------------------------------------------------------- slowing in time
+
+	private static final double BRAKING = 0.006;
+	private static final float TOP = 1.4F;
+	private static final double KMH_PER_TICK = 72;
+
+	/**
+	 * The fastest a train may be going is the speed from which braking brings it down to a limit just as
+	 * it reaches the point, and nothing is asked of it where the limit is far off or is not slower.
+	 */
+	@GameTest(template = EMPTY)
+	public static void aTrainMaySlowToALimitJustAsItReachesIt(GameTestHelper helper) {
+		float limit = (float) (40 / KMH_PER_TICK);
+		double room = 100;
+		float expected = (float) Math.sqrt(limit * limit + 2 * BRAKING * room);
+		float allowed = TrainSpeedLimits.allowedAhead(List.of(new TrainSpeedLimits.Ahead(room + 1, true, 40)),
+			Double.POSITIVE_INFINITY, Double.POSITIVE_INFINITY, BRAKING, TOP);
+		helper.assertTrue(Math.abs(allowed - expected) < 1.0E-5, "100 blocks from a limit of 40 the train may go " + expected + ", but may go " + allowed);
+
+		helper.assertTrue(Math.abs(TrainSpeedLimits.allowedAhead(List.of(new TrainSpeedLimits.Ahead(1, true, 40)),
+			Double.POSITIVE_INFINITY, Double.POSITIVE_INFINITY, BRAKING, TOP) - limit) < 1.0E-6,
+			"at the sign it should be going the limit");
+		helper.assertTrue(TrainSpeedLimits.allowedAhead(List.of(new TrainSpeedLimits.Ahead(5000, true, 40)),
+			Double.POSITIVE_INFINITY, Double.POSITIVE_INFINITY, BRAKING, TOP) == TOP, "far from a limit it should be asked nothing");
+		helper.assertTrue(TrainSpeedLimits.allowedAhead(List.of(new TrainSpeedLimits.Ahead(10, true, 144)),
+			Double.POSITIVE_INFINITY, Double.POSITIVE_INFINITY, BRAKING, TOP) == TOP, "a limit above the top speed asks nothing");
+		helper.assertTrue(TrainSpeedLimits.allowedAhead(List.of(), 40, 40, BRAKING, TOP) == TOP,
+			"nothing ahead asks nothing; the limits it is under now are applied elsewhere");
+
+		// The limits it will be under then are what count: a release ahead of a sign changes nothing about
+		// the sign, and a sign that is no slower than a signal's limit asks no more than the signal does.
+		float slow = TrainSpeedLimits.allowedAhead(List.of(new TrainSpeedLimits.Ahead(51, true, 40), new TrainSpeedLimits.Ahead(81, true, -1)),
+			Double.POSITIVE_INFINITY, Double.POSITIVE_INFINITY, BRAKING, TOP);
+		helper.assertTrue(Math.abs(slow - (float) Math.sqrt(limit * limit + 2 * BRAKING * 50)) < 1.0E-5, "a release after a sign does not relax it");
+		float together = TrainSpeedLimits.allowedAhead(List.of(new TrainSpeedLimits.Ahead(101, false, 25)), 60, Double.POSITIVE_INFINITY, BRAKING, TOP);
+		float lowest = (float) (25 / KMH_PER_TICK);
+		helper.assertTrue(Math.abs(together - (float) Math.sqrt(lowest * lowest + 2 * BRAKING * 100)) < 1.0E-5,
+			"a signal ahead is held to its own speed, being the slower of it and the sign's 60");
+		float lifted = TrainSpeedLimits.allowedAhead(List.of(new TrainSpeedLimits.Ahead(101, false, -1)), Double.POSITIVE_INFINITY, 25, BRAKING, TOP);
+		helper.assertTrue(lifted == TOP, "a green signal ahead takes the signal's limit away, so nothing is asked of the train for it");
+		helper.succeed();
+	}
+
+	/**
+	 * Scouting down real track finds the sign that faces the train, how far along it is, and not the
+	 * one that faces away; and from the other end it finds the same sign the other way round.
+	 */
+	@GameTest(template = EMPTY, timeoutTicks = 80)
+	public static void scoutingDownTheTrackFindsTheSignsAheadAndTheirDistance(GameTestHelper helper) {
+		BlockPos[] places = { new BlockPos(4, 2, 16), new BlockPos(16, 2, 16), new BlockPos(28, 2, 16), new BlockPos(40, 2, 16) };
+		AngledTrackAnchorBlockEntity[] anchors = route(helper, EAST, places);
+
+		helper.runAfterDelay(GRAPH_TICKS, () -> {
+			var level = helper.getLevel();
+			TrackGraph graph = Create.RAILWAYS.sided(level)
+				.getGraph(level, new com.simibubi.create.content.trains.graph.TrackNodeLocation(anchors[0].exitNode()).in(level));
+			helper.assertTrue(graph != null, "the route should be in the graph by now");
+			TrackNode a = graph.locateNode(new TrackNodeLocation(anchors[0].exitNode()).in(level));
+			TrackNode b = graph.locateNode(new TrackNodeLocation(anchors[1].exitNode()).in(level));
+			TrackNode c = graph.locateNode(new TrackNodeLocation(anchors[2].exitNode()).in(level));
+			TrackNode d = graph.locateNode(new TrackNodeLocation(anchors[3].entryNode()).in(level));
+			TrackEdge ab = graph.getConnectionsFrom(a)
+				.get(b);
+			TrackEdge bc = graph.getConnectionsFrom(b)
+				.get(c);
+
+			// One sign on the second edge facing along the route, one on the third facing back along it.
+			SpeedLimitEdgePoint facing = new SpeedLimitEdgePoint();
+			facing.setId(UUID.randomUUID());
+			facing.setType(CTNEdgePointTypes.SPEED_LIMIT);
+			facing.setLocation(Couple.create(b.getLocation(), c.getLocation()), 6.0);
+			facing.setLimit(40);
+			graph.addPoint(CTNEdgePointTypes.SPEED_LIMIT, facing);
+			SpeedLimitEdgePoint away = new SpeedLimitEdgePoint();
+			away.setId(UUID.randomUUID());
+			away.setType(CTNEdgePointTypes.SPEED_LIMIT);
+			away.setLocation(Couple.create(d.getLocation(), c.getLocation()), 3.0);
+			away.setLimit(20);
+			graph.addPoint(CTNEdgePointTypes.SPEED_LIMIT, away);
+
+			TravellingPoint start = new TravellingPoint(a, b, ab, 0, false);
+			var steer = start.steer(SteerDirection.NONE, new Vec3(0, 1, 0));
+			List<TrainSpeedLimits.Ahead> ahead = TrainSpeedLimits.scan(null, graph, start, true, 200, steer);
+			helper.assertTrue(ahead.size() == 1, "going along the route, one sign should be met, not two: " + ahead);
+			helper.assertTrue(ahead.get(0)
+				.sign() && ahead.get(0)
+					.kmh() == 40, "and it should be the one for 40: " + ahead);
+			helper.assertTrue(Math.abs(ahead.get(0)
+				.distance() - (ab.getLength() + 6.0)) < 0.5,
+				"it should be along the first edge and six into the second, " + (ab.getLength() + 6.0) + ", not " + ahead.get(0)
+					.distance());
+
+			// Not far enough to reach it.
+			TravellingPoint shortStart = new TravellingPoint(a, b, ab, 0, false);
+			helper.assertTrue(TrainSpeedLimits.scan(null, graph, shortStart, true, 5, shortStart.steer(SteerDirection.NONE, new Vec3(0, 1, 0)))
+				.isEmpty(), "a sign beyond the reach is not found");
+
+			// The same track from the other end, going back along it: the other sign now faces the train.
+			TrackEdge dc = graph.getConnectionsFrom(d)
+				.get(c);
+			TravellingPoint back = new TravellingPoint(d, c, dc, 0, false);
+			List<TrainSpeedLimits.Ahead> reverse = TrainSpeedLimits.scan(null, graph, back, true, 200, back.steer(SteerDirection.NONE, new Vec3(0, 1, 0)));
+			helper.assertTrue(reverse.size() == 1 && reverse.get(0)
+				.kmh() == 20, "coming the other way the sign for 20 should be the one met: " + reverse);
+
+			// And running backwards along the route, with the end of the train leading, by the way a sign faces
+			// the train and not the way the track was laid.
+			TrackEdge cd = graph.getConnectionsFrom(c)
+				.get(d);
+			TravellingPoint west = new TravellingPoint(c, d, cd, cd.getLength() - 1, false);
+			List<TrainSpeedLimits.Ahead> backwards = TrainSpeedLimits.scan(null, graph, west, false, 200,
+				west.steer(SteerDirection.NONE, new Vec3(0, 1, 0)));
+			helper.assertTrue(backwards.size() == 1 && backwards.get(0)
+				.kmh() == 20 && Math.abs(backwards.get(0)
+					.distance() - 2.0) < 0.5,
+				"going west, the sign for 20 should be met two blocks on, and the one facing east not at all: " + backwards);
+			helper.succeed();
+		});
 	}
 
 	/** What a train was held to is saved with the world and read back. */
