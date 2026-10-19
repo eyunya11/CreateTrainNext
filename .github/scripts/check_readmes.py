@@ -205,6 +205,9 @@ joint = constant(planner, "MIN_JOINT_DOT")
 # default, and a miss is reported. The rule about the height difference that was checked here before was
 # found by a pattern, and once the code dropped it the pattern came back empty without a word, so the
 # READMEs went on quoting a rule that no longer existed.
+snap_angle = config.get("curves.snapAngle")
+if snap_angle is None:
+    fail("cannot find curves.snapAngle in CTNConfig")
 max_grade = config.get("curves.maxGrade")
 if max_grade is None:
     fail("cannot find curves.maxGrade in CTNConfig")
@@ -240,6 +243,10 @@ facts = [
      r"(\d+) permille by default", r"初期値は(\d+)‰"),
     ("one block in three", [round(1000 / 3)],
      r"(\d+) is one block of rise in three blocks of run", r"(\d+)は、水平3ブロックで1ブロック上がる勾配です"),
+    ("angle grid window", [constant(planner, "SNAP_WINDOW") * float(snap_angle[0]) if snap_angle and constant(planner, "SNAP_WINDOW") else None],
+     r"which is ([\d.]+) degrees for 15", r"15度なら([\d.]+)度です"),
+    ("angle grid search", [constant(planner, "SNAP_SEARCH")],
+     r"a block up to (\d+) blocks from the one you aim at", r"狙ったブロックから(\d+)ブロック以内に"),
     ("distance laid for a grade", [constant(planner, "STRAIGHT_LENGTH_TOLERANCE")],
      r"within ([\d.]+) blocks of the distance", r"指定した距離との差は([\d.]+)ブロック以内"),
 ]

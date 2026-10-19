@@ -12,7 +12,7 @@ An addon for [Create](https://github.com/Creators-of-Create/Create) that lets tr
 
 ## Features
 
-- Lay a curve at any angle with two right clicks. A ghost shows what will be built before you build it: green means it can be laid, red means it cannot.
+- Lay a curve at any angle with two right clicks. A ghost shows what will be built before you build it: green means it can be laid, red means it cannot. Angles near a multiple of 15 degrees are drawn to it, so 45 and 90 degrees come out exact.
 - Trains run on these curves as they do on any Create track. The five-aspect signal is built on Create's own signal system.
 - Two ends at different heights are joined at one steady grade, which the anchors remember, so a climb is a slope and not a staircase. Hold the sprint key and scroll to set a grade, and the wand lays the whole route at it.
 - A Survey Marker lays a dead straight line at a bearing, length and grade you set.
@@ -89,6 +89,14 @@ When a curve cannot be built, the ghost turns red and the message says why.
 | "Cannot start from sloped track" | Sloped Create track cannot be an end. |
 | "Part of the route that would have to be turned round is not loaded" | Move close enough that the whole route is loaded. |
 | "The track this curve started from is gone" | The track you started from has been broken. |
+
+### Round angles
+
+The direction at the free end of a curve is drawn to a multiple of 15 degrees when the block you aim at gives an angle close to one, so a right angle or a 45 degree bend is exact and not a block out. The step is the server setting `curves.snapAngle`, and 0 turns it off. Close means within a quarter of the step either side, which is 3.75 degrees for 15.
+
+It is done in one of two ways. If a block up to 2 blocks from the one you aim at gives the angle exactly, the curve ends on that block. Every multiple of 45 degrees is like this, so a bend that is a block short of a right angle becomes one clean arc. Otherwise the end stays on the block you aimed at and only its direction is turned to the angle. Angles such as 30 and 60 degrees are done this way, and the curve may need an anchor between two arcs.
+
+The end you turn by hand is drawn to the grid as well, so a notch that lands near an angle stops on it. While you are turning by hand the block you aim at does not move. A line from an anchor that is on no route yet is drawn to the grid at both ends. A distance typed into the screen and a Survey Marker keep the direction they were given, and so do Create track and an anchor that already has a curve. The ghost and the message show the angle that will be built. If the grid would make a curve impossible, the curve is the one the block you aim at gives.
 
 ### Laying at a grade
 
@@ -246,6 +254,7 @@ The server setting affects what is in the world, so the same value applies to ev
 |---|---|---|---|
 | `curves.collision` | true | true, false | Whether to lay the floor along curves |
 | `curves.maxGrade` | 333 | 10 to 1000 | The steepest any curve or straight line may be anywhere along it, in permille. 333 is one block of rise in three blocks of run. |
+| `curves.snapAngle` | 15 | 0 to 45 | The step, in degrees, of the angles the free end of a curve is drawn to. 0 turns it off. Use a step that divides 45, so that 45 and 90 are on the grid. |
 
 The client settings change only how things are drawn, so each player can pick their own.
 
@@ -323,7 +332,7 @@ You need JDK 21.
 
 If the IDE reports missing libraries, run `./gradlew --refresh-dependencies` to refresh the local cache. `./gradlew clean` resets the build output. Neither touches your code.
 
-The game tests are in `src/main/java/com/eyunya/createtrainnext/gametest/`. They check curve planning, grades, the survey marker, the wand's click handling, reversing and joining routes, and cleaning and repairing the graph, on a real server. The test world is created in `build/gametest/world` and deleted on every run. GitHub Actions runs the build and the game tests on every push and pull request. Drawing, and trains actually driving over the result, cannot be checked automatically, so check them in a client.
+The game tests are in `src/main/java/com/eyunya/createtrainnext/gametest/`. They check curve planning, angles and grades, long links, the survey marker, the wand's click handling, reversing and joining routes, and cleaning and repairing the graph, on a real server. The test world is created in `build/gametest/world` and deleted on every run. GitHub Actions runs the build and the game tests on every push and pull request. Drawing, and trains actually driving over the result, cannot be checked automatically, so check them in a client.
 
 The build is against the Create 6.0.10 release. The Maven build `6.0.10-281` matches the distributed `create-1.21.1-6.0.10.jar` apart from the build information (`META-INF/MANIFEST.MF` and `CreateBuildInfo.class`). `6.0.11-N` builds are Create's development builds and are not used; as of October 2026 the latest release is 6.0.10. The 6.0.10 POM declares Registrate, Ponder and Flywheel only as runtime dependencies. So `build.gradle` takes Create itself alone, and the three versions are pinned in `gradle.properties`.
 

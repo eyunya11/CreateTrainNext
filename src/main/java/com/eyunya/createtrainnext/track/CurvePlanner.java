@@ -151,6 +151,26 @@ public final class CurvePlanner {
 	/** {@code curves.maxGrade} where the config cannot be read, in permille. One block of rise in three of run. */
 	static final int DEFAULT_MAX_GRADE = 333;
 
+	/** {@code curves.snapAngle} where the config cannot be read, in degrees. */
+	static final int DEFAULT_SNAP_ANGLE = 15;
+
+	/**
+	 * How near to an angle on the grid a heading has to be for the grid to win, as a fraction of the step:
+	 * a quarter either side, so that half of all headings are drawn to one and the other half are left as
+	 * they are, and the hand-turning notches of two and a half degrees stop on each angle three times.
+	 */
+	private static final double SNAP_WINDOW = 0.25;
+
+	/** A heading this near to an angle on the grid is on it, in degrees. */
+	private static final double SNAP_EXACT = 1.0E-6;
+
+	/**
+	 * How many blocks either way an aimed block may be moved to make its curve arrive at an angle on the
+	 * grid exactly. Far enough to cover the window at the longest span, not so far that the curve ends
+	 * somewhere the player was not looking.
+	 */
+	private static final int SNAP_SEARCH = 2;
+
 	/** The least climb an end that is meant to climb is given: about a hundredth of a permille. */
 	private static final double MIN_SLOPE = 1.0E-5;
 
@@ -192,6 +212,11 @@ public final class CurvePlanner {
 		/** This end moved to another height in the same column, for a grade to choose where it goes. */
 		Endpoint atHeight(int y) {
 			return new Endpoint(error, anchorPos.atY(y), mustPlace, fixedHeading, interior, docked, side, fixedSlope);
+		}
+
+		/** This end moved to another block at the same height, for an angle to choose where it goes. */
+		Endpoint movedTo(BlockPos pos) {
+			return new Endpoint(error, pos, mustPlace, fixedHeading, interior, docked, side, fixedSlope);
 		}
 
 		/** Whether this end's heading has to be written to the anchor when the curve is built. */
@@ -377,7 +402,7 @@ public final class CurvePlanner {
 		if (end.error() != null)
 			return Plan.failed(end.error());
 
-		return connect(level, start, end, angleOffsetDegrees, grade);
+		return connect(level, start, end, angleOffsetDegrees, grade, snapStepDegrees());
 	}
 
 	/**
@@ -386,7 +411,7 @@ public final class CurvePlanner {
 	 * a distance, which chooses it.
 	 */
 	private static Plan connect(Level level, Endpoint start, Endpoint end, float angleOffsetDegrees,
-		@Nullable GradeSpec grade) {
+		@Nullable GradeSpec grade, int snap) {
 		if (start.anchorPos()
 			.equals(end.anchorPos()))
 			return Plan.failed("same_anchor");
@@ -423,7 +448,18 @@ public final class CurvePlanner {
 			forward = start.side() == Side.NEXT;
 		}
 
-		return roomAtEnd(level, solve(level, start, end, angleOffsetDegrees, forward, reverseEnd, grade));
+		Endpoint aimed = end;
+		if (snap > 0 && Math.abs(angleOffsetDegrees) < 1.0E-4)
+			end = snappedTarget(level, start, end, grade, snap);
+
+		Plan plan = roomAtEnd(level, solve(level, start, end, angleOffsetDegrees, forward, reverseEnd, grade, snap));
+
+		// The grid is a preference. A curve it makes impossible — a turn it makes too sharp, an anchor it has
+		// nowhere to put — is not worth an angle, so the curve is the one the aimed block gives, whether that
+		// is any better or not: the preview should say what pointing there does, not what the grid wished.
+		if (snap > 0 && !plan.valid())
+			return roomAtEnd(level, solve(level, start, aimed, angleOffsetDegrees, forward, reverseEnd, grade, 0));
+		return plan;
 	}
 
 	/**
@@ -517,8 +553,9 @@ public final class CurvePlanner {
 			return Plan.failed("no_room");
 
 		// Open ground, at the start's height: the grade moves it to the height it gives.
+		// Straight ahead is the way the route runs, which the angle grid has no business bending, so none.
 		Endpoint end = new Endpoint(null, best, true, null, false, false, Side.EITHER, 0.0);
-		return connect(level, start, end, 0.0F, grade);
+		return connect(level, start, end, 0.0F, grade, 0);
 	}
 
 	/**
@@ -762,7 +799,7 @@ public final class CurvePlanner {
 	// ------------------------------------------------------------- geometry
 
 	private static Plan solve(Level level, Endpoint start, Endpoint clicked, float angleOffsetDegrees,
-		boolean forward, boolean reverseEnd, @Nullable GradeSpec grade) {
+		boolean forward, boolean reverseEnd, @Nullable GradeSpec grade, int snap) {
 		Vec3 fixedStart = start.fixedHeading() == null ? null : flatUnit(start.fixedHeading());
 		Vec3 fixedEnd = clicked.fixedHeading() == null ? null : flatUnit(clicked.fixedHeading());
 
@@ -792,13 +829,13 @@ public final class CurvePlanner {
 			boolean startSloped = sloped(fixedStartSlope, fixedEndSlope, rise);
 			boolean endSloped = sloped(fixedEndSlope, fixedStartSlope, rise);
 
-			layout = layout(start, end, fixedStart, fixedEnd, startSloped, endSloped, angleOffsetDegrees);
+			layout = layout(start, end, fixedStart, fixedEnd, startSloped, endSloped, angleOffsetDegrees, snap);
 			if (layout == null)
 				return Plan.failed("too_close");
 			slopes = slopesBetween(layout.startPoint(), layout.endPoint(), layout.startHeading(), layout.endHeading(),
 				fixedStartSlope, fixedEndSlope, startSloped, endSloped);
 		} else {
-			Graded graded = gradedEnd(start, clicked, fixedStart, fixedStartSlope, laid, angleOffsetDegrees);
+			Graded graded = gradedEnd(start, clicked, fixedStart, fixedStartSlope, laid, angleOffsetDegrees, snap);
 			if (graded == null)
 				return Plan.failed("too_close");
 			end = graded.end();
@@ -848,7 +885,7 @@ public final class CurvePlanner {
 	 */
 	@Nullable
 	private static Layout layout(Endpoint start, Endpoint end, @Nullable Vec3 fixedStart, @Nullable Vec3 fixedEnd,
-		boolean startSloped, boolean endSloped, float angleOffsetDegrees) {
+		boolean startSloped, boolean endSloped, float angleOffsetDegrees, int snap) {
 		Vec3 seed = flat(Vec3.atBottomCenterOf(end.anchorPos())
 			.subtract(Vec3.atBottomCenterOf(start.anchorPos())));
 		if (seed.lengthSqr() < 1.0E-6)
@@ -898,6 +935,23 @@ public final class CurvePlanner {
 			endPoint = AngledTrackAnchorBlockEntity.entryNode(end.anchorPos(), endHeading, end.interior(), endSloped);
 		}
 
+		// The angles on the grid win over the ones the aimed block and the hand gave, for the end that is free
+		// to be aimed. A start that is free as well is one that has nothing to answer to, so it is drawn
+		// to the grid too. A free start whose end is fixed is left to the arc that meets the end.
+		if (snap > 0 && fixedEnd == null) {
+			Vec3 snappedEnd = snapHeading(endHeading, snap);
+			Vec3 snappedStart = fixedStart == null ? snapHeading(startHeading, snap) : null;
+			if (snappedEnd != null || snappedStart != null) {
+				if (snappedEnd != null)
+					endHeading = snappedEnd;
+				if (snappedStart != null)
+					startHeading = snappedStart;
+				startPoint = AngledTrackAnchorBlockEntity.exitNode(start.anchorPos(), startHeading, start.interior(),
+					startSloped);
+				endPoint = AngledTrackAnchorBlockEntity.entryNode(end.anchorPos(), endHeading, end.interior(), endSloped);
+			}
+		}
+
 		double turn = Math.toDegrees(Math.acos(Mth.clamp(startHeading.dot(endHeading), -1, 1)));
 		return new Layout(startHeading, endHeading, startPoint, endPoint, adjustable, turn);
 	}
@@ -937,7 +991,7 @@ public final class CurvePlanner {
 	 */
 	@Nullable
 	private static Graded gradedEnd(Endpoint start, Endpoint clicked, @Nullable Vec3 fixedStart,
-		@Nullable Double fixedStartSlope, GradeSpec grade, float angleOffsetDegrees) {
+		@Nullable Double fixedStartSlope, GradeSpec grade, float angleOffsetDegrees, int snap) {
 		double s0 = fixedStartSlope == null ? 0 : fixedStartSlope;
 		double g = grade.grade();
 		int startY = start.anchorPos()
@@ -954,7 +1008,7 @@ public final class CurvePlanner {
 			// arrives climbing unless it has neither a climb to start from nor a rise to make.
 			endSloped = g != 0 && (rise != 0 || s0 != 0);
 			startSloped = fixedStartSlope != null ? fixedStartSlope != 0 : rise != 0 || endSloped;
-			layout = layout(start, end, fixedStart, null, startSloped, endSloped, angleOffsetDegrees);
+			layout = layout(start, end, fixedStart, null, startSloped, endSloped, angleOffsetDegrees, snap);
 			if (layout == null)
 				return null;
 
@@ -1683,6 +1737,152 @@ public final class CurvePlanner {
 		double cos = Math.cos(radians);
 		double sin = Math.sin(radians);
 		return new Vec3(vector.x * cos - vector.z * sin, vector.y, vector.x * sin + vector.z * cos);
+	}
+
+	// ---------------------------------------------------------------- angle grid
+
+	/** {@code curves.snapAngle}, in degrees; the default where the config cannot be read yet. 0 is off. */
+	public static int snapStepDegrees() {
+		try {
+			return CTNConfig.SERVER.snapAngle.get();
+		} catch (IllegalStateException notLoaded) {
+			return DEFAULT_SNAP_ANGLE;
+		}
+	}
+
+	/** The way a horizontal vector points, in compass degrees: 0 is east and 90 north, as on a map of the world. */
+	public static double bearingOf(Vec3 heading) {
+		return Math.toDegrees(Math.atan2(-heading.z, heading.x));
+	}
+
+	/**
+	 * The horizontal unit vector for a compass bearing. The multiples of 45 are written out rather than
+	 * worked out, because {@code cos(90°)} is six parts in 10^17 and not nothing, and a heading that is
+	 * meant to lie along an axis should lie along it exactly.
+	 */
+	public static Vec3 headingAt(double bearing) {
+		double wrapped = ((bearing % 360) + 360) % 360;
+		double diagonal = Math.sqrt(0.5);
+		if (wrapped % 90 == 0)
+			return switch ((int) (wrapped / 90)) {
+				case 0 -> new Vec3(1, 0, 0);
+				case 1 -> new Vec3(0, 0, -1);
+				case 2 -> new Vec3(-1, 0, 0);
+				default -> new Vec3(0, 0, 1);
+			};
+		if (wrapped % 45 == 0)
+			return switch ((int) (wrapped / 45)) {
+				case 1 -> new Vec3(diagonal, 0, -diagonal);
+				case 3 -> new Vec3(-diagonal, 0, -diagonal);
+				case 5 -> new Vec3(-diagonal, 0, diagonal);
+				default -> new Vec3(diagonal, 0, diagonal);
+			};
+		double radians = Math.toRadians(wrapped);
+		return new Vec3(Math.cos(radians), 0, -Math.sin(radians));
+	}
+
+	/**
+	 * The angle on the grid that wins for a bearing, or NaN if it is not near enough to any. A bearing that
+	 * is already on one is left to be.
+	 */
+	static double gridAngle(double bearing, int step) {
+		double nearest = Math.round(bearing / step) * (double) step;
+		double off = Math.abs(bearing - nearest);
+		return off <= step * SNAP_WINDOW && off >= SNAP_EXACT ? nearest : Double.NaN;
+	}
+
+	/** The heading drawn to the grid, or null if it is on it already or too far from it to be drawn. */
+	@Nullable
+	private static Vec3 snapHeading(Vec3 heading, int step) {
+		double wanted = gridAngle(bearingOf(heading), step);
+		return Double.isNaN(wanted) ? null : headingAt(wanted);
+	}
+
+	/**
+	 * The layout of the curve to a far end as the planner would have it with nothing drawn to the grid: what
+	 * {@link #solve} works out first, without the slopes.
+	 */
+	@Nullable
+	private static Layout naturalLayout(Endpoint start, Endpoint clicked, @Nullable GradeSpec grade) {
+		Vec3 fixedStart = start.fixedHeading() == null ? null : flatUnit(start.fixedHeading());
+		Vec3 fixedEnd = clicked.fixedHeading() == null ? null : flatUnit(clicked.fixedHeading());
+		Double fixedStartSlope = fixedStart == null ? null : start.fixedSlope();
+		Double fixedEndSlope = fixedEnd == null ? null : clicked.fixedSlope();
+		GradeSpec laid = grade != null && clicked.mustPlace() && fixedEnd == null ? grade : null;
+
+		if (laid != null) {
+			Graded graded = gradedEnd(start, clicked, fixedStart, fixedStartSlope, laid, 0, 0);
+			return graded == null ? null : graded.layout();
+		}
+
+		double rise = clicked.anchorPos()
+			.getY()
+			- start.anchorPos()
+				.getY();
+		return layout(start, clicked, fixedStart, fixedEnd, sloped(fixedStartSlope, fixedEndSlope, rise),
+			sloped(fixedEndSlope, fixedStartSlope, rise), 0, 0);
+	}
+
+	/**
+	 * The block to aim the curve at so that it arrives at an angle on the grid exactly, if there is one a
+	 * couple of blocks from the one that was aimed at; otherwise the block that was.
+	 *
+	 * <p>Where the aimed block gives an angle near the grid but not on it, some block beside it often gives
+	 * one on it. That is so for every multiple of 45 degrees, since a diagonal and an axis both run through
+	 * the corners of blocks; for the other angles on the grid there is none, and the heading is turned to
+	 * them instead (see {@link #layout}), with the block left where it was. Taking the exact block when
+	 * there is one is what keeps a right angle one clean arc, rather than an arc with an anchor and a
+	 * second one added to correct it.
+	 *
+	 * <p>Only a new anchor on open ground can be moved. The aimed block is the nearest of those that are
+	 * right, so the curve ends as near to where the player pointed as it can and still be square.
+	 */
+	private static Endpoint snappedTarget(Level level, Endpoint start, Endpoint end, @Nullable GradeSpec grade,
+		int step) {
+		if (!end.mustPlace() || end.fixedHeading() != null)
+			return end;
+
+		Layout natural = naturalLayout(start, end, grade);
+		if (natural == null || !natural.adjustable())
+			return end;
+		double wanted = gridAngle(bearingOf(natural.endHeading()), step);
+		if (Double.isNaN(wanted))
+			return end;
+
+		Endpoint best = null;
+		int bestDistance = Integer.MAX_VALUE;
+		for (int dx = -SNAP_SEARCH; dx <= SNAP_SEARCH; dx++)
+			for (int dz = -SNAP_SEARCH; dz <= SNAP_SEARCH; dz++) {
+				int distance = dx * dx + dz * dz;
+				if (distance == 0 || distance >= bestDistance)
+					continue;
+
+				BlockPos pos = end.anchorPos()
+					.offset(dx, 0, dz);
+				if (pos.equals(start.anchorPos()) || !roomForAnchor(level, pos, grade != null))
+					continue;
+
+				Endpoint candidate = end.movedTo(pos);
+				Layout layout = naturalLayout(start, candidate, grade);
+				if (layout != null && Math.abs(Mth.wrapDegrees(bearingOf(layout.endHeading()) - wanted)) < SNAP_EXACT) {
+					best = candidate;
+					bestDistance = distance;
+				}
+			}
+		return best == null ? end : best;
+	}
+
+	/**
+	 * Whether an anchor could go at a block: loaded, and nothing in it that is not as easily built over. In
+	 * grade mode the height is not the block's own, and is asked again once the grade has chosen it.
+	 */
+	private static boolean roomForAnchor(Level level, BlockPos pos, boolean heightFree) {
+		if (level.isOutsideBuildHeight(pos) || !level.isLoaded(pos))
+			return false;
+		if (level.getBlockEntity(pos) instanceof AngledTrackAnchorBlockEntity)
+			return false;
+		BlockState state = level.getBlockState(pos);
+		return !(state.getBlock() instanceof ITrackBlock) && (heightFree || state.canBeReplaced());
 	}
 
 	/**
