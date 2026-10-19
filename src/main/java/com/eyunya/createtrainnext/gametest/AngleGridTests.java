@@ -11,6 +11,7 @@ import com.eyunya.createtrainnext.CreateTrainNext;
 import com.eyunya.createtrainnext.track.AngledTrackAnchorBlockEntity;
 import com.eyunya.createtrainnext.track.CurvePlanner;
 import com.eyunya.createtrainnext.track.GradeSpec;
+import com.simibubi.create.infrastructure.config.AllConfigs;
 
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
@@ -52,6 +53,13 @@ public class AngleGridTests {
 	/** Within this, two bearings are the same angle. */
 	private static final double EXACT = 1.0E-6;
 
+	/**
+	 * The longest span the tests plan, set for the length of a plan. Create's own default of 32 is shorter than
+	 * the spans the grid needs to be seen working over — a block off straight is only inside the window from about
+	 * thirty blocks out — and a test must not depend on whatever the setting was left at.
+	 */
+	private static final int LONGEST_SPAN = 64;
+
 	private static double bearing(Vec3 heading) {
 		return CurvePlanner.bearingOf(heading);
 	}
@@ -68,7 +76,14 @@ public class AngleGridTests {
 	private static CurvePlanner.Plan plan(GameTestHelper helper, BlockPos start, int east, int north, float hand,
 		GradeSpec grade) {
 		BlockPos from = helper.absolutePos(start);
-		return CurvePlanner.plan(helper.getLevel(), from, from.offset(east, 0, -north), Direction.UP, hand, grade);
+		var longest = AllConfigs.server().trains.maxTrackPlacementLength;
+		int original = longest.get();
+		try {
+			longest.set(LONGEST_SPAN);
+			return CurvePlanner.plan(helper.getLevel(), from, from.offset(east, 0, -north), Direction.UP, hand, grade);
+		} finally {
+			longest.set(original);
+		}
 	}
 
 	private static BlockPos moved(GameTestHelper helper, CurvePlanner.Plan plan, BlockPos start, int east, int north) {
