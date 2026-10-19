@@ -39,6 +39,12 @@ public class CTNConfig {
 
 		public final ModConfigSpec.IntValue snapAngle;
 
+		public final ModConfigSpec.IntValue restrictedSpeed;
+
+		public final ModConfigSpec.IntValue approachSpeed;
+
+		public final ModConfigSpec.IntValue reducedSpeed;
+
 		private Server(ModConfigSpec.Builder builder) {
 			builder.comment("Free angle curves")
 				.push("curves");
@@ -73,6 +79,26 @@ public class CTNConfig {
 					"angle is turned to it if not. A step that divides 45 keeps 45 and 90 degrees among them.",
 					"0 turns it off, and the curve takes whatever angle the aimed block gives.")
 				.defineInRange("snapAngle", 15, 0, 45);
+
+			builder.pop();
+
+			builder.comment("How fast a five-aspect signal lets a train go, in km/h",
+					"A train is held to the speed of the last signal it passed until it passes the next, and",
+					"a green signal holds it to nothing. A train passing a signal at red is held to the",
+					"restricted speed. The speed limit signs hold a train separately, and the slower wins.")
+				.push("signals");
+
+			restrictedSpeed = builder
+				.comment("The speed at 警戒, the two outer yellow lamps.")
+				.defineInRange("restrictedSpeed", 25, 1, 1000);
+
+			approachSpeed = builder
+				.comment("The speed at 注意, the lower yellow lamp.")
+				.defineInRange("approachSpeed", 45, 1, 1000);
+
+			reducedSpeed = builder
+				.comment("The speed at 減速, the upper yellow lamp and the green.")
+				.defineInRange("reducedSpeed", 75, 1, 1000);
 
 			builder.pop();
 		}

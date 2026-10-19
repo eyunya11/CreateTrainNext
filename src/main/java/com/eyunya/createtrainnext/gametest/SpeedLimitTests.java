@@ -2,12 +2,17 @@ package com.eyunya.createtrainnext.gametest;
 
 import com.eyunya.createtrainnext.CTNRegistry;
 import com.eyunya.createtrainnext.CreateTrainNext;
+import com.eyunya.createtrainnext.CTNConfig;
+import com.eyunya.createtrainnext.signal.SignalAspect;
+import com.eyunya.createtrainnext.signal.SignalSpeeds;
 import com.eyunya.createtrainnext.speed.SpeedLimitBlockEntity;
 import com.eyunya.createtrainnext.speed.SpeedLimitEdgePoint;
 import com.eyunya.createtrainnext.speed.TrainSpeedLimits;
 import com.simibubi.create.content.trains.entity.Train;
 import com.simibubi.create.content.trains.graph.TrackNode;
 import com.simibubi.create.content.trains.graph.TrackNodeLocation;
+import com.simibubi.create.content.trains.signal.SignalBoundary;
+import com.simibubi.create.content.trains.signal.TrackEdgePoint;
 import com.simibubi.create.infrastructure.config.AllConfigs;
 import com.simibubi.create.infrastructure.config.CTrains;
 
@@ -137,7 +142,7 @@ public class SpeedLimitTests {
 	}
 
 	/** The train's front passing a point, going from one node towards the other. */
-	private static void pass(Train train, SpeedLimitEdgePoint point, TrackNode from, TrackNode to) {
+	private static void pass(Train train, TrackEdgePoint point, TrackNode from, TrackNode to) {
 		train.frontSignalListener()
 			.test(5.0, Pair.of(point, Couple.create(from, to)));
 	}
@@ -195,21 +200,146 @@ public class SpeedLimitTests {
 		helper.succeed();
 	}
 
+	/** Each aspect holds a train to the speed in the config, green holds it to nothing, and red is held as the lowest. */
+	@GameTest(template = EMPTY)
+	public static void eachAspectHoldsATrainToItsConfiguredSpeed(GameTestHelper helper) {
+		int restricted = CTNConfig.SERVER.restrictedSpeed.get();
+		int approach = CTNConfig.SERVER.approachSpeed.get();
+		int reduced = CTNConfig.SERVER.reducedSpeed.get();
+		try {
+			CTNConfig.SERVER.restrictedSpeed.set(25);
+			CTNConfig.SERVER.approachSpeed.set(45);
+			CTNConfig.SERVER.reducedSpeed.set(75);
+			helper.assertTrue(SignalSpeeds.speedOf(SignalAspect.PROCEED) == SignalSpeeds.NONE, "green holds a train to nothing");
+			helper.assertTrue(SignalSpeeds.speedOf(SignalAspect.REDUCED_SPEED) == 75, "減速 should be 75");
+			helper.assertTrue(SignalSpeeds.speedOf(SignalAspect.APPROACH) == 45, "注意 should be 45");
+			helper.assertTrue(SignalSpeeds.speedOf(SignalAspect.RESTRICTED) == 25, "警戒 should be 25");
+			helper.assertTrue(SignalSpeeds.speedOf(SignalAspect.STOP) == 25, "a train passing at red is held as the lowest, 25");
+
+			CTNConfig.SERVER.approachSpeed.set(55);
+			CTNConfig.SERVER.restrictedSpeed.set(20);
+			helper.assertTrue(SignalSpeeds.speedOf(SignalAspect.APPROACH) == 55 && SignalSpeeds.speedOf(SignalAspect.RESTRICTED) == 20
+				&& SignalSpeeds.speedOf(SignalAspect.STOP) == 20, "the speeds should follow the config");
+		} finally {
+			CTNConfig.SERVER.restrictedSpeed.set(restricted);
+			CTNConfig.SERVER.approachSpeed.set(approach);
+			CTNConfig.SERVER.reducedSpeed.set(reduced);
+		}
+		helper.succeed();
+	}
+
+	/**
+	 * A train passing a signal is held to what the heads facing it show, a signal without such a head
+	 * lifts the limit, and one whose heads cannot be looked at leaves it alone; the sign's limit is
+	 * kept apart, and the slower of the two holds.
+	 *
+	 * <p>The head here has no track under it, so it works out at stop, which is the aspect that can be
+	 * had without a graph to count blocks in.
+	 */
+	@GameTest(template = EMPTY)
+	public static void aTrainPassingASignalIsHeldToWhatItsHeadShows(GameTestHelper helper) {
+		CTrains trains = AllConfigs.server().trains;
+		float standard = trains.trainTopSpeed.getF();
+		float powered = trains.poweredTrainTopSpeed.getF();
+		int restricted = CTNConfig.SERVER.restrictedSpeed.get();
+		BlockPos pos = new BlockPos(4, 2, 4);
+		helper.setBlock(pos, CTNRegistry.MULTI_ASPECT_SIGNAL.get()
+			.defaultBlockState());
+		BlockPos absolute = helper.absolutePos(pos);
+
+		// A node's location includes the dimension it is in, which the nodes above do not have.
+		TrackNodeLocation hereIn = new TrackNodeLocation(new Vec3(0.5, 1, 0.5)).in(helper.getLevel()
+			.dimension());
+		TrackNodeLocation thereIn = new TrackNodeLocation(new Vec3(10.5, 1, 0.5)).in(helper.getLevel()
+			.dimension());
+		TrackNode fromNode = new TrackNode(hereIn, 0, new Vec3(0, 1, 0));
+		TrackNode toNode = new TrackNode(thereIn, 1, new Vec3(0, 1, 0));
+		SignalBoundary facing = new SignalBoundary();
+		facing.setLocation(Couple.create(hereIn, thereIn), 5.0);
+		facing.blockEntities.get(true)
+			.put(absolute, false);
+		SignalBoundary headless = new SignalBoundary();
+		headless.setLocation(facing.edgeLocation, 5.0);
+		SignalBoundary away = new SignalBoundary();
+		away.setLocation(facing.edgeLocation, 5.0);
+		away.blockEntities.get(false)
+			.put(absolute, false);
+		SignalBoundary unloaded = new SignalBoundary();
+		unloaded.setLocation(facing.edgeLocation, 5.0);
+		unloaded.blockEntities.get(true)
+			.put(new BlockPos(30000000, 2, 30000000), false);
+
+		SpeedLimitEdgePoint sixty = sign(60, false);
+		sixty.setLocation(facing.edgeLocation, 5.0);
+		SpeedLimitEdgePoint release = sign(1, true);
+		release.setLocation(facing.edgeLocation, 5.0);
+
+		Train train = train();
+		try {
+			trains.trainTopSpeed.set(28.0);
+			trains.poweredTrainTopSpeed.set(40.0);
+			CTNConfig.SERVER.restrictedSpeed.set(25);
+			TrainSpeedLimits.passedSignal(train, facing, toNode);
+			helper.assertTrue(Integer.valueOf(25)
+				.equals(TrainSpeedLimits.signalLimitOf(train)), "a head at stop should hold a train to 25, but holds it to " + TrainSpeedLimits.signalLimitOf(train));
+			helper.assertTrue(Math.abs(train.maxSpeed() - 25 / 3.6F / 20) < 1.0E-6, "and its top speed should follow");
+
+			// Through the listener a train really uses as its front passes a point, not just the method behind it.
+			Train viaListener = train();
+			pass(viaListener, facing, fromNode, toNode);
+			helper.assertTrue(Integer.valueOf(25)
+				.equals(TrainSpeedLimits.signalLimitOf(viaListener)), "passing the signal should hold a train to 25 through the listener too");
+			TrainSpeedLimits.applySignal(viaListener, SignalSpeeds.NONE);
+
+			// The same signal from the other direction has no head facing the train.
+			Train other = train();
+			TrainSpeedLimits.passedSignal(other, facing, fromNode);
+			helper.assertTrue(TrainSpeedLimits.signalLimitOf(other) == null, "the head on the other side says nothing to a train going the other way");
+
+			// A sign's limit is its own, and the slower of the two holds.
+			pass(train, sixty, fromNode, toNode);
+			helper.assertTrue(Math.abs(train.maxSpeed() - 25 / 3.6F / 20) < 1.0E-6, "the signal's 25 is slower than the sign's 60");
+			CTNConfig.SERVER.restrictedSpeed.set(90);
+			TrainSpeedLimits.passedSignal(train, facing, toNode);
+			helper.assertTrue(Math.abs(train.maxSpeed() - 60 / 3.6F / 20) < 1.0E-6, "the sign's 60 should hold now");
+
+			// Not knowing leaves it; a signal with no head of the mod's lifts it.
+			TrainSpeedLimits.passedSignal(train, unloaded, toNode);
+			helper.assertTrue(Integer.valueOf(90)
+				.equals(TrainSpeedLimits.signalLimitOf(train)), "a head that cannot be looked at should leave the signal's limit as it was");
+			TrainSpeedLimits.passedSignal(train, headless, toNode);
+			helper.assertTrue(TrainSpeedLimits.signalLimitOf(train) == null, "a signal without a head of the mod's should lift the signal's limit");
+			TrainSpeedLimits.passedSignal(train, away, toNode);
+			helper.assertTrue(TrainSpeedLimits.signalLimitOf(train) == null, "so should one whose head faces away");
+		} finally {
+			pass(train, release, fromNode, toNode);
+			TrainSpeedLimits.applySignal(train, SignalSpeeds.NONE);
+			CTNConfig.SERVER.restrictedSpeed.set(restricted);
+			trains.trainTopSpeed.set((double) standard);
+			trains.poweredTrainTopSpeed.set((double) powered);
+		}
+		helper.succeed();
+	}
+
 	/** What a train was held to is saved with the world and read back. */
 	@GameTest(template = EMPTY)
 	public static void aTrainsLimitSurvivesBeingSaved(GameTestHelper helper) {
 		UUID id = UUID.randomUUID();
 		TrainSpeedLimits.TrainSpeedLimitData data = new TrainSpeedLimits.TrainSpeedLimitData();
-		data.set(id, 75);
+		data.setSign(id, 75);
+		data.setSignal(id, 25);
 		CompoundTag saved = data.save(new CompoundTag(), helper.getLevel()
 			.registryAccess());
 		TrainSpeedLimits.TrainSpeedLimitData loaded = TrainSpeedLimits.TrainSpeedLimitData.load(saved, helper.getLevel()
 			.registryAccess());
 		helper.assertTrue(Integer.valueOf(75)
-			.equals(loaded.get(id)), "the limit should come back from a save, but is " + loaded.get(id));
-		helper.assertTrue(loaded.get(UUID.randomUUID()) == null, "a train that was never held should not be");
-		data.release(id);
-		helper.assertTrue(data.get(id) == null, "releasing should forget the limit");
+			.equals(loaded.sign(id)), "the sign's limit should come back from a save, but is " + loaded.sign(id));
+		helper.assertTrue(Integer.valueOf(25)
+			.equals(loaded.signal(id)), "the signal's limit should come back from a save, but is " + loaded.signal(id));
+		helper.assertTrue(loaded.sign(UUID.randomUUID()) == null, "a train that was never held should not be");
+		data.releaseSign(id);
+		data.releaseSignal(id);
+		helper.assertTrue(data.sign(id) == null && data.signal(id) == null, "releasing should forget the limits");
 		helper.succeed();
 	}
 

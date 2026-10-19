@@ -9,13 +9,15 @@ import com.eyunya.createtrainnext.speed.SpeedLimitEdgePoint;
 import com.eyunya.createtrainnext.speed.TrainSpeedLimits;
 import com.simibubi.create.content.trains.entity.Train;
 import com.simibubi.create.content.trains.entity.TravellingPoint.IEdgePointListener;
+import com.simibubi.create.content.trains.signal.SignalBoundary;
 
 /**
  * The two places a train has to be told about speed limits, because Create has no way to be asked.
  *
  * <p>Edge points are Create's own list: what a train does on passing one is spelled out in
  * {@code Train#frontSignalListener}, for stations, observers and signals, and there is nowhere to
- * add another kind. And how fast a train may go is {@code Train#maxSpeed}, which is read from the
+ * add another kind (a signal, which is Create's, is looked at here too, for the speed its lamps
+ * give). And how fast a train may go is {@code Train#maxSpeed}, which is read from the
  * config every time it is asked. Both are wrapped here and nothing else of Create's is touched; the
  * rest lives in {@link TrainSpeedLimits}.
  */
@@ -36,6 +38,9 @@ public class TrainMixin {
 		cir.setReturnValue((distance, passed) -> {
 			if (passed.getFirst()instanceof SpeedLimitEdgePoint limit)
 				TrainSpeedLimits.passed(train, limit, passed.getSecond()
+					.getSecond());
+			else if (passed.getFirst()instanceof SignalBoundary signal)
+				TrainSpeedLimits.passedSignal(train, signal, passed.getSecond()
 					.getSecond());
 			return create.test(distance, passed);
 		});

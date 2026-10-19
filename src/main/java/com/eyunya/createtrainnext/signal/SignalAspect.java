@@ -1,5 +1,7 @@
 package com.eyunya.createtrainnext.signal;
 
+import com.eyunya.createtrainnext.CTNConfig;
+
 /**
  * The five aspects a Japanese five-lamp signal can display, and which of its lamps each lights.
  *
@@ -14,13 +16,12 @@ package com.eyunya.createtrainnext.signal;
  * from the signal outwards, stepping up a {@link Ladder}. Whether {@link #RESTRICTED} is one of
  * that ladder's rungs is the signal's own setting — see its note.
  *
- * <p>This is data only. Nothing reads it yet: the block, its renderer and the block-counting that
- * would choose an aspect are all still to be written.
+ * <p>Each aspect also has a speed it holds a train to, from the config: see {@link SignalSpeeds}.
  */
 public enum SignalAspect {
 
 	/** 停止. Red alone. The block ahead is occupied. */
-	STOP(0, LampPattern.of(3)),
+	STOP(LampPattern.of(3)),
 
 	/**
 	 * 警戒. Both outer yellows, lamps 1 and 4.
@@ -30,16 +31,16 @@ public enum SignalAspect {
 	 * train running at 注意 speed to stop within, which is a fact about the layout rather than
 	 * about traffic, so no count of clear blocks could decide it.
 	 */
-	RESTRICTED(25, LampPattern.of(1, 4)),
+	RESTRICTED(LampPattern.of(1, 4)),
 
 	/** 注意. The lower yellow alone, lamp 4. One block clear; the next signal is at stop. */
-	APPROACH(45, LampPattern.of(4)),
+	APPROACH(LampPattern.of(4)),
 
 	/** 減速. Upper yellow and green, lamps 2 and 5. Two blocks clear. */
-	REDUCED_SPEED(75, LampPattern.of(2, 5)),
+	REDUCED_SPEED(LampPattern.of(2, 5)),
 
 	/** 進行. Green alone, lamp 5. Three or more blocks clear; no restriction of its own. */
-	PROCEED(Constants.NO_LIMIT, LampPattern.of(5));
+	PROCEED(LampPattern.of(5));
 
 	/** Stands in for "run at whatever the line allows" rather than a speed this signal imposes. */
 	public static final int NO_LIMIT = Constants.NO_LIMIT;
@@ -59,22 +60,26 @@ public enum SignalAspect {
 		static final int LAMP_COUNT = 5;
 	}
 
-	private final int speedLimit;
 	private final LampPattern pattern;
 
-	SignalAspect(int speedLimit, LampPattern pattern) {
-		this.speedLimit = speedLimit;
+	SignalAspect(LampPattern pattern) {
 		this.pattern = pattern;
 	}
 
 	/**
-	 * The speed this aspect permits, or {@link #NO_LIMIT}.
+	 * The speed in km/h this aspect permits, or {@link #NO_LIMIT}. Stop has none of its own.
 	 *
-	 * <p>Defaults only. Real operators differ — 注意 is 45 on much of JR but 55 or 25 elsewhere —
-	 * so these are a starting point to be made configurable, not facts about railways in general.
+	 * <p>From the config, whose defaults are the speeds of much of JR. Real operators differ —
+	 * 注意 is 45 on much of JR but 55 or 25 elsewhere — so they are settings and not facts about
+	 * railways in general.
 	 */
 	public int getSpeedLimit() {
-		return speedLimit;
+		return switch (this) {
+			case RESTRICTED -> CTNConfig.SERVER.restrictedSpeed.get();
+			case APPROACH -> CTNConfig.SERVER.approachSpeed.get();
+			case REDUCED_SPEED -> CTNConfig.SERVER.reducedSpeed.get();
+			default -> NO_LIMIT;
+		};
 	}
 
 	/** Whether the lamp at {@code position}, counted from 1 at the top, is lit in this aspect. */

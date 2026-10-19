@@ -143,6 +143,24 @@ public class MultiAspectSignalBlockEntity extends SmartBlockEntity implements Tr
 		notifyUpdate();
 	}
 
+	/**
+	 * The aspect this head shows to a train passing the signal now, worked out on the spot and shown.
+	 *
+	 * <p>The same count the lamps are lit from, so that what a driver would have gone by and what a
+	 * train is held to are one thing, without waiting for the next lazy tick to have caught up with a
+	 * train that has just reserved the block ahead.
+	 *
+	 * @param side which side of the signal this head is on, which is the one the train meets it from.
+	 */
+	public SignalAspect aspectSeenFrom(TrackGraph graph, SignalBoundary signal, boolean side) {
+		SignalAspect resolved = AspectResolver.resolve(graph, signal, side, SignalAspect.Ladder.of(restricted));
+		if (resolved != aspect) {
+			aspect = resolved;
+			notifyUpdate();
+		}
+		return resolved;
+	}
+
 	private SignalAspect resolveAspect() {
 		SignalBoundary signal = edgePoint.getEdgePoint();
 		if (signal == null)
