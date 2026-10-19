@@ -158,7 +158,7 @@ public class CurveWandItem extends Item {
 
 		if (!plan.valid()) {
 			if (!level.isClientSide)
-				message(player, plan.error());
+				player.displayClientMessage(refusal(plan), true);
 			AllSoundEvents.DENY.playFrom(player, 1, 1);
 			return InteractionResult.FAIL;
 		}
@@ -310,6 +310,21 @@ public class CurveWandItem extends Item {
 		if (plan.junction() != null)
 			text.append(Component.translatable("message.createtrainnext.wand.point_added"));
 		player.displayClientMessage(text, true);
+	}
+
+	/**
+	 * The words for why a plan was refused, with the numbers that go with the reason where it has any.
+	 *
+	 * <p>Shared by the ghost and by the click, so that what the player is told while aiming is what
+	 * they are told when it is refused. A climb that is too steep says how steep it is at its steepest
+	 * and what the limit is: the limit can be changed, and the figure it is held to is the steepest
+	 * point of the curve, which is not the grade shown for the whole of it.
+	 */
+	public static MutableComponent refusal(CurvePlanner.Plan plan) {
+		if ("too_steep".equals(plan.error()))
+			return Component.translatable("message.createtrainnext.wand.too_steep_by",
+				GradeText.permille(plan.steepestGrade()), CurvePlanner.maxGradePermille());
+		return Component.translatable("message.createtrainnext.wand." + plan.error());
 	}
 
 	static void message(Player player, String key, Object... args) {

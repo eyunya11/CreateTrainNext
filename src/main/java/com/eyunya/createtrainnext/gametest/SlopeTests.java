@@ -12,6 +12,7 @@ import static com.eyunya.createtrainnext.gametest.CurveConsistencyTests.click;
 import static com.eyunya.createtrainnext.gametest.CurveConsistencyTests.relative;
 import static com.eyunya.createtrainnext.gametest.CurveConsistencyTests.route;
 
+import java.util.Arrays;
 import java.util.concurrent.atomic.AtomicReference;
 
 import org.jetbrains.annotations.Nullable;
@@ -22,6 +23,8 @@ import com.eyunya.createtrainnext.CreateTrainNext;
 import com.eyunya.createtrainnext.track.AngledTrackAnchorBlockEntity;
 import com.eyunya.createtrainnext.track.CurvePlanner;
 import com.eyunya.createtrainnext.track.CurveRepair;
+import com.eyunya.createtrainnext.track.CurveWandItem;
+import com.eyunya.createtrainnext.track.GradeText;
 import com.simibubi.create.content.trains.graph.EdgePointType;
 import com.simibubi.create.content.trains.graph.TrackGraphLocation;
 import com.simibubi.create.content.trains.track.BezierConnection;
@@ -33,6 +36,8 @@ import net.minecraft.core.Direction;
 import net.minecraft.gametest.framework.GameTest;
 import net.minecraft.gametest.framework.GameTestHelper;
 import net.minecraft.nbt.CompoundTag;
+import net.minecraft.network.chat.Component;
+import net.minecraft.network.chat.contents.TranslatableContents;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.GameType;
@@ -609,7 +614,110 @@ public class SlopeTests {
 		});
 	}
 
+	// ------------------------------------------------------- what is said
+
+	/**
+	 * A plan knows how far it rises and how far it runs, which are the numbers its message is made of,
+	 * and how steep it is at its steepest, which is what it is refused on.
+	 */
+	@GameTest(template = EMPTY, timeoutTicks = 60)
+	public static void aPlanSaysHowFarItRisesAndRuns(GameTestHelper helper) {
+		BlockPos from = new BlockPos(4, 1, 16);
+		anchor(helper, from);
+
+		CurvePlanner.Plan straight = plan(helper, from, new BlockPos(28, 5, 16));
+		helper.assertTrue(straight.valid(), "the climb should be possible, but was refused: " + straight.error());
+		helper.assertTrue(straight.rise() == 4.0, "it should rise four blocks, but rises " + straight.rise());
+		helper.assertTrue(near(straight.horizontalLength(), 24.0, 0.01),
+			"it should run 24 blocks along the ground, but runs " + straight.horizontalLength());
+		helper.assertTrue(near(straight.steepestGrade(), 4.0 / 24.0, 1.0E-4),
+			"a straight climb is as steep everywhere as it is on average, but is " + straight.steepestGrade());
+		helper.assertTrue(straight.length() > straight.horizontalLength(),
+			"the curve is longer than its run, since it climbs as well");
+
+		// Going down is a negative rise over the same run.
+		anchor(helper, new BlockPos(4, 5, 8));
+		CurvePlanner.Plan descent = plan(helper, new BlockPos(4, 5, 8), new BlockPos(28, 1, 8));
+		helper.assertTrue(descent.rise() == -4.0, "it should fall four blocks, but rises " + descent.rise());
+		helper.assertTrue(near(descent.steepestGrade(), 4.0 / 24.0, 1.0E-4),
+			"the steepest point of a descent is a positive grade too, but is " + descent.steepestGrade());
+
+		// Two arcs are one link: the rise is that of the whole, the run is both arcs, and the steepest point
+		// is the steeper of them.
+		route(helper, EAST, BEFORE, START);
+		route(helper, NORTH, HIGH_END, HIGH_AFTER);
+		CurvePlanner.Plan arcs = plan(helper, START, HIGH_END);
+		helper.assertTrue(arcs.valid() && arcs.curves()
+			.size() == 2, "setup: the join should be two arcs, but: " + arcs.error());
+		helper.assertTrue(arcs.rise() == 3.0, "the whole join should rise three blocks, but rises " + arcs.rise());
+		double both = CurvePlanner.horizontalLength(arcs.curve()) + CurvePlanner.horizontalLength(arcs.secondCurve());
+		helper.assertTrue(near(arcs.horizontalLength(), both, 1.0E-9),
+			"the run of the join should be that of both arcs, " + both + ", but is " + arcs.horizontalLength());
+		helper.assertTrue(arcs.steepestGrade() >= arcs.rise() / arcs.horizontalLength(),
+			"the steepest point cannot be gentler than the average");
+		helper.succeed();
+	}
+
+	/** The line about a climb is made of the plan's four numbers, signed the way the climb goes. */
+	@GameTest(template = EMPTY)
+	public static void theLineAboutAClimbIsMadeOfItsFourNumbers(GameTestHelper helper) {
+		TranslatableContents up = translatable(helper, GradeText.climb(3, 100));
+		helper.assertTrue("message.createtrainnext.grade.climb".equals(up.getKey()), "a climb should use the climb text");
+		helper.assertTrue(Arrays.equals(up.getArgs(),
+			new Object[] { String.format("%+d", 30), String.format("%.1f", 100.0 / 3), String.format("%.1f", 100.0),
+				String.format("%+d", 3) }),
+			"the numbers should be 30 permille, one in 33.3, a run of 100 and a rise of 3, but are "
+				+ Arrays.toString(up.getArgs()));
+
+		TranslatableContents down = translatable(helper, GradeText.climb(-3, 100));
+		helper.assertTrue(Arrays.equals(down.getArgs(),
+			new Object[] { String.format("%+d", -30), String.format("%.1f", 100.0 / 3), String.format("%.1f", 100.0),
+				String.format("%+d", -3) }),
+			"a descent should carry the minus signs, but the numbers are " + Arrays.toString(down.getArgs()));
+
+		// The grade is rounded to the permille it is compared with, not cut short: two in three is 667.
+		helper.assertTrue(String.format("%+d", 667).equals(translatable(helper, GradeText.climb(2, 3)).getArgs()[0]),
+			"two blocks in three should read as 667 permille");
+
+		helper.assertTrue(GradeText.isLevel(0.0) && GradeText.isLevel(0.2) && !GradeText.isLevel(1.0)
+			&& !GradeText.isLevel(-1.0), "only no rise at all is level, whichever way a rise goes");
+		helper.assertTrue("message.createtrainnext.grade.level".equals(translatable(helper, GradeText.level()).getKey()),
+			"a level curve should say it is level");
+		helper.succeed();
+	}
+
+	/**
+	 * A climb that is too steep is refused with how steep it is and what the limit is, and any other
+	 * refusal is only its reason.
+	 */
+	@GameTest(template = EMPTY)
+	public static void aClimbThatIsTooSteepIsToldHowSteepAndWhatTheLimitIs(GameTestHelper helper) {
+		BlockPos from = new BlockPos(4, 1, 16);
+		anchor(helper, from);
+
+		// Five up over fourteen: 357 permille against the limit of 333.
+		CurvePlanner.Plan steep = plan(helper, from, new BlockPos(18, 6, 16));
+		helper.assertTrue("too_steep".equals(steep.error()), "setup: the climb should be too steep, but: " + steep.error());
+		TranslatableContents said = translatable(helper, CurveWandItem.refusal(steep));
+		helper.assertTrue("message.createtrainnext.wand.too_steep_by".equals(said.getKey()),
+			"it should say how steep, but uses " + said.getKey());
+		helper.assertTrue(Arrays.equals(said.getArgs(), new Object[] { 357, CurvePlanner.maxGradePermille() }),
+			"it should say 357 against the limit, but says " + Arrays.toString(said.getArgs()));
+
+		CurvePlanner.Plan close = plan(helper, from, new BlockPos(5, 1, 16));
+		TranslatableContents other = translatable(helper, CurveWandItem.refusal(close));
+		helper.assertTrue(("message.createtrainnext.wand." + close.error()).equals(other.getKey()) && other.getArgs().length == 0,
+			"any other refusal should be its reason alone, but is " + other.getKey() + " with "
+				+ Arrays.toString(other.getArgs()));
+		helper.succeed();
+	}
+
 	// --------------------------------------------------------------- helpers
+
+	private static TranslatableContents translatable(GameTestHelper helper, Component component) {
+		helper.assertTrue(component.getContents() instanceof TranslatableContents, "the text should be a translation");
+		return (TranslatableContents) component.getContents();
+	}
 
 	/**
 	 * {@link #LOW}, {@link #MIDDLE} and {@link #HIGH}, laid with the wand from a lone anchor at the

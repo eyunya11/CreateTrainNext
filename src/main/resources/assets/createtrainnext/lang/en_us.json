@@ -73,5 +73,9 @@
   "message.createtrainnext.wand.too_far": "Too far.",
   "message.createtrainnext.wand.too_sharp": "Too sharp for a train to take.",
   "message.createtrainnext.wand.too_steep": "Too steep — go further out, or come down less.",
-  "message.createtrainnext.wand.doubles_back": "The curve would double back on itself."
+  "message.createtrainnext.wand.too_steep_by": "Too steep — %s‰ at its steepest, and the limit is %s‰. Go further out, or come down less.",
+  "message.createtrainnext.wand.doubles_back": "The curve would double back on itself.",
+
+  "message.createtrainnext.grade.level": " · level",
+  "message.createtrainnext.grade.climb": "Grade %s‰ (1 in %s) · horizontal %s blocks · height %s"
 }

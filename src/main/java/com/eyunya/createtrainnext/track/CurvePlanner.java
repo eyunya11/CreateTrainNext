@@ -157,6 +157,9 @@ public final class CurvePlanner {
 	/** How many steps along a curve its steepest point is looked for in. */
 	private static final int GRADE_SAMPLES = 48;
 
+	/** How many steps a curve is measured in, to be told how long it is seen from above. */
+	private static final int LENGTH_SAMPLES = 96;
+
 	private CurvePlanner() {}
 
 	// --------------------------------------------------------------- results
@@ -243,6 +246,37 @@ public final class CurvePlanner {
 			for (BezierConnection each : curves())
 				length += each.getLength();
 			return length;
+		}
+
+		/**
+		 * How far the link goes up from its first node to its last, in blocks; minus for a descent. Whole
+		 * blocks, because a node is at the height of its block.
+		 */
+		public double rise() {
+			if (curve == null)
+				return 0;
+			BezierConnection last = secondCurve != null ? secondCurve : curve;
+			return last.starts.getSecond().y - curve.starts.getFirst().y;
+		}
+
+		/** How far the link goes along the ground: the length of its curves seen from above. */
+		public double horizontalLength() {
+			double length = 0;
+			for (BezierConnection each : curves())
+				length += CurvePlanner.horizontalLength(each);
+			return length;
+		}
+
+		/**
+		 * The steepest the link is anywhere along it, as a fraction. This is what the limit is held to,
+		 * and it can be well over {@code rise / horizontalLength}: a curve that eases into a climb is
+		 * steeper than its average where it finishes.
+		 */
+		public double steepestGrade() {
+			double steepest = 0;
+			for (BezierConnection each : curves())
+				steepest = Math.max(steepest, maxLocalGrade(each));
+			return steepest;
 		}
 	}
 
@@ -1377,6 +1411,23 @@ public final class CurvePlanner {
 			previous = point;
 		}
 		return worst;
+	}
+
+	/**
+	 * How long a curve is seen from above, in blocks: the run it covers on the ground, whatever it
+	 * climbs. Summed in short straight steps, which for a bezier this gentle is good to a thousandth of
+	 * a block.
+	 */
+	public static double horizontalLength(BezierConnection curve) {
+		double length = 0;
+		Vec3 previous = curve.getPosition(0);
+		for (int i = 1; i <= LENGTH_SAMPLES; i++) {
+			Vec3 point = curve.getPosition(i / (double) LENGTH_SAMPLES);
+			length += Math.sqrt((point.x - previous.x) * (point.x - previous.x)
+				+ (point.z - previous.z) * (point.z - previous.z));
+			previous = point;
+		}
+		return length;
 	}
 
 	/**

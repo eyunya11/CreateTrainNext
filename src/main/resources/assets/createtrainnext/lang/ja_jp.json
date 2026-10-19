@@ -73,5 +73,9 @@
   "message.createtrainnext.wand.too_far": "遠すぎます。",
   "message.createtrainnext.wand.too_sharp": "急すぎて列車が通れません。",
   "message.createtrainnext.wand.too_steep": "勾配が急すぎます。もっと先を狙うか、高低差を減らしてください。",
-  "message.createtrainnext.wand.doubles_back": "曲線が折り返してしまいます。"
+  "message.createtrainnext.wand.too_steep_by": "勾配が急すぎます。最も急な所で %s‰、上限は %s‰ です。もっと先を狙うか、高低差を減らしてください。",
+  "message.createtrainnext.wand.doubles_back": "曲線が折り返してしまいます。",
+
+  "message.createtrainnext.grade.level": " ・ 水平",
+  "message.createtrainnext.grade.climb": "勾配 %s‰（水平 %s ブロックで 1 ブロック） ・ 水平距離 %s ブロック ・ 高低差 %s ブロック"
 }

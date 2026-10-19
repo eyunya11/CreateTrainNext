@@ -1,11 +1,13 @@
 package com.eyunya.createtrainnext.client;
 
+import java.util.ArrayList;
 import java.util.List;
 
 import com.eyunya.createtrainnext.track.AngledTrackAnchorBlockEntity;
 import com.eyunya.createtrainnext.track.CurvePlanner;
 import com.eyunya.createtrainnext.track.CurveWandItem;
 import com.eyunya.createtrainnext.track.CurveWandSelection;
+import com.eyunya.createtrainnext.track.GradeText;
 import com.eyunya.createtrainnext.track.SetCurveAnglePacket;
 import com.simibubi.create.content.trains.track.BezierConnection;
 
@@ -174,6 +176,7 @@ public class CurveWandPreview {
 		CurveWandSelection selection = CurveWandItem.selectionIn(stack, mc.level);
 		if (selection == null) {
 			clearGhost();
+			WandHud.clear();
 			Outliner.getInstance()
 				.remove(ANCHOR_KEY);
 			showSplitCandidate(mc, player);
@@ -195,6 +198,7 @@ public class CurveWandPreview {
 		HitResult hitResult = mc.hitResult;
 		if (hitResult == null || hitResult.getType() != HitResult.Type.BLOCK) {
 			clearGhost();
+			WandHud.clear();
 			return;
 		}
 
@@ -202,7 +206,7 @@ public class CurveWandPreview {
 		CurvePlanner.Plan plan =
 			CurvePlanner.plan(mc.level, selection.pos(), hit.getBlockPos(), hit.getDirection(), angle);
 
-		showStatus(player, plan);
+		showStatus(plan);
 
 		validity.chase(plan.valid() ? 1 : 0, 0.25, Chaser.EXP);
 		validity.tickChaser();
@@ -291,11 +295,18 @@ public class CurveWandPreview {
 		return Component.translatable("createtrainnext.compass." + points[Math.floorMod(Math.round(yaw / 45f), 8)]);
 	}
 
-	private static void showStatus(LocalPlayer player, CurvePlanner.Plan plan) {
-		Component message;
+	/**
+	 * Says what the curve being aimed at is, or why it cannot be.
+	 *
+	 * <p>Up to two lines. The first is what it has always been, the curve's length and how far it
+	 * bends; the second is how it climbs, which is more than a line of the action bar holds, and is
+	 * left out for a curve that does not.
+	 */
+	private static void showStatus(CurvePlanner.Plan plan) {
+		List<Component> lines = new ArrayList<>();
 		if (!plan.valid()) {
-			message = Component.translatable("message.createtrainnext.wand." + plan.error())
-				.withStyle(ChatFormatting.RED);
+			lines.add(CurveWandItem.refusal(plan)
+				.withStyle(ChatFormatting.RED));
 		} else {
 			// Two angles, because they answer different questions. The turn is how far this one
 			// curve bends, which is what says whether it is a gentle sweep or a hairpin; the
@@ -309,6 +320,12 @@ public class CurveWandPreview {
 				String.format("%.1f", plan.length()), String.format("%.0f", plan.turnDegrees()),
 				String.format("%.0f", shown), compass(bearing))
 				.withStyle(ChatFormatting.GREEN);
+			// A curve that stays level says so, and one that does not gets a line to itself: four numbers
+			// that all describe the same slope, which the player reads as one thing.
+			boolean level = GradeText.isLevel(plan.rise());
+			if (level)
+				detail = detail.copy()
+					.append(GradeText.level());
 			// Joining two routes that were laid away from each other turns the far one round. No
 			// track moves, but which way that route runs does change, and a click that does more than
 			// draw the curve it showed should not be a surprise.
@@ -325,13 +342,15 @@ public class CurveWandPreview {
 						.withStyle(ChatFormatting.YELLOW));
 			// The dialled-in angle is only shown once it is not zero, so the common case — two
 			// clicks and no adjustment at all — says nothing about a control the player never used.
-			message = angle == 0 ? detail
+			lines.add(angle == 0 ? detail
 				: detail.copy()
 					.append(Component.translatable("message.createtrainnext.wand.adjusted",
 						String.format("%+.1f", angle))
-						.withStyle(ChatFormatting.YELLOW));
+						.withStyle(ChatFormatting.YELLOW)));
+			if (!level)
+				lines.add(GradeText.climb(plan.rise(), plan.horizontalLength()));
 		}
-		player.displayClientMessage(message, true);
+		WandHud.show(lines);
 	}
 
 	// -------------------------------------------------------------- drawing
@@ -346,6 +365,7 @@ public class CurveWandPreview {
 	 */
 	private static void clear() {
 		clearGhost();
+		WandHud.clear();
 		Outliner outliner = Outliner.getInstance();
 		outliner.remove(ANCHOR_KEY);
 		outliner.remove(SPLIT_KEY);
