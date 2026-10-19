@@ -1,6 +1,7 @@
 package com.eyunya.createtrainnext.gametest;
 
 import static com.eyunya.createtrainnext.gametest.CurveConsistencyTests.EAST;
+import static com.eyunya.createtrainnext.gametest.CurveConsistencyTests.WEST;
 import static com.eyunya.createtrainnext.gametest.CurveConsistencyTests.anchor;
 
 import com.eyunya.createtrainnext.CTNRegistry;
@@ -55,6 +56,7 @@ public class LongLinkTests {
 	private static final int ROW_PUT_OFF = 8000;
 	private static final int ROW_FLOOR = 10000;
 	private static final int ROW_COMMAND = 12000;
+	private static final int ROW_RUN_ON = 14000;
 
 	/** How long a chunk takes to go once nothing holds it, with a margin. */
 	private static final long UNLOADED_BY = 60;
@@ -263,6 +265,51 @@ public class LongLinkTests {
 			helper.assertTrue(helper.getBlockState(underfoot)
 				.is(CTNRegistry.CURVE_FILLER.get()), "the floor should have been renewed, but it ran out");
 			releaseAll(helper, line);
+			helper.succeed();
+		});
+	}
+
+	/**
+	 * A route run on from an anchor whose old neighbour is out of reach is in the graph at once. The anchor
+	 * itself has to wait for that neighbour, since building it now would lose the long link, but the new
+	 * link and the anchor ahead of it have nothing out of reach, and used to wait with it for a chunk that
+	 * can be a long way off.
+	 */
+	@GameTest(template = EMPTY, timeoutTicks = 250)
+	public static void aRouteRunOnFromAnAnchorWithItsOldNeighbourOutOfReachIsInTheGraph(GameTestHelper helper) {
+		ServerLevel level = helper.getLevel();
+		BlockPos[] at = positionsIn(ROW_RUN_ON);
+		for (BlockPos each : at)
+			hold(helper, each, true);
+		AngledTrackAnchorBlockEntity ahead = anchor(helper, at[1]);
+		AngledTrackAnchorBlockEntity end = anchor(helper, at[2]);
+		AngledTrackAnchorBlockEntity far = anchor(helper, at[3]);
+
+		Vec3 west = AngledTrackAnchorBlockEntity.directionFromYaw(WEST);
+		Vec3 descending = AngledTrackAnchorBlockEntity.tangentOf(west, -0.04);
+		far.linkTo(end, descending, descending);
+
+		helper.runAfterDelay(15, () -> {
+			helper.assertTrue(joined(level, far.exitNode(), end.entryNode()),
+				"setup: the long link should be in the graph by now");
+			hold(helper, at[3], false);
+		});
+		helper.runAfterDelay(15 + UNLOADED_BY, () -> {
+			helper.assertTrue(!level.isLoaded(helper.absolutePos(at[3])),
+				"setup: the far end's chunk should be out of memory by now, but it is loaded");
+			end.linkTo(ahead, west, west);
+		});
+		helper.runAfterDelay(15 + UNLOADED_BY + 30, () -> {
+			helper.assertTrue(joined(level, end.exitNode(), ahead.entryNode()),
+				"the new link should be in the graph without waiting for the far end");
+			hold(helper, at[3], true);
+		});
+		helper.runAfterDelay(15 + UNLOADED_BY + 90, () -> {
+			helper.assertTrue(joined(level, far.exitNode(), end.entryNode()),
+				"once the far end is back the long link should be there");
+			helper.assertTrue(joined(level, end.exitNode(), ahead.entryNode()), "and so should the new one");
+			for (BlockPos each : at)
+				hold(helper, each, false);
 			helper.succeed();
 		});
 	}
