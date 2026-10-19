@@ -25,12 +25,20 @@ public class CTNRenderTypes {
 	 *
 	 * <p>Sorting on upload is off for the same reason it can be: adding colour is commutative, so
 	 * the order two halos are drawn in cannot change the result.
+	 *
+	 * <p>The blend is {@link RenderStateShard#LIGHTNING_TRANSPARENCY}, {@code SRC_ALPHA, ONE}, and not
+	 * {@code ADDITIVE_TRANSPARENCY}, which is {@code ONE, ONE} and ignores alpha. With that one the
+	 * shape of a halo has to live in the texture's colour, and Sodium overwrites the colour of every
+	 * fully transparent texel with the sprite's average before the atlas is built, so a halo whose
+	 * corners are transparent black came out with bright corners, a square, under Sodium. Here the
+	 * shape lives in alpha and the colour is white in every texel, and a texel with no alpha adds
+	 * nothing whatever colour a mod gives it.
 	 */
 	private static final RenderType GLOW = RenderType.create("createtrainnext:glow",
 		DefaultVertexFormat.BLOCK, VertexFormat.Mode.QUADS, 256, false, false, RenderType.CompositeState.builder()
 			.setShaderState(RenderStateShard.RENDERTYPE_SOLID_SHADER)
 			.setTextureState(RenderStateShard.BLOCK_SHEET)
-			.setTransparencyState(RenderStateShard.ADDITIVE_TRANSPARENCY)
+			.setTransparencyState(RenderStateShard.LIGHTNING_TRANSPARENCY)
 			.setCullState(RenderStateShard.NO_CULL)
 			.setLightmapState(RenderStateShard.LIGHTMAP)
 			.setWriteMaskState(RenderStateShard.COLOR_WRITE)
