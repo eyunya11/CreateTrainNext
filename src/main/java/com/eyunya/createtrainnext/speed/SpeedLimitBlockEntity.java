@@ -20,6 +20,7 @@ import dev.engine_room.flywheel.lib.transform.TransformStack;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.HolderLookup;
 import net.minecraft.nbt.CompoundTag;
+import net.minecraft.util.Mth;
 import net.minecraft.network.chat.Component;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.level.LevelAccessor;
@@ -150,7 +151,7 @@ public class SpeedLimitBlockEntity extends SmartBlockEntity implements Transform
 		/** Never above the range as it stands now, whatever was saved when it was wider. */
 		@Override
 		public int getValue() {
-			return Math.min(super.getValue(), SpeedLimitEdgePoint.maxLimit());
+			return Mth.clamp(super.getValue(), SpeedLimitEdgePoint.MIN_LIMIT, SpeedLimitEdgePoint.maxLimit());
 		}
 
 		@Override

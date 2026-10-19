@@ -1,6 +1,7 @@
 package com.eyunya.createtrainnext.speed;
 
 import com.simibubi.create.content.trains.graph.DimensionPalette;
+import com.simibubi.create.content.trains.graph.TrackNode;
 import com.simibubi.create.content.trains.signal.SingleBlockEntityEdgePoint;
 import com.simibubi.create.foundation.blockEntity.behaviour.BlockEntityBehaviour;
 import com.simibubi.create.foundation.blockEntity.behaviour.scrollValue.ScrollValueBehaviour;
@@ -34,13 +35,14 @@ public class SpeedLimitEdgePoint extends SingleBlockEntityEdgePoint {
 	private static final String TAG_RELEASE = "Release";
 
 	/**
-	 * Limits are held in kilometres per hour, which is the number the sign shows. Zero is a legal
-	 * setting and means stop.
+	 * Limits are held in kilometres per hour, which is the number the sign shows. The lowest is 1: a
+	 * train held to nothing would stop where it stood and never move again, there being no sign
+	 * further on that it could pass.
 	 *
 	 * <p>Create counts speed in blocks per second, and a block is taken to be a metre, so a limit
 	 * becomes the speed trains are compared with by dividing by {@link #KMH_PER_BLOCK_PER_SECOND}.
 	 */
-	public static final int MIN_LIMIT = 0;
+	public static final int MIN_LIMIT = 1;
 	public static final int DEFAULT_LIMIT = 40;
 
 	/** How many km/h one block per second is: a metre a second is 3.6 km/h. */
@@ -71,11 +73,21 @@ public class SpeedLimitEdgePoint extends SingleBlockEntityEdgePoint {
 
 	/** The limit in km/h, held to the config as it stands now: a config lowered since is no excuse for a faster sign. */
 	public int getLimit() {
-		return release ? maxLimit() : Math.min(limit, maxLimit());
+		return release ? maxLimit() : Mth.clamp(limit, MIN_LIMIT, maxLimit());
 	}
 
 	public boolean isRelease() {
 		return release;
+	}
+
+	/**
+	 * Whether a train heading for {@code toward} along the edge this point is on is going the way the
+	 * sign faces. Create places a point on an edge as a pair of nodes, and the way from the first to
+	 * the second is the way it was placed to face; a station asks the same thing to know which way it
+	 * can be approached from.
+	 */
+	public boolean appliesTo(TrackNode toward) {
+		return isPrimary(toward);
 	}
 
 	public void setRelease(boolean release) {

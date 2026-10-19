@@ -4,13 +4,24 @@ import com.eyunya.createtrainnext.CTNRegistry;
 import com.eyunya.createtrainnext.CreateTrainNext;
 import com.eyunya.createtrainnext.speed.SpeedLimitBlockEntity;
 import com.eyunya.createtrainnext.speed.SpeedLimitEdgePoint;
+import com.eyunya.createtrainnext.speed.TrainSpeedLimits;
+import com.simibubi.create.content.trains.entity.Train;
+import com.simibubi.create.content.trains.graph.TrackNode;
+import com.simibubi.create.content.trains.graph.TrackNodeLocation;
 import com.simibubi.create.infrastructure.config.AllConfigs;
 import com.simibubi.create.infrastructure.config.CTrains;
 
+import net.createmod.catnip.data.Couple;
+import net.createmod.catnip.data.Pair;
 import net.minecraft.core.BlockPos;
+import net.minecraft.nbt.CompoundTag;
+import net.minecraft.world.phys.Vec3;
 import net.minecraft.gametest.framework.GameTest;
 import net.minecraft.gametest.framework.GameTestHelper;
 import net.minecraft.world.level.block.entity.BlockEntity;
+
+import java.util.ArrayList;
+import java.util.UUID;
 
 import net.neoforged.neoforge.gametest.GameTestHolder;
 import net.neoforged.neoforge.gametest.PrefixGameTestTemplate;
@@ -101,6 +112,104 @@ public class SpeedLimitTests {
 		SpeedLimitBlockEntity ordinary = (SpeedLimitBlockEntity) helper.getBlockEntity(limitPos);
 		helper.assertTrue(!ordinary.isRelease() && ordinary.limit.isActive(),
 			"the ordinary sign is not a release and keeps its slider");
+		helper.succeed();
+	}
+
+	// ------------------------------------------------------- trains
+
+	private static final TrackNodeLocation HERE = new TrackNodeLocation(new Vec3(0.5, 1, 0.5));
+	private static final TrackNodeLocation THERE = new TrackNodeLocation(new Vec3(10.5, 1, 0.5));
+	private static final TrackNode FROM_NODE = new TrackNode(HERE, 0, new Vec3(0, 1, 0));
+	private static final TrackNode TO_NODE = new TrackNode(THERE, 1, new Vec3(0, 1, 0));
+
+	/** A train with no carriages: all that is asked of it here is its top speed and what it makes of a point. */
+	private static Train train() {
+		return new Train(UUID.randomUUID(), null, null, new ArrayList<>(), new ArrayList<>(), false, 0);
+	}
+
+	/** A sign on the edge from {@link #HERE} to {@link #THERE}, facing the way that edge runs. */
+	private static SpeedLimitEdgePoint sign(int kmh, boolean release) {
+		SpeedLimitEdgePoint point = new SpeedLimitEdgePoint();
+		point.setLocation(Couple.create(HERE, THERE), 5.0);
+		point.setLimit(kmh);
+		point.setRelease(release);
+		return point;
+	}
+
+	/** The train's front passing a point, going from one node towards the other. */
+	private static void pass(Train train, SpeedLimitEdgePoint point, TrackNode from, TrackNode to) {
+		train.frontSignalListener()
+			.test(5.0, Pair.of(point, Couple.create(from, to)));
+	}
+
+	private static float configuredTopSpeed() {
+		return AllConfigs.server().trains.trainTopSpeed.getF() / 20;
+	}
+
+	/**
+	 * A train is held to the last sign it passed, going the way the sign faces, until one that lifts the
+	 * limit; and a train going the other way takes no notice.
+	 */
+	@GameTest(template = EMPTY)
+	public static void aTrainIsHeldToTheLastSignItPassed(GameTestHelper helper) {
+		CTrains trains = AllConfigs.server().trains;
+		float standard = trains.trainTopSpeed.getF();
+		float powered = trains.poweredTrainTopSpeed.getF();
+		Train train = train();
+		Train other = train();
+		try {
+			trains.trainTopSpeed.set(28.0);
+			trains.poweredTrainTopSpeed.set(40.0);
+			helper.assertTrue(train.maxSpeed() == configuredTopSpeed(), "a train under no limit should go as fast as the config says");
+
+			pass(train, sign(60, false), FROM_NODE, TO_NODE);
+			float held = 60 / 3.6F / 20;
+			helper.assertTrue(Math.abs(train.maxSpeed() - held) < 1.0E-6,
+				"a train past a sign for 60 km/h should be held to " + held + " a tick, but may go " + train.maxSpeed());
+			helper.assertTrue(TrainSpeedLimits.limitOf(train) == 60, "and it should be remembered as 60");
+			helper.assertTrue(other.maxSpeed() == configuredTopSpeed(), "another train should not be held by it");
+
+			// Going the other way the sign is behind it.
+			pass(other, sign(60, false), TO_NODE, FROM_NODE);
+			helper.assertTrue(other.maxSpeed() == configuredTopSpeed(), "a train going the way the sign does not face should take no notice");
+
+			// A later sign replaces the earlier, faster or slower.
+			pass(train, sign(100, false), FROM_NODE, TO_NODE);
+			helper.assertTrue(Math.abs(train.maxSpeed() - 100 / 3.6F / 20) < 1.0E-6, "the next sign should replace the last, going up");
+			pass(train, sign(20, false), FROM_NODE, TO_NODE);
+			helper.assertTrue(Math.abs(train.maxSpeed() - 20 / 3.6F / 20) < 1.0E-6, "and going down");
+
+			// A limit above what the train can do changes nothing.
+			pass(train, sign(144, false), FROM_NODE, TO_NODE);
+			helper.assertTrue(train.maxSpeed() == configuredTopSpeed(), "a limit above the config's top speed holds nothing back");
+
+			pass(train, sign(30, false), FROM_NODE, TO_NODE);
+			pass(train, sign(1, true), FROM_NODE, TO_NODE);
+			helper.assertTrue(TrainSpeedLimits.limitOf(train) == null && train.maxSpeed() == configuredTopSpeed(),
+				"a release sign should lift the limit");
+		} finally {
+			pass(train, sign(1, true), FROM_NODE, TO_NODE);
+			trains.trainTopSpeed.set((double) standard);
+			trains.poweredTrainTopSpeed.set((double) powered);
+		}
+		helper.succeed();
+	}
+
+	/** What a train was held to is saved with the world and read back. */
+	@GameTest(template = EMPTY)
+	public static void aTrainsLimitSurvivesBeingSaved(GameTestHelper helper) {
+		UUID id = UUID.randomUUID();
+		TrainSpeedLimits.TrainSpeedLimitData data = new TrainSpeedLimits.TrainSpeedLimitData();
+		data.set(id, 75);
+		CompoundTag saved = data.save(new CompoundTag(), helper.getLevel()
+			.registryAccess());
+		TrainSpeedLimits.TrainSpeedLimitData loaded = TrainSpeedLimits.TrainSpeedLimitData.load(saved, helper.getLevel()
+			.registryAccess());
+		helper.assertTrue(Integer.valueOf(75)
+			.equals(loaded.get(id)), "the limit should come back from a save, but is " + loaded.get(id));
+		helper.assertTrue(loaded.get(UUID.randomUUID()) == null, "a train that was never held should not be");
+		data.release(id);
+		helper.assertTrue(data.get(id) == null, "releasing should forget the limit");
 		helper.succeed();
 	}
 

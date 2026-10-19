@@ -210,11 +210,11 @@ Where the line divides ahead, it shows the strictest aspect among the signals on
 
 ### Track Speed Limit
 
-A sign stood beside the track that shows a speed limit. It is placed like a signal: right click the track, then where it should stand. Hold right click on the sign to open the slider and set the limit in km/h, from 0 up to the fastest a train can go under Create's config. That is the larger of `trainTopSpeed` and `poweredTrainTopSpeed` in the `trains` settings, with one block per second counted as 3.6 km/h, so 144 with Create's default speeds. The limit is 40 by default. The direction is set by which way you face when you place it, in 22.5 degree steps.
+A sign stood beside the track that shows a speed limit. It is placed like a signal: right click the track, then where it should stand. Hold right click on the sign to open the slider and set the limit in km/h, from 1 up to the fastest a train can go under Create's config. That is the larger of `trainTopSpeed` and `poweredTrainTopSpeed` in the `trains` settings, with one block per second counted as 3.6 km/h, so 144 with Create's default speeds. The limit is 40 by default. The direction is set by which way you face when you place it, in 22.5 degree steps.
 
 The Track Speed Limit Release is the sign that ends a limit. It is placed the same way and has a plate of its own with no number on it. Its limit is the highest one, so trains past it are held to nothing but their top speed.
 
-**For now the signs only display and store the number, and do not affect trains.** Applying them to trains is planned.
+A train that passes a sign going the way it faces is held to its number from there until it passes the next sign, and the Track Speed Limit Release lifts the limit. A train over the limit does not stop short: it brakes at its own rate, so it slows after the sign rather than before it. Trains going the other way take no notice. The lowest limit is 1 km/h, so that no train is held still for good. What each train is held to is saved with the world. Limits per signal aspect are not there yet.
 
 ### Signal Pole
 
@@ -292,7 +292,7 @@ These limitations apply.
 | Recipes | None. Take items from the creative tab or with `/give`. |
 | Create track that cannot be an end | Track with a junction and sloped track cannot be a start or an end of the wand. |
 | Heights | A curve gains a whole number of blocks, so the grade it really has differs from the one set, much more for a short curve or a gentle grade. A grade under one block per curve length, about 31 permille for 32 blocks, stays level. |
-| Speed limits | The number on a sign is not applied to trains. There are no speed limits per signal aspect either. |
+| Speed limits | A train brakes after passing a sign, not before it. There are no speed limits per signal aspect. |
 | Signals along a curve | They cannot be placed directly on the stretch of a curve. Add a point first, then place them. |
 | Junctions | An anchor holds only one curve on each side, so anchors alone cannot make a junction. |
 | Old worlds | They may hold coloured posts left where anchors were broken, and curves whose shape changes when read the other way. `prune`, `curves` and `repair` fix these. |
@@ -307,7 +307,7 @@ These three are planned.
 | Item | Where it stands | Aim |
 |---|---|---|
 | Sloped Create track | Routes made with this mod climb at any grade, but sloped Create track cannot be a start or an end of the wand. | Join sloped Create track, the 45 degree kind. |
-| Enforcing speed limits | The number on a sign can be set, but does not affect trains. There are no limits per signal aspect either. | Apply the number on a sign, and a limit per aspect, to trains that pass. The per-aspect values will be configurable. |
+| Speed limits per aspect | A sign holds the trains that pass it to its number, but a signal aspect does not limit speed, and a train brakes only after the sign. | Apply a limit per aspect to trains that pass, and brake before a sign. The per-aspect values will be configurable. |
 | Placing directly on a curve | A point has to be added with the wand before a signal can be placed. | Support Create's own curve targeting, so signals and stations can be placed along a curve without a point. |
 
 ### Under consideration
