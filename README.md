@@ -209,7 +209,7 @@ Where the line divides ahead, it shows the strictest aspect among the signals on
 
 ### Track Speed Limit
 
-A sign stood beside the track that shows a speed limit. It is placed like a signal: right click the track, then where it should stand. Hold right click on the sign to open the slider and set the limit, from 0 to 100, 40 by default, in the same unit as Create's train speed readout. The direction is set by which way you face when you place it, in 22.5 degree steps.
+A sign stood beside the track that shows a speed limit. It is placed like a signal: right click the track, then where it should stand. Hold right click on the sign to open the slider and set the limit in km/h, from 0 up to the fastest a train can go under Create's config. That is the larger of `trainTopSpeed` and `poweredTrainTopSpeed` in the `trains` settings, with one block per second counted as 3.6 km/h, so 144 with Create's default speeds. The limit is 40 by default. The direction is set by which way you face when you place it, in 22.5 degree steps.
 
 **For now it only displays and stores the number, and does not affect trains.** Applying it to trains is planned.
 

@@ -59,14 +59,21 @@ public class SpeedLimitBlockEntity extends SmartBlockEntity implements Transform
 
 		limit = new SpeedLimitScrollBehaviour(Component.translatable("createtrainnext.speed_limit.limit"), this,
 			new SpeedLimitValueBox());
-		limit.between(SpeedLimitEdgePoint.MIN_LIMIT, SpeedLimitEdgePoint.MAX_LIMIT);
+		limit.between(SpeedLimitEdgePoint.MIN_LIMIT, SpeedLimitEdgePoint.maxLimit());
+		limit.withFormatter(SpeedLimitBlockEntity::format);
 		limit.value = SpeedLimitEdgePoint.DEFAULT_LIMIT;
 		limit.withCallback(this::onLimitChanged);
 		behaviours.add(limit);
 	}
 
+	/** The limit in km/h. */
 	public int getLimit() {
 		return limit.getValue();
+	}
+
+	/** A limit as it is written wherever it is shown. */
+	static String format(int kmh) {
+		return kmh + " km/h";
 	}
 
 	/** The point this sign governs, or null while it has yet to resolve one. */
@@ -122,13 +129,35 @@ public class SpeedLimitBlockEntity extends SmartBlockEntity implements Transform
 				value = fallback;
 		}
 
+		/**
+		 * The top of the range follows Create's config, which can change under a sign that is
+		 * already standing, so it is looked at each time rather than fixed when the sign is made.
+		 */
+		@Override
+		public void setValue(int newValue) {
+			max = SpeedLimitEdgePoint.maxLimit();
+			super.setValue(newValue);
+		}
+
+		/** Never above the range as it stands now, whatever was saved when it was wider. */
+		@Override
+		public int getValue() {
+			return Math.min(super.getValue(), SpeedLimitEdgePoint.maxLimit());
+		}
+
+		@Override
+		public ValueSettings getValueSettings() {
+			return new ValueSettings(0, getValue());
+		}
+
 		@Override
 		public ValueSettingsBoard createBoard(Player player, BlockHitResult hitResult) {
 			// Same board the base class builds, only with a translated row label instead of the
-			// hardcoded "Value" — this mod ships a Japanese locale and that string is on screen.
-			return new ValueSettingsBoard(label, SpeedLimitEdgePoint.MAX_LIMIT, 10,
+			// hardcoded "Value" — this mod ships a Japanese locale and that string is on screen —
+			// and the unit written after the number.
+			return new ValueSettingsBoard(label, SpeedLimitEdgePoint.maxLimit(), 10,
 				List.of(Component.translatable("createtrainnext.speed_limit.row")),
-				new ValueSettingsFormatter(ValueSettings::format));
+				new ValueSettingsFormatter(settings -> Component.literal(format(settings.value()))));
 		}
 	}
 

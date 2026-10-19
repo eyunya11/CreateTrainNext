@@ -4,6 +4,8 @@ import com.simibubi.create.content.trains.graph.DimensionPalette;
 import com.simibubi.create.content.trains.signal.SingleBlockEntityEdgePoint;
 import com.simibubi.create.foundation.blockEntity.behaviour.BlockEntityBehaviour;
 import com.simibubi.create.foundation.blockEntity.behaviour.scrollValue.ScrollValueBehaviour;
+import com.simibubi.create.infrastructure.config.AllConfigs;
+import com.simibubi.create.infrastructure.config.CTrains;
 
 import net.minecraft.core.HolderLookup;
 import net.minecraft.nbt.CompoundTag;
@@ -31,21 +33,42 @@ public class SpeedLimitEdgePoint extends SingleBlockEntityEdgePoint {
 	private static final String TAG_LIMIT = "Limit";
 
 	/**
-	 * Limits are held in the same unit Create shows on a train's speed readout, so a sign reading
-	 * 40 and a schedule set to 40 mean the same thing. Zero is a legal setting and means stop.
+	 * Limits are held in kilometres per hour, which is the number the sign shows. Zero is a legal
+	 * setting and means stop.
+	 *
+	 * <p>Create counts speed in blocks per second, and a block is taken to be a metre, so a limit
+	 * becomes the speed trains are compared with by dividing by {@link #KMH_PER_BLOCK_PER_SECOND}.
 	 */
 	public static final int MIN_LIMIT = 0;
-	public static final int MAX_LIMIT = 100;
 	public static final int DEFAULT_LIMIT = 40;
+
+	/** How many km/h one block per second is: a metre a second is 3.6 km/h. */
+	public static final double KMH_PER_BLOCK_PER_SECOND = 3.6;
+
+	/**
+	 * The highest limit a sign can be set to: the fastest a train can go under Create's config,
+	 * in km/h. A sign above that would promise a speed nothing reaches.
+	 *
+	 * <p>The larger of the two top speeds, standard and powered, so that a limit can be set for
+	 * either kind. It follows the config rather than being a constant, and so is asked for each
+	 * time; it is rounded down, so that a sign never reads faster than a train can run.
+	 */
+	public static int maxLimit() {
+		CTrains trains = AllConfigs.server().trains;
+		double fastest = Math.max(trains.trainTopSpeed.getF(), trains.poweredTrainTopSpeed.getF());
+		// The small allowance is for 40 x 3.6 coming out as 143.99999999999997.
+		return Math.max(MIN_LIMIT + 1, (int) Math.floor(fastest * KMH_PER_BLOCK_PER_SECOND + 1.0E-9));
+	}
 
 	private int limit = DEFAULT_LIMIT;
 
+	/** The limit in km/h, held to the config as it stands now: a config lowered since is no excuse for a faster sign. */
 	public int getLimit() {
-		return limit;
+		return Math.min(limit, maxLimit());
 	}
 
 	public void setLimit(int limit) {
-		this.limit = Mth.clamp(limit, MIN_LIMIT, MAX_LIMIT);
+		this.limit = Mth.clamp(limit, MIN_LIMIT, maxLimit());
 	}
 
 	@Override
