@@ -208,7 +208,8 @@ public class CreateTrainNextClient {
 			return;
 
 		Minecraft.getInstance()
-			.setScreen(new SurveyMarkerScreen(event.getPos(), marker.getBearing(), marker.getLength()));
+			.setScreen(new SurveyMarkerScreen(event.getPos(), marker.getBearing(), marker.getLength(),
+				marker.getGrade()));
 		event.setCanceled(true);
 	}
 

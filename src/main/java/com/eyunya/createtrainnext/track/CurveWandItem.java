@@ -387,10 +387,20 @@ public class CurveWandItem extends Item {
 	 * point of the curve, which is not the grade shown for the whole of it.
 	 */
 	public static MutableComponent refusal(CurvePlanner.Plan plan) {
-		if ("too_steep".equals(plan.error()))
+		return refusal(plan.error(), "too_steep".equals(plan.error()) ? plan.steepestGrade() : 0);
+	}
+
+	/**
+	 * The same for a refusal that did not come from a {@link CurvePlanner.Plan}, such as a survey
+	 * marker's line.
+	 *
+	 * @param steepestGrade how steep it is at its steepest, as a fraction; read only for {@code too_steep}.
+	 */
+	public static MutableComponent refusal(String error, double steepestGrade) {
+		if ("too_steep".equals(error))
 			return Component.translatable("message.createtrainnext.wand.too_steep_by",
-				GradeText.permille(plan.steepestGrade()), CurvePlanner.maxGradePermille());
-		return Component.translatable("message.createtrainnext.wand." + plan.error());
+				GradeText.permille(steepestGrade), CurvePlanner.maxGradePermille());
+		return Component.translatable("message.createtrainnext.wand." + error);
 	}
 
 	static void message(Player player, String key, Object... args) {

@@ -1294,12 +1294,23 @@ public final class CurvePlanner {
 	 * two of those — and the one nearest the bearing asked for is rarely exactly on it. Aiming both
 	 * ends at the line between the two centres is what keeps the track perfectly straight; the
 	 * price is a bearing off by a fraction of a degree, which is reported rather than hidden.
+	 *
+	 * <p>The same goes for a line that climbs. {@link #length} is how far it goes along the ground,
+	 * and {@link #rise} how many blocks it gains, which is a whole number because a node is at the
+	 * height of a block. The grade asked for is rarely exactly that over this run, so the grade the
+	 * line has, {@link #slope}, is reported too. It is the same all along: the tangents at both ends
+	 * lean by it, and a straight line leaning by the rise over the run is straight in three dimensions.
 	 */
 	public record StraightPlan(@Nullable String error, BlockPos endPos, Vec3 heading, double bearing,
-		double length) {
+		double length, int rise) {
 
 		static StraightPlan failed(String error) {
-			return new StraightPlan(error, BlockPos.ZERO, Vec3.ZERO, 0, 0);
+			return new StraightPlan(error, BlockPos.ZERO, Vec3.ZERO, 0, 0, 0);
+		}
+
+		/** How steeply the line climbs, as a fraction: the rise over the run, minus for a descent. */
+		public double slope() {
+			return length < 1.0E-6 ? 0 : rise / length;
 		}
 
 		public boolean valid() {
@@ -1321,6 +1332,20 @@ public final class CurvePlanner {
 	 * search wandering, and what it settles on is reported back.
 	 */
 	public static StraightPlan planStraight(Level level, BlockPos from, float requestedBearing, int requestedLength) {
+		return planStraight(level, from, requestedBearing, requestedLength, 0);
+	}
+
+	/**
+	 * The same for a line that climbs, at {@code permille} over the run; a minus sign is a descent.
+	 *
+	 * <p>Where the line ends on the ground is chosen exactly as for a level one, and its height follows:
+	 * the grade over the run it came out with, to the nearest whole block. The grade the line really
+	 * has is that rise over that run, which is off from the one asked for by up to half a block over the
+	 * run — more for a short line or a gentle grade — and is what the plan reports. A line that comes
+	 * out steeper than {@code curves.maxGrade} allows is refused, as a curve is.
+	 */
+	public static StraightPlan planStraight(Level level, BlockPos from, float requestedBearing, int requestedLength,
+		int permille) {
 		int maxLength = AllConfigs.server().trains.maxTrackPlacementLength.get();
 		if (requestedLength > maxLength)
 			return StraightPlan.failed("too_far");
@@ -1371,14 +1396,18 @@ public final class CurvePlanner {
 			.subtract(start));
 		Vec3 heading = span.normalize();
 
+		int rise = (int) Math.round(permille / 1000.0 * span.length());
+		BlockPos end = best.atY(from.getY() + rise);
+
 		// Blocked, but the line is still worked out — the preview draws it in red, which says far
 		// more than the message does on its own: it is the difference between being told "no room"
 		// and being shown where the obstruction is.
-		String error = level.getBlockState(best)
-			.canBeReplaced() || level.getBlockEntity(best) instanceof AngledTrackAnchorBlockEntity ? null
-				: "no_room";
+		String error = !level.isOutsideBuildHeight(end) && (level.getBlockState(end)
+			.canBeReplaced() || level.getBlockEntity(end) instanceof AngledTrackAnchorBlockEntity) ? null : "no_room";
+		if (error == null && steeperThanAllowed(Math.abs(rise) / span.length()))
+			error = "too_steep";
 
-		return new StraightPlan(error, best, heading, AngledTrackAnchorBlockEntity.yawOf(heading), span.length());
+		return new StraightPlan(error, end, heading, AngledTrackAnchorBlockEntity.yawOf(heading), span.length(), rise);
 	}
 
 	/**
@@ -1391,10 +1420,14 @@ public final class CurvePlanner {
 	 */
 	public static BezierConnection straightCurve(BlockPos from, StraightPlan plan) {
 		Vec3 heading = plan.heading();
+		// A line that climbs has its nodes at the centres of its blocks, and tangents that lean by the
+		// climb: the same two things an anchor does once it holds a slope.
+		boolean climbs = plan.rise() != 0;
+		Vec3 tangent = AngledTrackAnchorBlockEntity.tangentOf(heading, plan.slope());
 		return new BezierConnection(Couple.create(from, plan.endPos()),
-			Couple.create(AngledTrackAnchorBlockEntity.exitNode(from, heading, false),
-				AngledTrackAnchorBlockEntity.entryNode(plan.endPos(), heading, false)),
-			Couple.create(heading, heading.scale(-1)), Couple.create(UP, UP), true, false, TrackMaterial.ANDESITE);
+			Couple.create(AngledTrackAnchorBlockEntity.exitNode(from, heading, false, climbs),
+				AngledTrackAnchorBlockEntity.entryNode(plan.endPos(), heading, false, climbs)),
+			Couple.create(tangent, tangent.scale(-1)), Couple.create(UP, UP), true, false, TrackMaterial.ANDESITE);
 	}
 
 	/** Builds what {@link #planStraight} described. Server side only. */
@@ -1412,7 +1445,9 @@ public final class CurvePlanner {
 		if (!(level.getBlockEntity(plan.endPos()) instanceof AngledTrackAnchorBlockEntity end))
 			return false;
 
-		start.linkTo(end, plan.heading(), plan.heading());
+		// The climb goes with the heading, as the y of the vector, the way a curve's anchors are aimed.
+		Vec3 tangent = AngledTrackAnchorBlockEntity.tangentOf(plan.heading(), plan.slope());
+		start.linkTo(end, tangent, tangent);
 		return true;
 	}
 

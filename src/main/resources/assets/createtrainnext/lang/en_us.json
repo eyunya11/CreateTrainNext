@@ -25,6 +25,7 @@
   "createtrainnext.survey_marker.apply": "Apply",
   "createtrainnext.survey_marker.hint": "Lay the line with the Curve Wand",
   "createtrainnext.survey_marker.bearing": "Bearing",
+  "createtrainnext.survey_marker.grade": "Grade (‰)",
   "createtrainnext.grade_screen.title": "Lay at a Grade",
   "createtrainnext.grade_screen.grade": "Grade (‰)",
   "createtrainnext.grade_screen.distance": "Distance (blocks)",
@@ -32,6 +33,7 @@
   "createtrainnext.grade_screen.hint": "Limit ±%s‰. Leave the distance empty to set only the grade",
   "message.createtrainnext.survey.ready": "Ready — bearing %s°, %s blocks",
   "message.createtrainnext.survey.laid": "Line laid — bearing %s°, %s blocks",
+  "message.createtrainnext.survey.laid_climbing": "Line laid — bearing %s°, %s blocks, grade %s‰, height %s",
 
   "item.createtrainnext.curve_wand": "Curve Wand",
   "tooltip.createtrainnext.curve_wand.start": "Right click track, then where it should go",

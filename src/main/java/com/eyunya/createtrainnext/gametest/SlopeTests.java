@@ -29,6 +29,8 @@ import com.eyunya.createtrainnext.track.CurveWandSelection;
 import com.eyunya.createtrainnext.track.GradeSpec;
 import com.eyunya.createtrainnext.track.GradeText;
 import com.eyunya.createtrainnext.track.SetCurveGradePacket;
+import com.eyunya.createtrainnext.track.SetSurveyMarkerPacket;
+import com.eyunya.createtrainnext.track.SurveyMarkerBlockEntity;
 import com.simibubi.create.AllBlocks;
 import com.simibubi.create.content.trains.graph.EdgePointType;
 import com.simibubi.create.content.trains.graph.TrackGraphLocation;
@@ -43,6 +45,7 @@ import io.netty.buffer.Unpooled;
 
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
+import net.minecraft.core.HolderLookup;
 import net.minecraft.gametest.framework.GameTest;
 import net.minecraft.gametest.framework.GameTestHelper;
 import net.minecraft.nbt.CompoundTag;
@@ -50,6 +53,7 @@ import net.minecraft.nbt.NbtOps;
 import net.minecraft.network.chat.Component;
 import net.minecraft.network.chat.contents.TranslatableContents;
 import net.minecraft.world.InteractionHand;
+import net.minecraft.world.ItemInteractionResult;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.GameType;
@@ -57,6 +61,7 @@ import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.phys.BlockHitResult;
 import net.minecraft.world.phys.Vec3;
 
 import net.neoforged.neoforge.gametest.GameTestHolder;
@@ -1302,6 +1307,299 @@ public class SlopeTests {
 		helper.assertTrue(CurveWandItem.selectionIn(wand, helper.getLevel()) == null,
 			"outside grade mode the same gesture should drop the selection, as it always did");
 		helper.succeed();
+	}
+
+	// ----------------------------------------------------- the survey marker
+
+	/**
+	 * A line planned at a grade gains a whole number of blocks over the run it comes out with, and is as
+	 * straight as a level one is, in three dimensions.
+	 *
+	 * <p>A hundred permille over sixteen blocks is 1.6 blocks, which is two, so the line really climbs
+	 * 125 permille, and that is what it reports. Both anchors lean by it, and what they build is the
+	 * very line the ghost drew.
+	 */
+	@GameTest(template = EMPTY, timeoutTicks = 60)
+	public static void aSurveyLineAtAGradeIsStraightAndClimbsByWholeBlocks(GameTestHelper helper) {
+		BlockPos from = new BlockPos(4, 1, 16);
+		Level level = helper.getLevel();
+
+		CurvePlanner.StraightPlan plan = CurvePlanner.planStraight(level, helper.absolutePos(from), EAST, 16, 100);
+		helper.assertTrue(plan.valid(), "the line should be possible, but was refused: " + plan.error());
+		helper.assertTrue(plan.rise() == 2, "100 permille over sixteen blocks should gain two, but gains " + plan.rise());
+		helper.assertTrue(relative(helper, plan.endPos()).getY() == from.getY() + 2,
+			"the far end should be two above the start, but is at " + relative(helper, plan.endPos()));
+		helper.assertTrue(near(plan.length(), 16.0, 1.5), "it should run about sixteen blocks, but runs " + plan.length());
+		helper.assertTrue(near(plan.slope(), plan.rise() / plan.length(), 1.0E-12), "the slope is the rise over the run");
+		helper.assertTrue(Math.abs(plan.slope() - 0.1) <= 0.5 / plan.length() + 1.0E-9,
+			"the grade it has should be within half a block over the run of the one asked for, but is " + plan.slope());
+
+		BezierConnection drawn = CurvePlanner.straightCurve(helper.absolutePos(from), plan);
+		helper.assertTrue(strayFromLine(drawn) < 1.0E-3, "the ghost should be a straight line, but strays " + strayFromLine(drawn));
+		assertSteady(helper, drawn, plan.slope(), "the ghost");
+
+		helper.assertTrue(CurvePlanner.applyStraight(level, helper.absolutePos(from), plan), "the line should have been laid");
+		AngledTrackAnchorBlockEntity start = anchorAt(helper, from);
+		BlockPos end = relative(helper, plan.endPos());
+		AngledTrackAnchorBlockEntity finish = anchorAt(helper, end);
+		assertChain(helper, start, from, end);
+		helper.assertTrue(near(start.getSlope(), plan.slope(), 1.0E-6) && near(finish.getSlope(), plan.slope(), 1.0E-6),
+			"both anchors should lean by " + plan.slope() + ", but by " + start.getSlope() + " and " + finish.getSlope());
+
+		BezierConnection built = start.buildCurveToNext();
+		helper.assertTrue(strayFromLine(built) < 1.0E-3, "what was built should be a straight line, but strays " + strayFromLine(built));
+		assertSteady(helper, built, plan.slope(), "what was built");
+		helper.assertTrue(CurvePlanner.deviation(drawn, built) < 1.0E-3, "the line that was built should be the one the ghost drew");
+
+		helper.runAfterDelay(GRAPH_TICKS, () -> {
+			assertConsistent(helper, start);
+			helper.succeed();
+		});
+	}
+
+	/** A negative grade is a descent: the far end is lower and both anchors lean down. */
+	@GameTest(template = EMPTY, timeoutTicks = 60)
+	public static void aSurveyLineAtANegativeGradeDescends(GameTestHelper helper) {
+		BlockPos from = new BlockPos(4, 5, 8);
+		CurvePlanner.StraightPlan plan = CurvePlanner.planStraight(helper.getLevel(), helper.absolutePos(from), EAST, 16, -100);
+		helper.assertTrue(plan.valid(), "the descent should be possible, but was refused: " + plan.error());
+		helper.assertTrue(plan.rise() == -2 && relative(helper, plan.endPos()).getY() == from.getY() - 2,
+			"it should fall two blocks, but rises " + plan.rise());
+
+		helper.assertTrue(CurvePlanner.applyStraight(helper.getLevel(), helper.absolutePos(from), plan), "the line should have been laid");
+		AngledTrackAnchorBlockEntity start = anchorAt(helper, from);
+		helper.assertTrue(start.getSlope() < 0 && near(start.getSlope(), plan.slope(), 1.0E-6),
+			"the anchor should lean down by " + plan.slope() + ", but leans " + start.getSlope());
+		assertSteady(helper, start.buildCurveToNext(), plan.slope(), "the descent");
+		helper.succeed();
+	}
+
+	/**
+	 * A grade too gentle to gain a block over the run is the level line a marker always laid, nodes and all.
+	 */
+	@GameTest(template = EMPTY, timeoutTicks = 60)
+	public static void aGradeThatRoundsToNoRiseLaysTheLevelLineItAlwaysDid(GameTestHelper helper) {
+		BlockPos from = new BlockPos(4, 1, 16);
+		Level level = helper.getLevel();
+
+		// Twenty permille over ten blocks is a fifth of a block.
+		CurvePlanner.StraightPlan gentle = CurvePlanner.planStraight(level, helper.absolutePos(from), EAST, 10, 20);
+		CurvePlanner.StraightPlan level0 = CurvePlanner.planStraight(level, helper.absolutePos(from), EAST, 10);
+		helper.assertTrue(gentle.valid() && gentle.rise() == 0 && gentle.slope() == 0.0,
+			"the line should be level, but gains " + gentle.rise() + ": " + gentle.error());
+		helper.assertTrue(gentle.equals(level0), "it should be the plan made with no grade at all: " + gentle + " against " + level0);
+
+		// Its nodes are where a level line's are, on the boundaries of the two blocks, since nothing climbs.
+		Vec3 first = CurvePlanner.straightCurve(helper.absolutePos(from), gentle)
+			.getPosition(0);
+		helper.assertTrue(near(first.x, helper.absoluteVec(Vec3.atBottomCenterOf(from))
+			.x + 0.5, 1.0E-6), "a level line leaves the boundary of its block, but leaves " + first);
+
+		helper.assertTrue(CurvePlanner.applyStraight(level, helper.absolutePos(from), gentle), "the line should have been laid");
+		helper.assertTrue(anchorAt(helper, from).getSlope() == 0.0, "a level line leaves its anchors level");
+		helper.succeed();
+	}
+
+	/**
+	 * A line steeper than the limit is refused, with how steep it came out, and the limit is
+	 * {@code curves.maxGrade}.
+	 *
+	 * <p>The grade asked for is within the limit and the one the line has is not: 330 permille over five
+	 * blocks is 1.65, which is two blocks, which is 400. The setting is put back whether or not the checks
+	 * pass: the tests share one server.
+	 */
+	@GameTest(template = EMPTY)
+	public static void aSurveyLineSteeperThanTheLimitIsRefused(GameTestHelper helper) {
+		BlockPos from = new BlockPos(4, 1, 16);
+		Level level = helper.getLevel();
+		int original = CTNConfig.SERVER.maxGrade.get();
+
+		try {
+			CurvePlanner.StraightPlan steep = CurvePlanner.planStraight(level, helper.absolutePos(from), EAST, 5, 330);
+			helper.assertTrue("too_steep".equals(steep.error()), "400 permille should be too steep, but: " + steep.error());
+			helper.assertTrue(steep.hasGeometry(), "a refusal for steepness should still have a line to draw in red");
+			TranslatableContents said = translatable(helper, CurveWandItem.refusal(steep.error(), Math.abs(steep.slope())));
+			helper.assertTrue(Arrays.equals(said.getArgs(), new Object[] { 400, original }),
+				"it should say 400 against the limit, but says " + Arrays.toString(said.getArgs()));
+
+			helper.assertTrue(CurvePlanner.planStraight(level, helper.absolutePos(from), EAST, 16, 100)
+				.valid(), "125 permille is inside the limit");
+			CTNConfig.SERVER.maxGrade.set(100);
+			helper.assertTrue("too_steep".equals(CurvePlanner.planStraight(level, helper.absolutePos(from), EAST, 16, 100)
+				.error()), "125 permille should be too steep once the limit is 100");
+		} finally {
+			CTNConfig.SERVER.maxGrade.set(original);
+		}
+		helper.succeed();
+	}
+
+	/**
+	 * Where the anchor would go is where the grade puts it. A block at the height the line would have
+	 * been at without a grade is no obstruction, and one where it arrives is.
+	 */
+	@GameTest(template = EMPTY)
+	public static void aSurveyLineIsRefusedWhereItsRaisedEndHasNoRoom(GameTestHelper helper) {
+		BlockPos from = new BlockPos(4, 1, 16);
+		Level level = helper.getLevel();
+		CurvePlanner.StraightPlan plan = CurvePlanner.planStraight(level, helper.absolutePos(from), EAST, 16, 100);
+		BlockPos end = relative(helper, plan.endPos());
+		helper.assertTrue(plan.valid() && end.getY() == 3, "setup: the line should arrive two above the start: " + plan.error());
+
+		helper.setBlock(end.below(2), Blocks.STONE);
+		helper.assertTrue(CurvePlanner.planStraight(level, helper.absolutePos(from), EAST, 16, 100)
+			.valid(), "a block at the height of the start should not matter");
+
+		helper.setBlock(end, Blocks.STONE);
+		CurvePlanner.StraightPlan blocked = CurvePlanner.planStraight(level, helper.absolutePos(from), EAST, 16, 100);
+		helper.assertTrue("no_room".equals(blocked.error()) && blocked.hasGeometry(),
+			"a block where the end would go should refuse it, with a line to draw: " + blocked.error());
+		helper.succeed();
+	}
+
+	/**
+	 * A marker keeps its grade through saving and through being sent to a client, is held to the limit
+	 * when it is set, and one saved before there was a grade is level.
+	 */
+	@GameTest(template = EMPTY)
+	public static void aSurveyMarkerKeepsItsGrade(GameTestHelper helper) {
+		BlockPos pos = new BlockPos(4, 1, 16);
+		helper.setBlock(pos, CTNRegistry.SURVEY_MARKER.get());
+		SurveyMarkerBlockEntity marker = marker(helper, pos);
+		HolderLookup.Provider registries = helper.getLevel()
+			.registryAccess();
+
+		marker.configure(90, 20, -45);
+		helper.assertTrue(marker.getGrade() == -45 && marker.getLength() == 20 && marker.getBearing() == 90,
+			"the three numbers should be set together, but are " + marker.getBearing() + ", " + marker.getLength() + ", " + marker.getGrade());
+
+		CompoundTag saved = marker.saveWithFullMetadata(registries);
+		SurveyMarkerBlockEntity loaded = reloadMarker(helper, marker, saved);
+		helper.assertTrue(loaded.getGrade() == -45, "a saved marker should load with its grade, but loads with " + loaded.getGrade());
+
+		CompoundTag old = saved.copy();
+		old.remove("Grade");
+		helper.assertTrue(reloadMarker(helper, marker, old).getGrade() == 0, "a marker saved before grades should load level");
+
+		marker.configure(90, 20, 0);
+		helper.assertTrue(!marker.saveWithFullMetadata(registries)
+			.contains("Grade"), "a level marker should not save a grade");
+
+		// What the client is sent when a grade is taken off must take it off there too: a client that had
+		// one and is told of none would otherwise go on drawing the line it had.
+		marker.configure(90, 20, 80);
+		SurveyMarkerBlockEntity seen = new SurveyMarkerBlockEntity(marker.getBlockPos(), marker.getBlockState());
+		seen.handleUpdateTag(marker.getUpdateTag(registries), registries);
+		helper.assertTrue(seen.getGrade() == 80, "the client should be sent the grade, but is sent " + seen.getGrade());
+		marker.configure(90, 20, 0);
+		seen.handleUpdateTag(marker.getUpdateTag(registries), registries);
+		helper.assertTrue(seen.getGrade() == 0, "the client should be told the grade is gone, but still has " + seen.getGrade());
+
+		int limit = CurvePlanner.maxGradePermille();
+		marker.configure(90, 20, 5000);
+		helper.assertTrue(marker.getGrade() == limit, "a grade over the limit should be held to it, but is " + marker.getGrade());
+		marker.configure(90, 20, -5000);
+		helper.assertTrue(marker.getGrade() == -limit, "a descent over the limit should be held to it, but is " + marker.getGrade());
+		helper.succeed();
+	}
+
+	/**
+	 * The wand lays a marker's line at the marker's grade, the marker becomes the anchor at the start, and
+	 * a line that is refused leaves the marker where it was.
+	 */
+	@GameTest(template = EMPTY, timeoutTicks = 60)
+	public static void theWandLaysAMarkersSlopedLine(GameTestHelper helper) {
+		BlockPos pos = new BlockPos(4, 1, 16);
+		helper.setBlock(pos, CTNRegistry.SURVEY_MARKER.get());
+		marker(helper, pos).configure(270, 16, 100);
+		Player player = helper.makeMockPlayer(GameType.CREATIVE);
+		ItemStack wand = new ItemStack(CTNRegistry.CURVE_WAND.get());
+		Level level = helper.getLevel();
+
+		CurvePlanner.StraightPlan expected = CurvePlanner.planStraight(level, helper.absolutePos(pos), 270, 16, 100);
+		helper.assertTrue(expected.valid() && expected.rise() == 2, "setup: the line should climb two blocks: " + expected.error());
+
+		// Too steep for the limit: nothing is laid, and the marker is still a marker.
+		marker(helper, pos).configure(270, 5, 330);
+		BlockHitResult hit = new BlockHitResult(Vec3.atCenterOf(helper.absolutePos(pos)), Direction.UP, helper.absolutePos(pos), false);
+		ItemInteractionResult refused = level.getBlockState(helper.absolutePos(pos))
+			.useItemOn(wand, level, player, InteractionHand.MAIN_HAND, hit);
+		helper.assertTrue(refused == ItemInteractionResult.FAIL, "a line that is too steep should be refused, but gave " + refused);
+		helper.assertTrue(level.getBlockState(helper.absolutePos(pos))
+			.is(CTNRegistry.SURVEY_MARKER.get()), "a refused line should leave the marker where it was");
+
+		marker(helper, pos).configure(270, 16, 100);
+		ItemInteractionResult laid = level.getBlockState(helper.absolutePos(pos))
+			.useItemOn(wand, level, player, InteractionHand.MAIN_HAND, hit);
+		helper.assertTrue(laid.consumesAction(), "the line should have been laid, but gave " + laid);
+
+		AngledTrackAnchorBlockEntity start = anchorAt(helper, pos);
+		assertChain(helper, start, pos, relative(helper, expected.endPos()));
+		helper.assertTrue(near(start.getSlope(), expected.slope(), 1.0E-6),
+			"the line should climb at the marker's grade, " + expected.slope() + ", but climbs " + start.getSlope());
+
+		helper.runAfterDelay(GRAPH_TICKS, () -> {
+			assertConsistent(helper, start);
+			helper.succeed();
+		});
+	}
+
+	/**
+	 * What the marker's screen sends sets all three numbers, each to its own, and is only listened to from
+	 * a player who could be at the marker.
+	 */
+	@GameTest(template = EMPTY)
+	public static void theMarkersScreenSetsAllThreeNumbers(GameTestHelper helper) {
+		BlockPos pos = new BlockPos(4, 1, 16);
+		helper.setBlock(pos, CTNRegistry.SURVEY_MARKER.get());
+		SurveyMarkerBlockEntity marker = marker(helper, pos);
+		Player player = helper.makeMockPlayer(GameType.CREATIVE);
+		SetSurveyMarkerPacket packet = new SetSurveyMarkerPacket(helper.absolutePos(pos), 135, 24, -60);
+
+		// The mock player starts at the origin of the world, a long way from the test.
+		helper.assertTrue(!SetSurveyMarkerPacket.apply(player, packet), "a player far from the marker should not be heard");
+		helper.assertTrue(marker.getGrade() == 0 && marker.getLength() == SurveyMarkerBlockEntity.DEFAULT_LENGTH,
+			"nothing should have been set");
+
+		player.setPos(helper.absoluteVec(Vec3.atCenterOf(pos)));
+		helper.assertTrue(SetSurveyMarkerPacket.apply(player, packet), "a player at the marker should be heard");
+		helper.assertTrue(marker.getBearing() == 135 && marker.getLength() == 24 && marker.getGrade() == -60,
+			"the numbers should each be set to their own, but are " + marker.getBearing() + ", " + marker.getLength() + ", "
+				+ marker.getGrade());
+
+		ByteBuf buffer = Unpooled.buffer();
+		SetSurveyMarkerPacket.STREAM_CODEC.encode(buffer, packet);
+		helper.assertTrue(packet.equals(SetSurveyMarkerPacket.STREAM_CODEC.decode(buffer)), "the packet should arrive as it was sent");
+		helper.succeed();
+	}
+
+	/** The farthest any point of a curve is from the straight line through its two ends, in blocks. */
+	private static double strayFromLine(BezierConnection curve) {
+		Vec3 from = curve.getPosition(0);
+		Vec3 along = curve.getPosition(1)
+			.subtract(from);
+		double worst = 0;
+		for (int i = 1; i < SAMPLES; i++)
+			worst = Math.max(worst, curve.getPosition(i / (double) SAMPLES)
+				.subtract(from)
+				.cross(along)
+				.length() / along.length());
+		return worst;
+	}
+
+	private static SurveyMarkerBlockEntity marker(GameTestHelper helper, BlockPos relative) {
+		BlockEntity entity = helper.getBlockEntity(relative);
+		helper.assertTrue(entity instanceof SurveyMarkerBlockEntity, "there should be a survey marker at " + relative);
+		return (SurveyMarkerBlockEntity) entity;
+	}
+
+	/** A marker made afresh from a tag, the way the world makes one, or a client from what it is sent. */
+	private static SurveyMarkerBlockEntity reloadMarker(GameTestHelper helper, SurveyMarkerBlockEntity original,
+		CompoundTag tag) {
+		BlockEntity loaded = BlockEntity.loadStatic(original.getBlockPos(), original.getBlockState(), tag,
+			helper.getLevel()
+				.registryAccess());
+		helper.assertTrue(loaded instanceof SurveyMarkerBlockEntity, "the saved marker should load again");
+		return (SurveyMarkerBlockEntity) loaded;
 	}
 
 	// --------------------------------------------------------------- helpers

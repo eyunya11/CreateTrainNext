@@ -1,5 +1,6 @@
 package com.eyunya.createtrainnext.client;
 
+import com.eyunya.createtrainnext.track.CurvePlanner;
 import com.eyunya.createtrainnext.track.SetSurveyMarkerPacket;
 import com.eyunya.createtrainnext.track.SurveyMarkerBlockEntity;
 
@@ -15,22 +16,23 @@ import net.minecraft.util.Mth;
 import net.neoforged.neoforge.network.PacketDistributor;
 
 /**
- * Typing the two numbers into a survey marker, for when they are already known.
+ * Typing the numbers into a survey marker, for when they are already known.
  *
  * <p>The scroll box on the block is the better control while a line is being aimed — a degree at a
  * time, in the world, looking at where the track should go. It is the worse one when the bearing
  * came off a plan or off the wand's own readout, because reaching 137 from 0 is a hundred and
- * thirty-seven notches. This is the other half of that.
+ * thirty-seven notches. This is the other half of that, and the only place the length and the grade
+ * are set.
  *
  * <p>Plainly styled on purpose. Create's own screens are drawn against its texture sheet, and
- * borrowing that would tie a five-widget dialog to the exact layout of an atlas in someone else's
- * mod. Two boxes and a button do not need it.
+ * borrowing that would tie a small dialog to the exact layout of an atlas in someone else's
+ * mod. Three boxes and a button do not need it.
  */
 public class SurveyMarkerScreen extends Screen {
 
 	private static final int WIDTH = 176;
 
-	private static final int HEIGHT = 96;
+	private static final int HEIGHT = 122;
 
 	private final BlockPos pos;
 
@@ -38,15 +40,23 @@ public class SurveyMarkerScreen extends Screen {
 
 	private final int initialLength;
 
+	private final int initialGrade;
+
+	/** The most the grade may be either way, in permille. The server holds it to the same limit. */
+	private final int gradeLimit = CurvePlanner.maxGradePermille();
+
 	private EditBox bearingBox;
 
 	private EditBox lengthBox;
 
-	public SurveyMarkerScreen(BlockPos pos, int bearing, int length) {
+	private EditBox gradeBox;
+
+	public SurveyMarkerScreen(BlockPos pos, int bearing, int length, int grade) {
 		super(Component.translatable("createtrainnext.survey_marker.title"));
 		this.pos = pos;
 		this.initialBearing = bearing;
 		this.initialLength = length;
+		this.initialGrade = grade;
 	}
 
 	@Override
@@ -59,9 +69,17 @@ public class SurveyMarkerScreen extends Screen {
 		lengthBox = numberBox(left + 80, top + 46, initialLength,
 			Component.translatable("createtrainnext.survey_marker.length"));
 
+		gradeBox = new EditBox(font, left + 80, top + 68, 58, 16,
+			Component.translatable("createtrainnext.survey_marker.grade"));
+		gradeBox.setMaxLength(5);
+		// A minus sign and digits, in the shapes a number can pass through while it is typed.
+		gradeBox.setFilter(text -> text.matches("-?\\d{0,4}"));
+		gradeBox.setValue(Integer.toString(initialGrade));
+		addRenderableWidget(gradeBox);
+
 		addRenderableWidget(Button
 			.builder(Component.translatable("createtrainnext.survey_marker.apply"), b -> applyAndClose())
-			.bounds(left + 38, top + 68, 100, 20)
+			.bounds(left + 38, top + 92, 100, 20)
 			.build());
 
 		setInitialFocus(bearingBox);
@@ -81,7 +99,8 @@ public class SurveyMarkerScreen extends Screen {
 	private void applyAndClose() {
 		PacketDistributor.sendToServer(new SetSurveyMarkerPacket(pos,
 			read(bearingBox, initialBearing, SurveyMarkerBlockEntity.MIN_BEARING, SurveyMarkerBlockEntity.MAX_BEARING),
-			read(lengthBox, initialLength, SurveyMarkerBlockEntity.MIN_LENGTH, SurveyMarkerBlockEntity.MAX_LENGTH)));
+			read(lengthBox, initialLength, SurveyMarkerBlockEntity.MIN_LENGTH, SurveyMarkerBlockEntity.MAX_LENGTH),
+			read(gradeBox, initialGrade, -gradeLimit, gradeLimit)));
 		onClose();
 	}
 
@@ -110,6 +129,8 @@ public class SurveyMarkerScreen extends Screen {
 			top + 28, 0xC8C8C8);
 		graphics.drawString(font, Component.translatable("createtrainnext.survey_marker.length"), left + 16,
 			top + 50, 0xC8C8C8);
+		graphics.drawString(font, Component.translatable("createtrainnext.survey_marker.grade"), left + 16,
+			top + 72, 0xC8C8C8);
 		graphics.drawString(font, Component.translatable("createtrainnext.survey_marker.hint")
 			.withStyle(ChatFormatting.DARK_GRAY), left + 16, top + HEIGHT - 4, 0x808080);
 	}
