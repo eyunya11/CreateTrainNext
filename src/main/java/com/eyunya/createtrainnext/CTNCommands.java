@@ -7,6 +7,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 
+import com.eyunya.createtrainnext.track.AnchorIndex;
 import com.eyunya.createtrainnext.track.AngledTrackAnchorBlockEntity;
 import com.eyunya.createtrainnext.track.CurvePlanner;
 import com.eyunya.createtrainnext.track.CurveRepair;
@@ -100,6 +101,11 @@ public class CTNCommands {
 				.then(Commands.argument("radius", IntegerArgumentType.integer(1, 1024))
 					.executes(context -> repair(context.getSource(),
 						IntegerArgumentType.getInteger(context, "radius")))))
+			.then(Commands.literal("rebuild")
+				.executes(context -> rebuild(context.getSource(), 128))
+				.then(Commands.argument("radius", IntegerArgumentType.integer(1, 1024))
+					.executes(context -> rebuild(context.getSource(),
+						IntegerArgumentType.getInteger(context, "radius")))))
 			.then(Commands.literal("prune")
 				.executes(context -> prune(context.getSource(), 128))
 				.then(Commands.argument("radius", IntegerArgumentType.integer(1, 1024))
@@ -124,6 +130,66 @@ public class CTNCommands {
 		source.sendSuccess(() -> Component.literal("Looked at " + result.examined() + " graph nodes within " + radius
 			+ " blocks and removed " + result.removed() + " that no track block reports." + undecided), true);
 		return result.removed();
+	}
+
+	/** The most links one run queues, for the reason {@link CurveRepair#MAX_PER_RUN} is a limit. */
+	private static final int MAX_REBUILDS_PER_RUN = 32;
+
+	/**
+	 * Puts back the links within reach that are missing from the track graph.
+	 *
+	 * <p>A link goes missing when the graph is rebuilt from an anchor whose neighbour is in a chunk that is
+	 * not loaded: the rebuild cannot see the curve between them and takes it out. The anchors, their
+	 * curves and the floor are all still there, and nothing drives along it. See
+	 * {@link AngledTrackAnchorBlockEntity#hasUnloadedNeighbour}, which stops it happening now; this is for
+	 * the ones that already have.
+	 *
+	 * <p>Only a link that is missing is rebuilt. Rebuilding takes the nodes at its ends and at the anchors
+	 * beside them out of the graph and puts them back, which derails any train on those edges, so it is
+	 * not done to a link that is working. Links whose far end is not loaded cannot be judged, and are
+	 * counted so that it is clear there are more to go and look at.
+	 */
+	private static int rebuild(CommandSourceStack source, int radius) {
+		ServerLevel level = source.getLevel();
+		Vec3 centre = source.getPosition();
+
+		List<AngledTrackAnchorBlockEntity> missing = new ArrayList<>();
+		int checked = 0;
+		int unjudged = 0;
+		for (AngledTrackAnchorBlockEntity anchor : toList(AnchorIndex.in(level))) {
+			if (anchor.getNext() == null || Vec3.atCenterOf(anchor.getBlockPos())
+				.distanceTo(centre) > radius)
+				continue;
+			if (anchor.hasUnloadedNeighbour()) {
+				unjudged++;
+				continue;
+			}
+			checked++;
+			if (!anchor.linkAheadIsInGraph())
+				missing.add(anchor);
+		}
+
+		int queued = Math.min(missing.size(), MAX_REBUILDS_PER_RUN);
+		for (int i = 0; i < queued; i++)
+			missing.get(i)
+				.requestRebuild(1 + i);
+
+		StringBuilder summary = new StringBuilder("Looked at " + checked + " links within " + radius + " blocks and found "
+			+ missing.size() + " missing from the track graph.");
+		if (queued > 0)
+			summary.append(" Rebuilding " + queued + " of them.");
+		if (missing.size() > queued)
+			summary.append(" Run it again for the other " + (missing.size() - queued) + ".");
+		if (unjudged > 0)
+			summary.append(" " + unjudged + " could not be judged, because a chunk beside them is not loaded.");
+		source.sendSuccess(() -> Component.literal(summary.toString()), true);
+		return queued;
+	}
+
+	private static <T> List<T> toList(Iterable<T> items) {
+		List<T> list = new ArrayList<>();
+		items.forEach(list::add);
+		return list;
 	}
 
 	/**

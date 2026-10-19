@@ -11,6 +11,9 @@ import java.util.Set;
 import org.jetbrains.annotations.Nullable;
 
 import com.eyunya.createtrainnext.CTNRegistry;
+import com.simibubi.create.Create;
+import com.simibubi.create.content.trains.graph.TrackGraph;
+import com.simibubi.create.content.trains.graph.TrackNode;
 import com.simibubi.create.content.trains.graph.TrackNodeLocation;
 import com.simibubi.create.content.trains.track.BezierConnection;
 import com.simibubi.create.content.trains.track.TrackMaterial;
@@ -540,6 +543,53 @@ public class AngledTrackAnchorBlockEntity extends BlockEntity {
 	// so the pass deletes a working edge and puts nothing back. Recovering a discarded graph has to
 	// mean placing a block, where the surroundings are known to be loaded.
 
+	/**
+	 * Whether an anchor this one is linked to is in a chunk that is not loaded.
+	 *
+	 * <p>What the anchor reports to the graph is its curves, and a curve is built from the anchor at its
+	 * other end, so with that one out of reach the anchor reports fewer curves than it has — not none that
+	 * were removed, but none that can be seen. {@code onRailAdded} cannot tell the two apart. It removes the
+	 * nodes this block reports and builds the graph again from what is reported, so run in that state it
+	 * takes the link out and puts nothing back, and nothing is left to put it back later.
+	 *
+	 * <p>Links of Create's length, 32 blocks at most, are never far enough for this to happen, because the
+	 * chunk of one end is the chunk next to the other's. A link of a hundred blocks is seven chunks long.
+	 */
+	public boolean hasUnloadedNeighbour() {
+		return level != null && ((prev != null && !level.isLoaded(prev)) || (next != null && !level.isLoaded(next)));
+	}
+
+	/** Asks for this anchor's neighbourhood to be built into the graph again, {@code delay} ticks from now. */
+	public void requestRebuild(int delay) {
+		if (level != null && !level.isClientSide)
+			level.scheduleTick(worldPosition, getBlockState().getBlock(), delay);
+	}
+
+	/**
+	 * Whether the graph holds the curve to the anchor ahead, as an edge each way between its two ends.
+	 *
+	 * <p>True when there is nothing to check: no anchor ahead, or one that is not loaded, since a curve that
+	 * cannot be built cannot be told apart from one that is not there.
+	 */
+	public boolean linkAheadIsInGraph() {
+		if (level == null || level.isClientSide)
+			return true;
+		BezierConnection curve = buildCurveToNext();
+		if (curve == null)
+			return true;
+
+		TrackNodeLocation from = new TrackNodeLocation(curve.starts.getFirst()).in(level);
+		TrackNodeLocation to = new TrackNodeLocation(curve.starts.getSecond()).in(level);
+		TrackGraph graph = Create.RAILWAYS.sided(level)
+			.getGraph(level, from);
+		TrackNode fromNode = graph == null ? null : graph.locateNode(from);
+		TrackNode toNode = graph == null ? null : graph.locateNode(to);
+		return fromNode != null && toNode != null && graph.getConnectionsFrom(fromNode)
+			.containsKey(toNode)
+			&& graph.getConnectionsFrom(toNode)
+				.containsKey(fromNode);
+	}
+
 	/** Queues the rebuild, matching how Create defers propagation to a scheduled tick. */
 	private void attachNeighbourhood() {
 		if (level == null || level.isClientSide)
@@ -1035,6 +1085,16 @@ public class AngledTrackAnchorBlockEntity extends BlockEntity {
 	public void updateOccupancy() {
 		if (level == null || level.isClientSide)
 			return;
+
+		// With the anchor ahead out of reach there is no curve to build, which is not the same as there
+		// being none: the link is still there and so is its floor. Clearing it here took the floor from
+		// under a long link every time its far end was out of the loaded chunks. The floor is kept alive
+		// as it was last laid, in the chunks that are here, since a floor nobody renews times out.
+		if (next != null && !level.isLoaded(next)) {
+			if (occupied != null)
+				CurveOccupancy.place(level, occupied);
+			return;
+		}
 
 		BezierConnection current = buildCurveToNext();
 		if (occupied != null && (current == null || !occupied.equalsSansMaterial(current)))

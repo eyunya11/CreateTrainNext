@@ -195,6 +195,7 @@ def constant(file, name, kind=r"[\d.]+"):
 
 
 planner, preview, repair = "track/CurvePlanner.java", "client/CurveWandPreview.java", "track/CurveRepair.java"
+commands_file = "CTNCommands.java"
 survey, speed = "track/SurveyMarkerBlockEntity.java", "speed/SpeedLimitEdgePoint.java"
 grade = "track/GradeSpec.java"
 tick_rate = constant("signal/MultiAspectSignalBlockEntity.java", "ASPECT_TICK_RATE")
@@ -222,7 +223,9 @@ facts = [
      r"([\d.]+) degrees per notch, (\d+) while the sprint key is held, up to ±(\d+)",
      r"1目盛り([\d.]+)度、ダッシュキーを押している間は(\d+)度で、最大±(\d+)度"),
     ("links mended per run", [constant(repair, "MAX_PER_RUN")],
-     r"up to (\d+) per run", r"1回に最大(\d+)本"),
+     r"as two arcs, up to (\d+) per run", r"2本の円弧に直します。1回に最大(\d+)本"),
+    ("links rebuilt per run", [constant(commands_file, "MAX_REBUILDS_PER_RUN")],
+     r"A link that works is not touched\. Up to (\d+) per run", r"働いているリンクは変えません。1回に最大(\d+)本"),
     ("survey marker length", [constant(survey, "MIN_LENGTH"), constant(survey, "MAX_LENGTH"), constant(survey, "DEFAULT_LENGTH")],
      r"The length is (\d+) to (\d+) blocks, (\d+) by default", r"長さは(\d+)から(\d+)ブロックで、初期値は(\d+)です"),
     ("survey marker bearing", [constant(survey, "MIN_BEARING"), constant(survey, "MAX_BEARING")],

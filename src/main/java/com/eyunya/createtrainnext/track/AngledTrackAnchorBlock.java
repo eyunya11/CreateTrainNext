@@ -79,6 +79,9 @@ public class AngledTrackAnchorBlock extends Block implements EntityBlock, ITrack
 
 	public static final EnumProperty<AnchorAxis> AXIS = EnumProperty.create("axis", AnchorAxis.class);
 
+	/** How long a rebuild waits before it looks again for a neighbour that was out of reach: a second. */
+	private static final int NEIGHBOUR_RETRY_TICKS = 20;
+
 	public AngledTrackAnchorBlock(Properties properties) {
 		super(properties);
 		registerDefaultState(defaultBlockState().setValue(AXIS, AnchorAxis.Z_ORTHO));
@@ -169,6 +172,14 @@ public class AngledTrackAnchorBlock extends Block implements EntityBlock, ITrack
 
 	@Override
 	protected void tick(BlockState state, ServerLevel level, BlockPos pos, RandomSource random) {
+		// Rebuilding takes out everything this block reports and puts back what it can still see, so with
+		// a neighbour out of reach it would take out the link to it for good: see hasUnloadedNeighbour.
+		// The tick is only put off. It is kept with the chunk, and runs once both ends are there.
+		if (level.getBlockEntity(pos) instanceof AngledTrackAnchorBlockEntity anchor && anchor.hasUnloadedNeighbour()) {
+			level.scheduleTick(pos, this, NEIGHBOUR_RETRY_TICKS);
+			return;
+		}
+
 		TrackPropagator.onRailAdded(level, pos, state);
 		// Everything that moves a curve already schedules this tick to rebuild the graph, so the
 		// floor under the curve rides along with it rather than needing its own set of call sites.

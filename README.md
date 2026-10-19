@@ -118,6 +118,8 @@ The next curve starts from the grade the last one arrived at and aims at the gra
 
 Longer curves come closer. The longest is set by Create's `trains.maxTrackPlacementLength`.
 
+A link of a hundred blocks is six or seven chunks long. The track graph takes in a link only while both of its anchors are loaded, so one laid with its far end beyond the loaded area joins the graph once you are near enough to load both ends. If a link still does not work with both ends loaded, `/createtrainnext rebuild` puts it back. It is described under Commands.
+
 #### Typing a grade and a distance
 
 Sneak and right click the air in grade mode, and a screen opens with two boxes: the grade in permille, and a distance in blocks. With the distance left empty, only the grade is set.
@@ -226,6 +228,7 @@ All start with `/createtrainnext` and need permission level 2 (op).
 | `curves [radius]` | Lists curves whose shape differs when read the other way round. The wand no longer lays them, but curves laid by older versions can have them. The radius is 1 to 1024, 128 by default. |
 | `repair [radius]` | Rebuilds those curves as two arcs, up to 16 per run. The rails move a little: under half a block for an east-into-north curve across about 20 blocks. The output says how far each one moved. Trains near a repaired curve are derailed. |
 | `prune [radius]` | Removes graph nodes that no block reports any more, the coloured posts left in the F3 graph. Other track, trains and signals are left as they are. |
+| `rebuild [radius]` | Puts back the links that are missing from the track graph: the anchors and the curve are there, but no train can drive along it. A link that works is not touched. Up to 32 per run. A link whose far end is not loaded cannot be judged, and the output says how many. The radius is 1 to 1024, 128 by default. |
 | `reverse <pos>` | Turns the route the anchor belongs to end for end. Running it twice puts it back. |
 | `resetgraph` | **Deletes every train and every track graph in the world.** Nothing is rebuilt automatically. |
 
