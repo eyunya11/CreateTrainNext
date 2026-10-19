@@ -377,6 +377,16 @@ public final class CurvePlanner {
 		if (end.error() != null)
 			return Plan.failed(end.error());
 
+		return connect(level, start, end, angleOffsetDegrees, grade);
+	}
+
+	/**
+	 * The curve between two ends that have been resolved: which way round the link runs, and the
+	 * geometry. Shared by a click, which resolves the far end from the block that was aimed at, and by
+	 * a distance, which chooses it.
+	 */
+	private static Plan connect(Level level, Endpoint start, Endpoint end, float angleOffsetDegrees,
+		@Nullable GradeSpec grade) {
 		if (start.anchorPos()
 			.equals(end.anchorPos()))
 			return Plan.failed("same_anchor");
@@ -427,9 +437,88 @@ public final class CurvePlanner {
 
 		BlockPos pos = plan.end()
 			.anchorPos();
-		boolean room = !level.isOutsideBuildHeight(pos) && level.getBlockState(pos)
+		boolean room = !level.isOutsideBuildHeight(pos) && level.isLoaded(pos) && level.getBlockState(pos)
 			.canBeReplaced() && !(level.getBlockEntity(pos) instanceof AngledTrackAnchorBlockEntity);
 		return room ? plan : plan.withError("no_room");
+	}
+
+	/**
+	 * The curve that leaves the block {@code startClick} straight ahead and runs {@code horizontalLength}
+	 * along the ground at a grade, for when the place it should go is a distance and not a block that
+	 * can be aimed at.
+	 *
+	 * <p>Ahead is the way the route already runs there: out of the side of an anchor that is free, or
+	 * away from a piece of Create's track on whichever of its two sides {@code look} faces. An anchor
+	 * that is on no route yet can be left either way, and goes the way it points or the other, whichever
+	 * {@code look} is nearer to.
+	 *
+	 * <p>The far end is a block, and the one nearest the line ahead whose distance is within a block and
+	 * a half of the one asked for, the way {@link #planStraight} chooses; the curve to it is then worked
+	 * out as any other. So it is straight to within the width of a block, and a little over or under the
+	 * length asked for, which is said when it is laid.
+	 *
+	 * @param look which way the player faces, horizontally; used only where the start does not decide.
+	 */
+	public static Plan planByDistance(Level level, BlockPos startClick, GradeSpec grade, double horizontalLength,
+		Vec3 look) {
+		if (horizontalLength < MIN_SPAN + 1)
+			return Plan.failed("too_close");
+		if (horizontalLength > AllConfigs.server().trains.maxTrackPlacementLength.get())
+			return Plan.failed("too_far");
+
+		Vec3 facing = flatUnit(look);
+		Endpoint start = resolve(level, startClick, null, Vec3.atBottomCenterOf(startClick)
+			.add(facing.scale(8)), Role.START, false);
+		if (start.error() != null)
+			return Plan.failed(start.error());
+
+		Vec3 ahead;
+		if (start.fixedHeading() != null) {
+			ahead = flatUnit(start.fixedHeading());
+		} else if (level.getBlockEntity(start.anchorPos()) instanceof AngledTrackAnchorBlockEntity anchor) {
+			Vec3 pointing = flatUnit(anchor.heading());
+			ahead = pointing.dot(facing) >= 0 ? pointing : pointing.scale(-1);
+		} else {
+			return Plan.failed("invalid_start");
+		}
+
+		// Where the line ahead leaves the start's node, which is the block's centre if it climbs and is
+		// on a route, and its boundary otherwise; the climb is not known yet, so a start that has none of
+		// its own is taken to be climbing.
+		boolean climbs = start.fixedHeading() == null || start.fixedSlope() != 0;
+		Vec3 from = AngledTrackAnchorBlockEntity.exitNode(start.anchorPos(), ahead, start.interior(), climbs);
+		BlockPos around = BlockPos.containing(from.add(ahead.scale(horizontalLength)));
+
+		BlockPos best = null;
+		double bestScore = Double.MAX_VALUE;
+		for (int x = -STRAIGHT_SEARCH; x <= STRAIGHT_SEARCH; x++) {
+			for (int z = -STRAIGHT_SEARCH; z <= STRAIGHT_SEARCH; z++) {
+				BlockPos candidate = new BlockPos(around.getX() + x, start.anchorPos()
+					.getY(), around.getZ() + z);
+				if (candidate.equals(start.anchorPos()) || !level.isLoaded(candidate))
+					continue;
+
+				Vec3 reach = flat(Vec3.atBottomCenterOf(candidate)
+					.subtract(from));
+				double along = reach.dot(ahead);
+				if (along < MIN_SPAN || Math.abs(along - horizontalLength) > STRAIGHT_LENGTH_TOLERANCE)
+					continue;
+
+				double sideways = reach.subtract(ahead.scale(along))
+					.length();
+				double score = sideways + 0.02 * Math.abs(along - horizontalLength);
+				if (score < bestScore) {
+					bestScore = score;
+					best = candidate;
+				}
+			}
+		}
+		if (best == null)
+			return Plan.failed("no_room");
+
+		// Open ground, at the start's height: the grade moves it to the height it gives.
+		Endpoint end = new Endpoint(null, best, true, null, false, false, Side.EITHER, 0.0);
+		return connect(level, start, end, 0.0F, grade);
 	}
 
 	/**

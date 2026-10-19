@@ -109,6 +109,11 @@ public class CurveWandItem extends Item {
 			return InteractionResultHolder.pass(stack);
 
 		if (player.isShiftKeyDown()) {
+			// In grade mode the air is where the grade screen is opened from, by the client before this is
+			// reached; if it was reached anyway there is nothing to cancel by. Taking the selection back is a
+			// sneak click on a block, which is the same gesture in either mode.
+			if (selection.gradeMode())
+				return InteractionResultHolder.pass(stack);
 			if (!level.isClientSide) {
 				stack.remove(CTNDataComponents.CURVE_SELECTION);
 				message(player, "cleared");
@@ -170,6 +175,37 @@ public class CurveWandItem extends Item {
 		if (level.isClientSide)
 			return InteractionResult.SUCCESS;
 
+		return build(level, player, stack, selection, plan, false);
+	}
+
+	/**
+	 * Lays a curve from the selection straight ahead for a distance, at the grade the player typed in.
+	 * Server side only, from {@link ApplyGradePacket}.
+	 *
+	 * @return whether a curve was laid.
+	 */
+	static boolean layByDistance(Level level, Player player, ItemStack stack, CurveWandSelection selection,
+		int horizontalLength) {
+		CurvePlanner.Plan plan = CurvePlanner.planByDistance(level, selection.pos(), new GradeSpec(selection.grade()),
+			horizontalLength, AngledTrackAnchorBlockEntity.directionFromYaw(player.getYRot()));
+
+		if (!plan.valid()) {
+			player.displayClientMessage(refusal(plan).withStyle(ChatFormatting.RED), true);
+			AllSoundEvents.DENY.playFrom(player, 1, 1);
+			return false;
+		}
+		return build(level, player, stack, selection, plan, true).consumesAction();
+	}
+
+	/**
+	 * Builds a plan that has been checked, and moves the selection on from the end it reached. Server
+	 * side only.
+	 *
+	 * @param byDistance whether the curve was laid from a distance rather than aimed at, so that nothing
+	 *                   showed what it would be and the message has to say how it came out.
+	 */
+	private static InteractionResult build(Level level, Player player, ItemStack stack, CurveWandSelection selection,
+		CurvePlanner.Plan plan, boolean byDistance) {
 		String failure = CurvePlanner.apply(level, plan);
 		if (failure != null) {
 			message(player, failure);
@@ -208,7 +244,10 @@ public class CurveWandItem extends Item {
 				.permille() == 0)
 				carried = carried.withGrade(0, false);
 			stack.set(CTNDataComponents.CURVE_SELECTION, carried);
-			built(player, plan, "built");
+			if (byDistance)
+				laid(player, plan);
+			else
+				built(player, plan, "built");
 		}
 
 		level.playSound(null, plan.end()
@@ -301,7 +340,7 @@ public class CurveWandItem extends Item {
 
 	@Override
 	public void appendHoverText(ItemStack stack, TooltipContext context, List<Component> tooltip, TooltipFlag flag) {
-		for (String line : new String[] { "start", "adjust", "grade", "cancel", "split" })
+		for (String line : new String[] { "start", "adjust", "grade", "grade_screen", "cancel", "split" })
 			tooltip.add(Component.translatable("tooltip.createtrainnext.curve_wand." + line)
 				.withStyle(ChatFormatting.GRAY));
 	}
@@ -319,6 +358,21 @@ public class CurveWandItem extends Item {
 	private static void built(Player player, CurvePlanner.Plan plan, String key) {
 		MutableComponent text = Component.translatable("message.createtrainnext.wand." + key,
 			String.format("%.1f", plan.length()));
+		if (plan.junction() != null)
+			text.append(Component.translatable("message.createtrainnext.wand.point_added"));
+		player.displayClientMessage(text, true);
+	}
+
+	/**
+	 * What is said when a curve has been laid from a distance. Nothing showed what it would be, so this
+	 * is where the player is told how it came out: the grade it averages, how far it goes along the
+	 * ground, and how high it gets.
+	 */
+	private static void laid(Player player, CurvePlanner.Plan plan) {
+		double run = plan.horizontalLength();
+		MutableComponent text = Component.translatable("message.createtrainnext.wand.laid",
+			String.format("%+d", GradeText.permille(plan.rise() / run)), String.format("%.1f", run),
+			String.format("%+d", Math.round(plan.rise())));
 		if (plan.junction() != null)
 			text.append(Component.translatable("message.createtrainnext.wand.point_added"));
 		player.displayClientMessage(text, true);

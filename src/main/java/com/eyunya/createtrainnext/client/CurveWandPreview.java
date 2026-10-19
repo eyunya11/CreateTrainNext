@@ -25,6 +25,7 @@ import net.minecraft.client.player.LocalPlayer;
 import net.minecraft.core.BlockPos;
 import net.minecraft.network.chat.Component;
 import net.minecraft.util.Mth;
+import net.minecraft.world.InteractionHand;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.phys.AABB;
@@ -34,6 +35,7 @@ import net.minecraft.world.phys.HitResult;
 import net.neoforged.neoforge.client.event.ClientTickEvent;
 import net.neoforged.neoforge.client.event.InputEvent;
 import net.neoforged.neoforge.common.NeoForge;
+import net.neoforged.neoforge.event.entity.player.PlayerInteractEvent;
 import net.neoforged.neoforge.network.PacketDistributor;
 
 /**
@@ -117,6 +119,7 @@ public class CurveWandPreview {
 	public static void init() {
 		NeoForge.EVENT_BUS.addListener(CurveWandPreview::onClientTick);
 		NeoForge.EVENT_BUS.addListener(CurveWandPreview::onMouseScrolled);
+		NeoForge.EVENT_BUS.addListener(CurveWandPreview::onRightClickItem);
 	}
 
 	// ---------------------------------------------------------------- input
@@ -156,6 +159,33 @@ public class CurveWandPreview {
 			turnEnd(selection, delta, sprinting);
 		else
 			setGrade(player.level(), selection, delta);
+		event.setCanceled(true);
+	}
+
+	/**
+	 * Sneak and right click the air, in grade mode, opens the screen to type a grade and a distance in.
+	 *
+	 * <p>Done from an event, and cancelled, for the reason the survey marker's screen is: no client class is
+	 * named anywhere the server can reach, and the server is never sent a click it has nothing to do with.
+	 * Outside grade mode the same gesture drops the selection, and that is left to the item. A click on a
+	 * block never gets here — with a selection, the wand answers it by dropping the selection — so taking
+	 * the selection back while in grade mode is a sneak click on a block.
+	 */
+	private static void onRightClickItem(PlayerInteractEvent.RightClickItem event) {
+		if (!event.getLevel().isClientSide || event.getHand() != InteractionHand.MAIN_HAND
+			|| !event.getEntity()
+				.isShiftKeyDown())
+			return;
+
+		ItemStack stack = event.getItemStack();
+		if (!(stack.getItem() instanceof CurveWandItem))
+			return;
+		CurveWandSelection selection = CurveWandItem.selectionIn(stack, event.getLevel());
+		if (selection == null || !selection.gradeMode())
+			return;
+
+		Minecraft.getInstance()
+			.setScreen(new CurveGradeScreen(selection.grade(), CurvePlanner.maxGradePermille()));
 		event.setCanceled(true);
 	}
 

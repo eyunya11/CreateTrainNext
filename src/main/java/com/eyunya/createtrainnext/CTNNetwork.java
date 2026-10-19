@@ -1,5 +1,6 @@
 package com.eyunya.createtrainnext;
 
+import com.eyunya.createtrainnext.track.ApplyGradePacket;
 import com.eyunya.createtrainnext.track.SetCurveAnglePacket;
 import com.eyunya.createtrainnext.track.SetCurveGradePacket;
 import com.eyunya.createtrainnext.track.SetSurveyMarkerPacket;
@@ -35,6 +36,7 @@ public class CTNNetwork {
 			SetCurveAnglePacket::handle);
 		registrar.playToServer(SetCurveGradePacket.TYPE, SetCurveGradePacket.STREAM_CODEC,
 			SetCurveGradePacket::handle);
+		registrar.playToServer(ApplyGradePacket.TYPE, ApplyGradePacket.STREAM_CODEC, ApplyGradePacket::handle);
 		registrar.playToServer(SetSurveyMarkerPacket.TYPE, SetSurveyMarkerPacket.STREAM_CODEC,
 			SetSurveyMarkerPacket::handle);
 	}

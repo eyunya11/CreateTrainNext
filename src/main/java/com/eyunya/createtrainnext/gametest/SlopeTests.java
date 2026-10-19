@@ -21,6 +21,7 @@ import com.eyunya.createtrainnext.CTNConfig;
 import com.eyunya.createtrainnext.CTNRegistry;
 import com.eyunya.createtrainnext.CreateTrainNext;
 import com.eyunya.createtrainnext.track.AngledTrackAnchorBlockEntity;
+import com.eyunya.createtrainnext.track.ApplyGradePacket;
 import com.eyunya.createtrainnext.track.CurvePlanner;
 import com.eyunya.createtrainnext.track.CurveRepair;
 import com.eyunya.createtrainnext.track.CurveWandItem;
@@ -28,10 +29,13 @@ import com.eyunya.createtrainnext.track.CurveWandSelection;
 import com.eyunya.createtrainnext.track.GradeSpec;
 import com.eyunya.createtrainnext.track.GradeText;
 import com.eyunya.createtrainnext.track.SetCurveGradePacket;
+import com.simibubi.create.AllBlocks;
 import com.simibubi.create.content.trains.graph.EdgePointType;
 import com.simibubi.create.content.trains.graph.TrackGraphLocation;
 import com.simibubi.create.content.trains.track.BezierConnection;
 import com.simibubi.create.content.trains.track.ITrackBlock;
+import com.simibubi.create.content.trains.track.TrackBlock;
+import com.simibubi.create.content.trains.track.TrackShape;
 import com.simibubi.create.content.trains.track.TrackTargetingBlockItem;
 
 import io.netty.buffer.ByteBuf;
@@ -1081,6 +1085,225 @@ public class SlopeTests {
 		helper.succeed();
 	}
 
+	// --------------------------------------------------- laid for a distance
+
+	/**
+	 * A curve laid for a distance leaves the end of a route straight ahead and arrives that far along the
+	 * ground, with its height from the grade just as one aimed at a block does.
+	 *
+	 * <p>Sixteen blocks has handles {@code 16/3} long, so 150 permille from level rises
+	 * {@code 1.5 · 16/3 · 0.15 = 1.2}, a block, and arrives at {@code 1 / 8}.
+	 */
+	@GameTest(template = EMPTY)
+	public static void aDistanceLaysACurveStraightAheadAtTheGrade(GameTestHelper helper) {
+		route(helper, EAST, BEFORE, START);
+
+		CurvePlanner.Plan plan = byDistance(helper, START, 150, 16, EAST);
+		helper.assertTrue(plan.valid(), "the curve should be possible, but was refused: " + plan.error());
+		helper.assertTrue(plan.grade() != null && plan.junction() == null, "it should be one curve laid at the grade");
+
+		BlockPos end = relative(helper, plan.end()
+			.anchorPos());
+		helper.assertTrue(end.getZ() == START.getZ(), "it should go straight ahead, but arrives at " + end);
+		helper.assertTrue(near(plan.horizontalLength(), 16.0, 1.5),
+			"it should run sixteen blocks along the ground, but runs " + plan.horizontalLength());
+		helper.assertTrue(near(end.getX() + 0.5 - (START.getX() + 0.5), 16.0, 1.5), "it should arrive about sixteen on, at " + end);
+
+		double handle = CurvePlanner.levelHandleLength(plan.curve());
+		int rise = (int) Math.round(1.5 * handle * 0.15);
+		helper.assertTrue(rise == 1 && end.getY() == START.getY() + rise,
+			"it should rise one block, but the far end is at " + end + " for a rise of " + rise);
+		helper.assertTrue(near(plan.endSlope(), rise / (1.5 * handle), 1.0E-6),
+			"it should arrive at " + rise / (1.5 * handle) + ", but arrives at " + plan.endSlope());
+
+		// Too short and too long are refused, as any curve is.
+		helper.assertTrue("too_close".equals(byDistance(helper, START, 150, 2, EAST).error()),
+			"two blocks is too short for a curve");
+		helper.assertTrue("too_far".equals(byDistance(helper, START, 150, 4000, EAST).error()),
+			"four thousand blocks is further than track may go");
+		helper.succeed();
+	}
+
+	/**
+	 * Straight ahead is the way the route runs, whichever way the player faces: out of the free side of
+	 * the end of a route, and backwards out of the first anchor of one.
+	 */
+	@GameTest(template = EMPTY)
+	public static void aroundARouteTheDistanceFollowsTheRoute(GameTestHelper helper) {
+		BlockPos tail = new BlockPos(30, 1, 22);
+		BlockPos head = new BlockPos(30, 1, 14);
+		route(helper, NORTH, tail, head);
+
+		// The player looking the other way makes no difference to an anchor with a route through it.
+		CurvePlanner.Plan onwards = byDistance(helper, head, 100, 8, 0.0F);
+		helper.assertTrue(onwards.valid(), "the curve should be possible, but was refused: " + onwards.error());
+		helper.assertTrue(relative(helper, onwards.end()
+			.anchorPos()).getZ() < head.getZ() - 5, "it should carry on north, but arrives at " + relative(helper, onwards.end()
+				.anchorPos()));
+		helper.assertTrue(onwards.forward(), "carrying a route on runs forwards");
+
+		CurvePlanner.Plan backwards = byDistance(helper, tail, 100, 8, NORTH);
+		helper.assertTrue(backwards.valid(), "the curve should be possible, but was refused: " + backwards.error());
+		helper.assertTrue(relative(helper, backwards.end()
+			.anchorPos()).getZ() > tail.getZ() + 5,
+			"out of the first anchor it should go back south, but arrives at " + relative(helper, backwards.end()
+				.anchorPos()));
+		helper.assertTrue(!backwards.forward(), "going back out of a route's first anchor runs the link the other way");
+		helper.succeed();
+	}
+
+	/**
+	 * An anchor on no route yet can be left either way, and the way the player faces picks the one of its
+	 * two it is nearer to; Create's own track likewise picks the side that is faced.
+	 */
+	@GameTest(template = EMPTY)
+	public static void whereTheStartDoesNotDecideThePlayerFacingDoes(GameTestHelper helper) {
+		BlockPos lone = new BlockPos(24, 1, 16);
+		anchor(helper, lone);
+
+		CurvePlanner.Plan north = byDistance(helper, lone, 100, 10, NORTH);
+		CurvePlanner.Plan south = byDistance(helper, lone, 100, 10, 0.0F);
+		helper.assertTrue(north.valid() && south.valid(), "both ways should be possible: " + north.error() + ", " + south.error());
+		helper.assertTrue(relative(helper, north.end()
+			.anchorPos()).getZ() < lone.getZ() - 6 && relative(helper, south.end()
+				.anchorPos()).getZ() > lone.getZ() + 6,
+			"facing north it should go north and facing south south, but go to " + relative(helper, north.end()
+				.anchorPos()) + " and " + relative(helper, south.end()
+					.anchorPos()));
+
+		BlockPos rail = new BlockPos(24, 1, 8);
+		helper.setBlock(rail, AllBlocks.TRACK.get()
+			.defaultBlockState()
+			.setValue(TrackBlock.SHAPE, TrackShape.XO));
+		CurvePlanner.Plan east = byDistance(helper, rail, 100, 12, EAST);
+		CurvePlanner.Plan west = byDistance(helper, rail, 100, 12, 90.0F);
+		helper.assertTrue(east.valid() && west.valid(), "both ways should be possible: " + east.error() + ", " + west.error());
+		helper.assertTrue(relative(helper, east.start()
+			.anchorPos()).getX() == rail.getX() + 1 && relative(helper, west.start()
+				.anchorPos()).getX() == rail.getX() - 1,
+			"the anchor should go on the side of the track that is faced");
+		helper.assertTrue(relative(helper, east.end()
+			.anchorPos()).getX() > rail.getX() + 8 && relative(helper, west.end()
+				.anchorPos()).getX() < rail.getX() - 8, "and the curve should go that way");
+		helper.succeed();
+	}
+
+	/**
+	 * What the grade screen sends does what it says: the grade is set, and a distance lays a curve from
+	 * the end of the route and carries the selection on from it, at the grade, until a level-off ends it.
+	 */
+	@GameTest(template = EMPTY, timeoutTicks = 60)
+	public static void theGradeScreenSetsAGradeAndLaysACurveForADistance(GameTestHelper helper) {
+		AngledTrackAnchorBlockEntity[] route = route(helper, EAST, BEFORE, START);
+		Player player = helper.makeMockPlayer(GameType.CREATIVE);
+		ItemStack wand = new ItemStack(CTNRegistry.CURVE_WAND.get());
+		player.setItemInHand(InteractionHand.MAIN_HAND, wand);
+		Level level = helper.getLevel();
+
+		helper.assertTrue(!ApplyGradePacket.apply(player, 150, 16), "with nothing selected there is nothing to act on");
+		helper.assertTrue(click(helper, player, wand, START).consumesAction(), "setup: the first click should pick the start");
+
+		// No distance: the grade is set and nothing is laid.
+		helper.assertTrue(ApplyGradePacket.apply(player, 60, 0), "the grade should have been set");
+		CurveWandSelection set = CurveWandItem.selectionIn(wand, level);
+		helper.assertTrue(set != null && set.gradeMode() && set.grade() == 60, "60 permille should be set, but: " + set);
+		assertChain(helper, route[0], BEFORE, START);
+
+		helper.assertTrue(ApplyGradePacket.apply(player, -5000, 0), "the grade should have been set");
+		helper.assertTrue(CurveWandItem.selectionIn(wand, level)
+			.grade() == -CurvePlanner.maxGradePermille(), "a grade past the limit should be held to it");
+
+		// A distance: laid ahead, where the plan said it would be, and carried on from.
+		CurvePlanner.Plan first = byDistance(helper, START, 150, 16, EAST);
+		helper.assertTrue(first.valid(), "setup: the curve should be possible, but: " + first.error());
+		BlockPos firstEnd = relative(helper, first.end()
+			.anchorPos());
+		helper.assertTrue(ApplyGradePacket.apply(player, 150, 16), "the curve should have been laid");
+		assertChain(helper, route[0], BEFORE, START, firstEnd);
+		CurveWandSelection carried = CurveWandItem.selectionIn(wand, level);
+		helper.assertTrue(carried != null && carried.pos()
+			.equals(helper.absolutePos(firstEnd)) && carried.gradeMode() && carried.grade() == 150,
+			"the selection should carry on from the end at 150 permille, but: " + carried);
+		helper.assertTrue(near(anchorAt(helper, firstEnd).getSlope(), first.endSlope(), 1.0E-6),
+			"the anchor should hold the slope the curve arrived with");
+
+		// A level-off for a distance ends level and drops the mode.
+		CurvePlanner.Plan second = byDistance(helper, firstEnd, 0, 12, EAST);
+		helper.assertTrue(second.valid(), "setup: the level-off should be possible, but: " + second.error());
+		BlockPos secondEnd = relative(helper, second.end()
+			.anchorPos());
+		helper.assertTrue(ApplyGradePacket.apply(player, 0, 12), "the level-off should have been laid");
+		assertChain(helper, route[0], BEFORE, START, firstEnd, secondEnd);
+		helper.assertTrue(anchorAt(helper, secondEnd).getSlope() == 0.0, "the route should end level");
+		CurveWandSelection levelled = CurveWandItem.selectionIn(wand, level);
+		helper.assertTrue(levelled != null && !levelled.gradeMode() && levelled.grade() == 0 && levelled.pos()
+			.equals(helper.absolutePos(secondEnd)), "the mode should be dropped, and the selection on the new end, but: " + levelled);
+
+		helper.runAfterDelay(GRAPH_TICKS, () -> {
+			assertConsistent(helper, route[0]);
+			helper.succeed();
+		});
+	}
+
+	/**
+	 * A distance that cannot be laid leaves the world as it was, with the grade set; and level from level
+	 * is a level curve and no mode.
+	 */
+	@GameTest(template = EMPTY)
+	public static void aDistanceThatCannotBeLaidBuildsNothing(GameTestHelper helper) {
+		AngledTrackAnchorBlockEntity[] route = route(helper, EAST, BEFORE, START);
+		Player player = helper.makeMockPlayer(GameType.CREATIVE);
+		ItemStack wand = new ItemStack(CTNRegistry.CURVE_WAND.get());
+		player.setItemInHand(InteractionHand.MAIN_HAND, wand);
+		helper.assertTrue(click(helper, player, wand, START).consumesAction(), "setup: the first click should pick the start");
+
+		helper.assertTrue(ApplyGradePacket.apply(player, 150, 4000), "the grade should have been set");
+		assertChain(helper, route[0], BEFORE, START);
+		CurveWandSelection kept = CurveWandItem.selectionIn(wand, helper.getLevel());
+		helper.assertTrue(kept != null && kept.gradeMode() && kept.grade() == 150 && kept.pos()
+			.equals(helper.absolutePos(START)), "the selection should be where it was, at the grade: " + kept);
+
+		// Level from level, laid for a distance: a level curve, and the mode stays off.
+		helper.assertTrue(ApplyGradePacket.apply(player, 0, 12), "the curve should have been laid");
+		BlockPos end = relative(helper, route[0].route()
+			.get(2)
+			.getBlockPos());
+		helper.assertTrue(end.getY() == START.getY() && end.getZ() == START.getZ(), "it should be level and straight, but arrives at " + end);
+		CurveWandSelection after = CurveWandItem.selectionIn(wand, helper.getLevel());
+		helper.assertTrue(after != null && !after.gradeMode(), "level from level should not leave the mode on, but: " + after);
+		helper.succeed();
+	}
+
+	/**
+	 * Sneaking and right clicking the air drops a selection, except in grade mode, where it is the gesture
+	 * that opens the grade screen and the selection has to be left alone for it to be about.
+	 */
+	@GameTest(template = EMPTY)
+	public static void sneakingInTheAirKeepsASelectionInGradeModeOnly(GameTestHelper helper) {
+		BlockPos from = new BlockPos(4, 1, 16);
+		anchor(helper, from);
+		Player player = helper.makeMockPlayer(GameType.CREATIVE);
+		ItemStack wand = new ItemStack(CTNRegistry.CURVE_WAND.get());
+		player.setItemInHand(InteractionHand.MAIN_HAND, wand);
+		helper.assertTrue(click(helper, player, wand, from).consumesAction(), "setup: the first click should pick the start");
+		player.setShiftKeyDown(true);
+
+		SetCurveGradePacket.apply(player, 35, true);
+		wand.getItem()
+			.use(helper.getLevel(), player, InteractionHand.MAIN_HAND);
+		CurveWandSelection kept = CurveWandItem.selectionIn(wand, helper.getLevel());
+		helper.assertTrue(kept != null && kept.gradeMode() && kept.grade() == 35,
+			"in grade mode the selection should be left standing, but: " + kept);
+
+		// Back out of the mode, which from level ground is asking for level.
+		SetCurveGradePacket.apply(player, 0, true);
+		wand.getItem()
+			.use(helper.getLevel(), player, InteractionHand.MAIN_HAND);
+		helper.assertTrue(CurveWandItem.selectionIn(wand, helper.getLevel()) == null,
+			"outside grade mode the same gesture should drop the selection, as it always did");
+		helper.succeed();
+	}
+
 	// --------------------------------------------------------------- helpers
 
 	private static TranslatableContents translatable(GameTestHelper helper, Component component) {
@@ -1109,6 +1332,12 @@ public class SlopeTests {
 	private static CurvePlanner.Plan plan(GameTestHelper helper, BlockPos start, BlockPos end, GradeSpec spec) {
 		return CurvePlanner.plan(helper.getLevel(), helper.absolutePos(start), helper.absolutePos(end), Direction.UP, 0,
 			spec);
+	}
+
+	private static CurvePlanner.Plan byDistance(GameTestHelper helper, BlockPos start, int permille, double length,
+		float facingYaw) {
+		return CurvePlanner.planByDistance(helper.getLevel(), helper.absolutePos(start), new GradeSpec(permille), length,
+			AngledTrackAnchorBlockEntity.directionFromYaw(facingYaw));
 	}
 
 	/** The steepest a curve is anywhere along it, as the largest grade between neighbouring samples. */

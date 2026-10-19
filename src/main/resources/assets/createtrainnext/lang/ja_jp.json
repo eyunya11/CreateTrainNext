@@ -25,6 +25,11 @@
   "createtrainnext.survey_marker.apply": "適用",
   "createtrainnext.survey_marker.hint": "曲線レール設置杖で敷設します",
   "createtrainnext.survey_marker.bearing": "方位",
+  "createtrainnext.grade_screen.title": "勾配を指定して敷設",
+  "createtrainnext.grade_screen.grade": "勾配（‰）",
+  "createtrainnext.grade_screen.distance": "水平距離（ブロック）",
+  "createtrainnext.grade_screen.apply": "適用",
+  "createtrainnext.grade_screen.hint": "上限は ±%s‰。水平距離を空にすると勾配だけを設定します",
   "message.createtrainnext.survey.ready": "敷設できます — 方位 %s°、長さ %s ブロック",
   "message.createtrainnext.survey.laid": "直線を敷設しました — 方位 %s°、長さ %s ブロック",
 
@@ -32,6 +37,7 @@
   "tooltip.createtrainnext.curve_wand.start": "線路を右クリック → 敷きたい場所を右クリック",
   "tooltip.createtrainnext.curve_wand.adjust": "スニーク＋ホイールで先端の向きを手動調整",
   "tooltip.createtrainnext.curve_wand.grade": "ダッシュ＋ホイールで勾配を設定",
+  "tooltip.createtrainnext.curve_wand.grade_screen": "勾配モード中にスニーク＋空中右クリックで、勾配と水平距離を入力",
   "tooltip.createtrainnext.curve_wand.split": "スニーク＋右クリックで曲線上に接続点を追加",
   "tooltip.createtrainnext.curve_wand.cancel": "スニーク＋右クリックで取り消し／アンカーの接続解除",
 
@@ -57,6 +63,9 @@
   "message.createtrainnext.wand.split_done": "接続点を追加しました。ここに信号機や駅を設置できます。",
   "message.createtrainnext.wand.cleared": "選択を解除しました。",
   "message.createtrainnext.wand.angle_reset": "角度を自動の円弧に戻しました。",
+  "message.createtrainnext.wand.grade_set": "勾配を %s‰ に設定しました。",
+  "message.createtrainnext.wand.grade_off": "勾配モードを解除しました。",
+  "message.createtrainnext.wand.laid": "勾配 %s‰ で敷設しました ・ 水平 %s ブロック ・ 高低差 %s ブロック。",
   "message.createtrainnext.wand.unlinked": "このアンカーの接続を解除しました。",
 
   "message.createtrainnext.wand.invalid_start": "始点の線路が失われています。",
