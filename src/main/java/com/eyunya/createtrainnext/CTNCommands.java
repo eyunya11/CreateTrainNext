@@ -221,6 +221,7 @@ public class CTNCommands {
 			case "too_steep" -> "an arc would climb too steeply";
 			case "not_loaded" -> "the anchor at the other end is not loaded";
 			case "links_disagree" -> "the two anchors do not agree about the link";
+			case "has_points" -> "a signal or a station stands on it, and mending would leave it with no curve";
 			case "no_room" -> "the anchor could not be placed";
 			default -> error;
 		};

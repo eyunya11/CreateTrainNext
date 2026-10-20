@@ -154,7 +154,7 @@ public final class CurveRepair {
 	 * <p>The reasons are the planner's where they are the same question — {@code uneven} for no block
 	 * to put the anchor in, {@code too_sharp} and {@code too_steep} for an arc a train would not take —
 	 * and {@code not_loaded}, {@code links_disagree} and {@code fine} for a link that could not be
-	 * looked at or does not need it.
+	 * looked at or does not need it. {@code has_points} is a link with a signal or a station on it.
 	 */
 	public static Outcome repair(Level level, Link link) {
 		if (level.isClientSide)
@@ -174,6 +174,10 @@ public final class CurveRepair {
 			return Outcome.left(link, "not_loaded");
 		if (CurvePlanner.orientationDeviation(single) <= CurvePlanner.MAX_ORIENTATION_DEVIATION)
 			return Outcome.left(link, "fine");
+		// Mending replaces the curve with two arcs, and anything standing on it by its ends would
+		// be left pointing at a curve that is no longer there.
+		if (CurvePlanner.carriesPoints(level, single))
+			return Outcome.left(link, "has_points");
 
 		// The ends of the curve as the anchors report them now. Neither moves: linking through an
 		// anchor in the middle changes the other side of each anchor, not the side this curve is on.

@@ -60,6 +60,7 @@
 
   "message.createtrainnext.wand.invalid_start": "The track this curve started from is gone.",
   "message.createtrainnext.wand.split_too_close": "Too near the end of the curve.",
+  "message.createtrainnext.wand.split_has_points": "A signal or a station stands on this curve.",
   "message.createtrainnext.wand.split_occupied": "There is already a point there.",
   "message.createtrainnext.wand.uneven": "The ends point too differently for one curve, and there is no room for a point between them.",
   "message.createtrainnext.wand.route_unavailable": "Part of the route that would have to be turned round is not loaded.",

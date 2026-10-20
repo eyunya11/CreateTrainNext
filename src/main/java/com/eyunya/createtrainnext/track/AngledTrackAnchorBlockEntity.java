@@ -1,6 +1,7 @@
 package com.eyunya.createtrainnext.track;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
@@ -13,6 +14,7 @@ import org.jetbrains.annotations.Nullable;
 import com.eyunya.createtrainnext.CTNRegistry;
 import com.simibubi.create.content.trains.graph.TrackNodeLocation;
 import com.simibubi.create.content.trains.track.BezierConnection;
+import com.simibubi.create.content.trains.track.TrackBlockEntity;
 import com.simibubi.create.content.trains.track.TrackMaterial;
 import com.simibubi.create.content.trains.track.TrackPropagator;
 
@@ -20,13 +22,8 @@ import net.createmod.catnip.data.Couple;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.HolderLookup;
 import net.minecraft.nbt.CompoundTag;
-import net.minecraft.network.protocol.Packet;
-import net.minecraft.network.protocol.game.ClientGamePacketListener;
-import net.minecraft.network.protocol.game.ClientboundBlockEntityDataPacket;
 import net.minecraft.util.Mth;
-import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.Block;
-import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
@@ -47,8 +44,14 @@ import net.minecraft.world.phys.Vec3;
  * {@code TrackNodeLocation} rounds graph nodes onto a half-block lattice, so the span's two ends
  * are offset along one of {@link AnchorAxis}'s four directions. Tangents are untouched by the
  * graph and by NBT.
+ *
+ * <p>It is a {@link TrackBlockEntity} so that Create's own curve targeting works on its curves:
+ * picking a segment of a curve, the selection packet and {@code getBezierGraphLocationAt} all look
+ * for a {@code TrackBlockEntity} holding the curve in its connections. The connections are a
+ * mirror of what the links say, kept by {@link #syncConnections}; the graph is still built from
+ * the links, by {@link AngledTrackAnchorBlock#getConnected}, and never reads them.
  */
-public class AngledTrackAnchorBlockEntity extends BlockEntity {
+public class AngledTrackAnchorBlockEntity extends TrackBlockEntity {
 
 	/**
 	 * How often the floor under this anchor's curve is renewed, in ticks.
@@ -432,10 +435,149 @@ public class AngledTrackAnchorBlockEntity extends BlockEntity {
 	}
 
 	private void markChanged() {
+		// Before the update goes out, so the client is sent the connections that go with the links.
+		syncConnections();
+		sendUpdate();
+
+		// A curve is built from both its ends, and is held by whichever of them has the lower
+		// position, so a change here can change what the anchor on either side is holding.
+		for (BlockPos neighbour : new BlockPos[] { prev, next }) {
+			AngledTrackAnchorBlockEntity anchor = anchorAt(neighbour);
+			if (anchor != null && anchor.syncConnections())
+				anchor.sendUpdate();
+		}
+	}
+
+	private void sendUpdate() {
 		setChanged();
 		if (level != null && !level.isClientSide)
 			level.sendBlockUpdated(worldPosition, getBlockState(), getBlockState(), Block.UPDATE_ALL);
 	}
+
+	// ---------------------------------------------------------- connections
+
+	/**
+	 * Whether the client is letting curves be picked at the moment. Set by the client, and false
+	 * everywhere else.
+	 *
+	 * <p>Create's {@code pickCurves} replaces what the player is looking at with a miss whenever the
+	 * crosshair is over a curve, and the wand reads that to know which block it is aimed at. So
+	 * curves are only offered to be picked while a signal, station or the like is in hand — see
+	 * {@code CurveTargeting}.
+	 */
+	private static volatile boolean curveInteraction = false;
+
+	public static void setCurveInteraction(boolean enabled) {
+		curveInteraction = enabled;
+	}
+
+	/**
+	 * Whether Create should offer this anchor's curves to be picked.
+	 *
+	 * <p>Asked when block entity data arrives, to decide whether to register this anchor with the
+	 * client's list of curves to pick from. Answering by the flag above is what keeps an anchor out
+	 * of that list while a wand is in hand.
+	 */
+	@Override
+	public boolean hasInteractableConnections() {
+		return curveInteraction && super.hasInteractableConnections();
+	}
+
+	/** Whether this anchor holds a curve for Create's targeting, whatever the client is offering. */
+	public boolean hasCurves() {
+		return super.hasInteractableConnections();
+	}
+
+	/**
+	 * Which of the two anchors a curve joins holds it for Create: the one at the lower position.
+	 *
+	 * <p>Create keeps a curve on the block entity at one end of it, as the primary connection, and a
+	 * signal placed on the curve remembers that end and the other one. If the end chosen followed
+	 * the route's direction, turning a route round would move every curve to its other end, and the
+	 * signals on them would be left pointing at a connection that is no longer there. A position
+	 * does not change when a route does.
+	 */
+	private boolean holdsCurveWith(BlockPos other) {
+		return worldPosition.compareTo(other) < 0;
+	}
+
+	/** The same curve as its far end sees it, which is how that end holds it as the primary. */
+	private static BezierConnection fromFarEnd(BezierConnection curve) {
+		return new BezierConnection(curve.bePositions.swap(), curve.starts.swap(), curve.axes.swap(),
+			curve.normals.swap(), true, curve.hasGirder, TrackMaterial.ANDESITE);
+	}
+
+	/**
+	 * Brings the connections Create sees up to date with the curves this anchor is a link of.
+	 *
+	 * <p>Create's curve targeting finds a curve by looking in a {@code TrackBlockEntity}'s
+	 * connections, keyed by the block at the other end. This anchor's curves are built from its links
+	 * on demand, so nothing is ever put there; this puts there the curves it holds — see
+	 * {@link #holdsCurveWith} — as primary connections, and takes out whatever is no longer one.
+	 *
+	 * <p>A curve that cannot be built because the anchor at its other end is not loaded is left as
+	 * it was. Taking it out would be an answer, and an unloaded chunk is not one: a signal on the
+	 * curve would have nothing to stand on until the chunk came back.
+	 *
+	 * @return whether the connections changed, which is whether the client needs to be told.
+	 */
+	private boolean syncConnections() {
+		if (level == null || level.isClientSide)
+			return false;
+
+		Map<BlockPos, BezierConnection> held = getConnections();
+		Map<BlockPos, BezierConnection> wanted = new HashMap<>();
+
+		for (boolean ahead : new boolean[] { true, false }) {
+			BlockPos other = ahead ? next : prev;
+			if (other == null || !holdsCurveWith(other))
+				continue;
+
+			BezierConnection curve = ahead ? buildCurveToNext() : buildCurveFromPrev();
+			if (curve != null)
+				wanted.put(other, ahead ? curve : fromFarEnd(curve));
+			else if (anchorAt(other) == null && held.containsKey(other))
+				wanted.put(other, held.get(other));
+		}
+
+		boolean same = held.size() == wanted.size();
+		for (Map.Entry<BlockPos, BezierConnection> entry : wanted.entrySet()) {
+			if (!same)
+				break;
+			BezierConnection old = held.get(entry.getKey());
+			same = old != null && old.equalsSansMaterial(entry.getValue());
+		}
+		if (same)
+			return false;
+
+		held.clear();
+		held.putAll(wanted);
+		return true;
+	}
+
+	/**
+	 * Create asks for these to be taken out when a curve is broken by hand. Nothing is: a curve
+	 * here is its links, and the way to undo one is the wand.
+	 *
+	 * <p>The graph is rebuilt all the same. The packet that gets here goes on to take this block's
+	 * nodes out of the graph, and without a rebuild they would stay out.
+	 */
+	@Override
+	public void removeConnection(BlockPos target) {
+		if (level != null && !level.isClientSide)
+			level.scheduleTick(worldPosition, getBlockState().getBlock(), 1);
+	}
+
+	/**
+	 * Create lays an invisible floor of its own along every curve it holds, here, which is what
+	 * {@link CurveFillerBlock} is for. Doing both would be two floors to renew and take up.
+	 */
+	@Override
+	public void lazyTick() {}
+
+	/** As {@link #lazyTick}: Create's version takes up the floor it would have laid. */
+	@Override
+	public void remove() {}
 
 	// ---------------------------------------------------------------- graph
 
@@ -937,11 +1079,16 @@ public class AngledTrackAnchorBlockEntity extends BlockEntity {
 			AnchorIndex.add(level, this);
 	}
 
+	/**
+	 * Called whenever this stops being a live block entity, whether it was broken or its chunk went.
+	 * {@code setRemoved} is final here, so this is where the index is told.
+	 */
 	@Override
-	public void setRemoved() {
-		super.setRemoved();
-		if (level != null)
-			AnchorIndex.remove(level, this);
+	public void invalidate() {
+		if (level == null)
+			return;
+		super.invalidate();
+		AnchorIndex.remove(level, this);
 	}
 
 	// ----------------------------------------------------------- occupancy
@@ -956,6 +1103,10 @@ public class AngledTrackAnchorBlockEntity extends BlockEntity {
 			return;
 		occupancyTimer = OCCUPANCY_REFRESH_TICKS;
 		updateOccupancy();
+		// What puts connections on an anchor from a save that predates them, and mends any that a
+		// neighbour's chunk coming back late left out of date.
+		if (syncConnections())
+			sendUpdate();
 	}
 
 	/**
@@ -996,9 +1147,16 @@ public class AngledTrackAnchorBlockEntity extends BlockEntity {
 
 	// ----------------------------------------------------------------- nbt
 
+	/**
+	 * Saved and sent through {@code write} and {@code read} rather than the usual overrides, because
+	 * {@code SmartBlockEntity} owns those and routes both the save and the update packet through
+	 * these. The keys are the ones the anchor has always used, so a save made before it was a
+	 * {@code TrackBlockEntity} reads exactly as it did; Create adds its own {@code Connections}
+	 * alongside.
+	 */
 	@Override
-	protected void saveAdditional(CompoundTag tag, HolderLookup.Provider registries) {
-		super.saveAdditional(tag, registries);
+	protected void write(CompoundTag tag, HolderLookup.Provider registries, boolean clientPacket) {
+		super.write(tag, registries, clientPacket);
 		tag.putFloat(TAG_YAW, yaw);
 		if (flipped)
 			tag.putBoolean(TAG_AXIS_FLIPPED, true);
@@ -1009,23 +1167,12 @@ public class AngledTrackAnchorBlockEntity extends BlockEntity {
 	}
 
 	@Override
-	protected void loadAdditional(CompoundTag tag, HolderLookup.Provider registries) {
-		super.loadAdditional(tag, registries);
+	protected void read(CompoundTag tag, HolderLookup.Provider registries, boolean clientPacket) {
+		super.read(tag, registries, clientPacket);
 		yaw = tag.getFloat(TAG_YAW);
 		prev = tag.contains(TAG_PREV) ? BlockPos.of(tag.getLong(TAG_PREV)) : null;
 		next = tag.contains(TAG_NEXT) ? BlockPos.of(tag.getLong(TAG_NEXT)) : null;
 		flipped = tag.getBoolean(TAG_AXIS_FLIPPED);
 		invalidateCurve();
-	}
-
-	@Override
-	public CompoundTag getUpdateTag(HolderLookup.Provider registries) {
-		return saveWithoutMetadata(registries);
-	}
-
-	@Override
-	@Nullable
-	public Packet<ClientGamePacketListener> getUpdatePacket() {
-		return ClientboundBlockEntityDataPacket.create(this);
 	}
 }
