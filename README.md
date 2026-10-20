@@ -18,6 +18,7 @@ An addon for [Create](https://github.com/Creators-of-Create/Create) that lets tr
 - A Survey Marker lays a dead straight line at a bearing, length and grade you set.
 - An invisible floor is laid along each curve at rail height, so you can walk on curves.
 - Adds a Japanese-style five-aspect signal, a relay signal and a speed limit sign, and a pole that carries the signals.
+- Signals and stations, Create's and this mod's, can be put directly on a curve, with no point added first.
 - Commands inspect and repair the track.
 
 ## Installation
@@ -145,13 +146,13 @@ Two routes laid separately join when you right click their ends. If they run aga
 
 If a curve between ends that point very differently were built as one curve, trains running the other way would follow a path different from the rails that are drawn. So the wand builds such a curve as two circular arcs with an anchor between them. The block for that anchor is outlined on the ghost and named in the message. If no block is free, the curve cannot be built.
 
-Signals and the like cannot be placed directly on the stretch of a curve. Sneak and right click near the place you want, and a point is added. The point is an anchor, which is a track block, so a signal can be placed on it. A point cannot be added too near the end of a curve, or where there already is one.
+Signals, stations and the like can be placed directly on the stretch of a curve. Hold one and look at the curve, and the segment under the crosshair is outlined. Right click to pick the curve, then right click where it should stand. A curve is picked only while an item of that kind is in hand, so the wand is not in the way. A curve with a signal or a station on it cannot have a point added, because they would be left without a curve. Where you want a block of track in the middle of a curve, sneak and right click near the place you want, and a point is added. The point is an anchor, which is a track block. A point cannot be added too near the end of a curve, or where there already is one.
 
 The ends of ordinary Create track (flat and straight) can be a start or an end. The wand puts an anchor in the neighbouring block and joins the Create track at the same point. The selection ends at an end joined to Create track, and the route cannot be extended past it. Track with a junction, and sloped track, cannot be used.
 
 Two points at different heights can be joined. The curve climbs at one steady grade from end to end, and the anchors at its ends remember it, so a route carried on from them continues at that grade instead of starting level again. Where one end is already fixed, the other takes the grade that makes the gentlest bend, so a curve that leaves level track and has to climb eases into the climb. The steepest a curve may be anywhere along it is the limit `curves.maxGrade`, which is one block of rise in three blocks of run by default.
 
-Breaking an anchor takes apart the links on both sides of it, and so does right clicking it with the wand while sneaking.
+Breaking an anchor takes apart the links on both sides of it, and so does right clicking it with the wand while sneaking. The wand will not do it while a signal or a station stands on one of those curves.
 
 ### Straight lines (Survey Marker)
 
@@ -187,7 +188,7 @@ There are five lamps, from the top: yellow, yellow, red, yellow, green. The aspe
 
 Restricted is a step for places where the section ahead is too short to stop in from Approach speed. Each signal decides whether to use it, and a right click with a wrench switches it. After you switch, the message shows the order of aspects.
 
-It is placed as Create's signals are. Hold the signal, right click the track, then right click where it should stand. The placed signal is a signal boundary just like Create's own, and trains stop at red. It can be used together with Create's signals.
+It is placed as Create's signals are. Hold the signal, right click the track, then right click where it should stand. The placed signal is a signal boundary just like Create's own, and trains stop at red. It can be used together with Create's signals. On a stretch of curve, aim at the curve itself, as described in "Joining, reversing and splitting routes".
 
 A signal also holds the trains that pass it to a speed, by the aspect it shows as the train passes: Restricted 25 km/h, Approach 45 km/h and Reduced speed 75 km/h by default, which the server settings `signals.restrictedSpeed`, `signals.approachSpeed` and `signals.reducedSpeed` change. The speed lasts until the train passes the next signal, and Proceed holds it to nothing. A train that passes at red, which only a driver at the controls can do, is held to the Restricted speed. A signal of Create's own lifts the limit as Proceed does. A speed limit sign holds the train separately, and the slower of the two applies. As with a sign, the train slows in time, so that it is at that speed as its front passes the signal. The train slows for the aspect the lamps show at the time, and a signal at Stop does not slow it, since Create stops the train there.
 
@@ -298,7 +299,6 @@ These limitations apply.
 | Create track that cannot be an end | Track with a junction and sloped track cannot be a start or an end of the wand. |
 | Heights | A curve gains a whole number of blocks, so the grade it really has differs from the one set, much more for a short curve or a gentle grade. A grade under one block per curve length, about 31 permille for 32 blocks, stays level. |
 | Speed limits | A train is slowed in time for a limit by looking ahead along the route it is navigating or the way it is steered. One that is already too fast for a limit that appears close ahead reaches it faster. If the lamps of a signal change as the train comes up, the train slows by the aspect they show at the time. |
-| Signals along a curve | They cannot be placed directly on the stretch of a curve. Add a point first, then place them. |
 | Junctions | An anchor holds only one curve on each side, so anchors alone cannot make a junction. |
 | Old worlds | They may hold coloured posts left where anchors were broken, and curves whose shape changes when read the other way. `prune`, `curves` and `repair` fix these. |
 | Multiplayer | It has not been tested enough. |
@@ -307,12 +307,11 @@ These limitations apply.
 
 ### Planned
 
-These two are planned.
+This one is planned.
 
 | Item | Where it stands | Aim |
 |---|---|---|
 | Sloped Create track | Routes made with this mod climb at any grade, but sloped Create track cannot be a start or an end of the wand. | Join sloped Create track, the 45 degree kind. |
-| Placing directly on a curve | A point has to be added with the wand before a signal can be placed. | Support Create's own curve targeting, so signals and stations can be placed along a curve without a point. |
 
 ### Under consideration
 
@@ -339,7 +338,7 @@ You need JDK 21.
 
 If the IDE reports missing libraries, run `./gradlew --refresh-dependencies` to refresh the local cache. `./gradlew clean` resets the build output. Neither touches your code.
 
-The game tests are in `src/main/java/com/eyunya/createtrainnext/gametest/`. They check curve planning, angles and grades, long links, the survey marker, the wand's click handling, reversing and joining routes, and cleaning and repairing the graph, on a real server. The test world is created in `build/gametest/world` and deleted on every run. GitHub Actions runs the build and the game tests on every push and pull request. Drawing, and trains actually driving over the result, cannot be checked automatically, so check them in a client.
+The game tests are in `src/main/java/com/eyunya/createtrainnext/gametest/`. They check curve planning, angles and grades, long links, the survey marker, the wand's click handling, reversing and joining routes, cleaning and repairing the graph, and where a signal placed on a curve ends up, on a real server. The test world is created in `build/gametest/world` and deleted on every run. GitHub Actions runs the build and the game tests on every push and pull request. Drawing, and trains actually driving over the result, cannot be checked automatically, so check them in a client.
 
 The build is against the Create 6.0.10 release. The Maven build `6.0.10-281` matches the distributed `create-1.21.1-6.0.10.jar` apart from the build information (`META-INF/MANIFEST.MF` and `CreateBuildInfo.class`). `6.0.11-N` builds are Create's development builds and are not used; as of October 2026 the latest release is 6.0.10. The 6.0.10 POM declares Registrate, Ponder and Flywheel only as runtime dependencies. So `build.gradle` takes Create itself alone, and the three versions are pinned in `gradle.properties`.
 

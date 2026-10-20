@@ -32,6 +32,7 @@ import net.minecraft.core.Direction;
 import net.minecraft.core.Direction.AxisDirection;
 import net.minecraft.resources.ResourceKey;
 import net.minecraft.server.level.ServerLevel;
+import net.minecraft.util.Mth;
 import net.minecraft.util.RandomSource;
 import net.minecraft.world.item.context.BlockPlaceContext;
 import net.minecraft.world.level.BlockGetter;
@@ -484,6 +485,9 @@ public class AngledTrackAnchorBlock extends Block implements EntityBlock, ITrack
 		BlockPos pos, BlockState state, BezierTrackPointLocation bezierPoint, AxisDirection direction,
 		RenderedTrackOverlayType type) {
 
+		if (bezierPoint != null)
+			return prepareCurveOverlay(affine, world, pos, bezierPoint, direction, type);
+
 		Vec3 axis = getTrackAxes(world, pos, state).get(0);
 		Vec3 diff = axis.scale(direction.getStep())
 			.normalize();
@@ -497,6 +501,57 @@ public class AngledTrackAnchorBlock extends Block implements EntityBlock, ITrack
 			.rotateX((float) angles.x)
 			.uncenter();
 
+		return overlayModel(type);
+	}
+
+	/**
+	 * The marker for a signal or station standing on a curve rather than on the block: set down on
+	 * the segment that was picked, turned to the way the curve runs there.
+	 *
+	 * <p>The same arithmetic as Create's own track block. The segment number counts in half blocks
+	 * along the curve from the end this anchor holds it from, and the connection is looked up under
+	 * the block at the other end — see {@link AngledTrackAnchorBlockEntity#getConnections}.
+	 *
+	 * @return the model, or null when the curve is not there to be drawn on: the draw is skipped.
+	 */
+	private <Self extends Affine<Self>> PartialModel prepareCurveOverlay(Affine<Self> affine, BlockGetter world,
+		BlockPos pos, BezierTrackPointLocation bezierPoint, AxisDirection direction, RenderedTrackOverlayType type) {
+		if (!(world.getBlockEntity(pos) instanceof AngledTrackAnchorBlockEntity anchor))
+			return null;
+		BezierConnection curve = anchor.getConnections()
+			.get(bezierPoint.curveTarget());
+		if (curve == null)
+			return null;
+
+		double length = Mth.floor(curve.getLength() * 2);
+		int segment = bezierPoint.segment() + 1;
+		double t = segment / length;
+		double before = (segment - 1) / length;
+		double after = (segment + 1) / length;
+
+		Vec3 offset = curve.getPosition(t);
+		Vec3 normal = curve.getNormal(t);
+		Vec3 diff = curve.getPosition(after)
+			.subtract(curve.getPosition(before))
+			.normalize();
+
+		affine.translate(offset.subtract(Vec3.atBottomCenterOf(pos)));
+		affine.translate(0, -4 / 16f, 0);
+
+		Vec3 angles = TrackRenderer.getModelAngles(normal, diff);
+		affine.center()
+			.rotateY((float) angles.y)
+			.rotateX((float) angles.x)
+			.uncenter();
+
+		affine.translate(0, 4 / 16f, 0);
+		if (direction == AxisDirection.NEGATIVE)
+			affine.rotateCentered(Mth.PI, Direction.UP);
+
+		return overlayModel(type);
+	}
+
+	private static PartialModel overlayModel(RenderedTrackOverlayType type) {
 		return switch (type) {
 			case DUAL_SIGNAL -> AllPartialModels.TRACK_SIGNAL_DUAL_OVERLAY;
 			case OBSERVER -> AllPartialModels.TRACK_OBSERVER_OVERLAY;

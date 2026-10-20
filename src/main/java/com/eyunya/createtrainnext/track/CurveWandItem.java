@@ -269,6 +269,15 @@ public class CurveWandItem extends Item {
 		@Nullable CurveWandSelection selection) {
 
 		if (level.getBlockEntity(pos) instanceof AngledTrackAnchorBlockEntity anchor && anchor.isLinked()) {
+			// A signal or a station stands on a curve by its two ends, and would be left with nothing
+			// under it. Breaking the anchor by hand still does that, as breaking Create's own track
+			// does; here there is a chance to say so first.
+			if (anchor.carriesPoints()) {
+				if (!level.isClientSide)
+					message(player, "unlink_has_points");
+				AllSoundEvents.DENY.playFrom(player, 1, 1);
+				return InteractionResult.FAIL;
+			}
 			if (!level.isClientSide) {
 				anchor.unlink();
 				message(player, "unlinked");

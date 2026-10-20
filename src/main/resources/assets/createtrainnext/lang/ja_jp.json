@@ -73,6 +73,8 @@
 
   "message.createtrainnext.wand.invalid_start": "始点の線路が失われています。",
   "message.createtrainnext.wand.split_too_close": "曲線の端に近すぎます。",
+  "message.createtrainnext.wand.split_has_points": "この曲線には信号機や駅が載っています。",
+  "message.createtrainnext.wand.unlink_has_points": "このアンカーの曲線には信号機や駅が載っています。先に外してください。",
   "message.createtrainnext.wand.split_occupied": "そこにはすでに接続点があります。",
   "message.createtrainnext.wand.uneven": "両端の向きが違いすぎて1本の曲線ではつなげず、途中にアンカーを置く場所もありません。",
   "message.createtrainnext.wand.route_unavailable": "向きを反転するルートの一部が読み込まれていません。",

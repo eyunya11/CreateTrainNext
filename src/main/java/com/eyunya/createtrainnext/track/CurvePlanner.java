@@ -10,6 +10,11 @@ import org.jetbrains.annotations.Nullable;
 
 import com.eyunya.createtrainnext.CTNConfig;
 import com.eyunya.createtrainnext.CTNRegistry;
+import com.simibubi.create.Create;
+import com.simibubi.create.content.trains.graph.TrackEdge;
+import com.simibubi.create.content.trains.graph.TrackGraph;
+import com.simibubi.create.content.trains.graph.TrackNode;
+import com.simibubi.create.content.trains.graph.TrackNodeLocation;
 import com.simibubi.create.content.trains.track.BezierConnection;
 import com.simibubi.create.content.trains.track.ITrackBlock;
 import com.simibubi.create.content.trains.track.TrackMaterial;
@@ -1606,7 +1611,44 @@ public final class CurvePlanner {
 			.canBeReplaced())
 			return new SplitTarget(owner, t, point, tangent, slope, anchorPos, "no_room");
 
+		// Splitting replaces the curve with two others, and a signal standing on it remembers the
+		// curve it was put on by where its ends are.
+		if (carriesPoints(level, curve))
+			return new SplitTarget(owner, t, point, tangent, slope, anchorPos, "split_has_points");
+
 		return new SplitTarget(owner, t, point, tangent, slope, anchorPos, null);
+	}
+
+	/**
+	 * Whether a signal, station or the like stands on the graph's edge for this curve, in either
+	 * direction.
+	 *
+	 * <p>Such a thing is placed against the curve itself, by the block at one end and the one at the
+	 * other, and if the curve is replaced by anything else it is left pointing at nothing. A curve
+	 * the graph does not hold yet has nothing on it.
+	 */
+	static boolean carriesPoints(Level level, BezierConnection curve) {
+		TrackNodeLocation startLocation = new TrackNodeLocation(curve.starts.getFirst()).in(level);
+		TrackNodeLocation endLocation = new TrackNodeLocation(curve.starts.getSecond()).in(level);
+
+		TrackGraph graph = Create.RAILWAYS.sided(level)
+			.getGraph(level, startLocation);
+		if (graph == null)
+			return false;
+
+		TrackNode start = graph.locateNode(startLocation);
+		TrackNode end = graph.locateNode(endLocation);
+		if (start == null || end == null)
+			return false;
+
+		TrackEdge forwards = graph.getConnectionsFrom(start)
+			.get(end);
+		TrackEdge backwards = graph.getConnectionsFrom(end)
+			.get(start);
+		return forwards != null && forwards.getEdgeData()
+			.hasPoints()
+			|| backwards != null && backwards.getEdgeData()
+				.hasPoints();
 	}
 
 	/**
