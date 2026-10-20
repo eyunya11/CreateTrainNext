@@ -24,7 +24,7 @@ import net.minecraft.world.phys.Vec3;
  *
  * <p>The curve wand aims by eye, which is right for following terrain and wrong for the other half
  * of railway building: a line that has to leave at a stated angle, because it is meeting something
- * a long way off. This holds two numbers — a bearing and a length — and turns them into track.
+ * a long way off. This holds three numbers — a bearing, a length and a grade — and turns them into track.
  *
  * <p>The bearing is Minecraft's own yaw, the convention the anchors store and the wand reports, so
  * a bearing read off one can be typed into the other. Zero is south and it grows clockwise.
@@ -35,6 +35,10 @@ import net.minecraft.world.phys.Vec3;
  * along the line between the two centres is what makes the track straight rather than a very
  * shallow S; the bearing that produces is reported back, so the difference is known rather than
  * hidden. Longer lines land closer — see {@link CurvePlanner#planStraight}.
+ *
+ * <p>The grade is in permille, and a minus sign is a descent. It is the same kind of approximation:
+ * a node is at the height of a block, so the line gains a whole number of blocks and the grade it has
+ * is that over the run it came out with, which is reported when it is laid.
  */
 public class SurveyMarkerBlockEntity extends SmartBlockEntity {
 
@@ -51,6 +55,8 @@ public class SurveyMarkerBlockEntity extends SmartBlockEntity {
 
 	private static final String TAG_LENGTH = "Length";
 
+	private static final String TAG_GRADE = "Grade";
+
 	public ScrollValueBehaviour bearing;
 
 	/**
@@ -63,6 +69,12 @@ public class SurveyMarkerBlockEntity extends SmartBlockEntity {
 	 * once per line and lives in the screen.
 	 */
 	private int length = DEFAULT_LENGTH;
+
+	/**
+	 * How steeply the line climbs, in permille. Zero, which is every marker that was never given one, lays
+	 * a level line, as markers always did.
+	 */
+	private int grade = 0;
 
 	public SurveyMarkerBlockEntity(BlockPos pos, BlockState state) {
 		super(CTNRegistry.SURVEY_MARKER_ENTITY.get(), pos, state);
@@ -85,11 +97,21 @@ public class SurveyMarkerBlockEntity extends SmartBlockEntity {
 		return length;
 	}
 
-	/** Applies both numbers at once, which is what the screen sends when it is done with. */
-	public void configure(int newBearing, int newLength) {
+	public int getGrade() {
+		return grade;
+	}
+
+	/**
+	 * Applies all three numbers at once, which is what the screen sends when it is done with. The grade is
+	 * held to the limit on track as it stands, so that a value from a broken client cannot ask for one the
+	 * planner would never be able to meet.
+	 */
+	public void configure(int newBearing, int newLength, int newGrade) {
 		if (bearing != null)
 			bearing.setValue(Mth.clamp(newBearing, MIN_BEARING, MAX_BEARING));
 		length = Mth.clamp(newLength, MIN_LENGTH, MAX_LENGTH);
+		int limit = CurvePlanner.maxGradePermille();
+		grade = Mth.clamp(newGrade, -limit, limit);
 		setChanged();
 		if (level != null)
 			level.sendBlockUpdated(worldPosition, getBlockState(), getBlockState(), Block.UPDATE_ALL);
@@ -99,6 +121,8 @@ public class SurveyMarkerBlockEntity extends SmartBlockEntity {
 	protected void write(CompoundTag tag, HolderLookup.Provider registries, boolean clientPacket) {
 		super.write(tag, registries, clientPacket);
 		tag.putInt(TAG_LENGTH, length);
+		if (grade != 0)
+			tag.putInt(TAG_GRADE, grade);
 	}
 
 	@Override
@@ -109,6 +133,9 @@ public class SurveyMarkerBlockEntity extends SmartBlockEntity {
 		// explains. Absent means never set, which is the default rather than nothing.
 		if (tag.contains(TAG_LENGTH))
 			length = Mth.clamp(tag.getInt(TAG_LENGTH), MIN_LENGTH, MAX_LENGTH);
+		// Unlike the length, nothing here is wrong with absent: it is level, and it is how a grade that has
+		// been set back to nothing is sent to the client, which would otherwise keep the last one.
+		grade = tag.getInt(TAG_GRADE);
 	}
 
 	/**

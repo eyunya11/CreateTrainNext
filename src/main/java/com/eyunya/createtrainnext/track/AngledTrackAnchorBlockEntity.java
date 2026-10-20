@@ -12,6 +12,9 @@ import java.util.Set;
 import org.jetbrains.annotations.Nullable;
 
 import com.eyunya.createtrainnext.CTNRegistry;
+import com.simibubi.create.Create;
+import com.simibubi.create.content.trains.graph.TrackGraph;
+import com.simibubi.create.content.trains.graph.TrackNode;
 import com.simibubi.create.content.trains.graph.TrackNodeLocation;
 import com.simibubi.create.content.trains.track.BezierConnection;
 import com.simibubi.create.content.trains.track.TrackBlockEntity;
@@ -83,8 +86,25 @@ public class AngledTrackAnchorBlockEntity extends TrackBlockEntity {
 	private static final String TAG_PREV = "Prev";
 	private static final String TAG_NEXT = "Next";
 	private static final String TAG_AXIS_FLIPPED = "AxisFlipped";
+	private static final String TAG_SLOPE = "Slope";
 
 	private float yaw = 0.0F;
+
+	/**
+	 * How steeply the route climbs through this anchor: the rise over the run, so 0.05 is 50 permille
+	 * and a minus sign is a descent. It belongs to the route's direction, like {@link #yaw}, and
+	 * turning the route round negates it.
+	 *
+	 * <p>Zero for every anchor that was never given one, which includes all of those in saves made
+	 * before there was any, so they read exactly as they did: flat headings, and a climb carried by
+	 * the difference in height between the two ends of a curve.
+	 *
+	 * <p>It is kept as a slope and not as an angle because that is the form Create's own axes take. Its
+	 * bezier works the handles out from the horizontal part of an axis alone, so an axis written as a
+	 * horizontal unit vector plus {@code (0, slope, 0)} leaves the curve's shape seen from above exactly
+	 * what it was and only changes how it climbs. Create's sloped track uses {@code (0, 1, 1)} the same way.
+	 */
+	private float slope = 0.0F;
 
 	/** The anchor this route arrives from, and the one it continues to. Either may be absent. */
 	@Nullable
@@ -138,6 +158,30 @@ public class AngledTrackAnchorBlockEntity extends TrackBlockEntity {
 
 	public float getYaw() {
 		return yaw;
+	}
+
+	/** See {@link #slope}. */
+	public float getSlope() {
+		return slope;
+	}
+
+	/**
+	 * A direction of travel written the way the curves take it: the horizontal unit vector
+	 * {@code heading} with the climb as its y component, which is not a unit vector.
+	 */
+	public static Vec3 tangentOf(Vec3 heading, double slope) {
+		return new Vec3(heading.x, slope, heading.z);
+	}
+
+	/** The climb in a vector made by {@link #tangentOf}: its y over the length of its horizontal part. */
+	public static double slopeOf(Vec3 tangent) {
+		double run = Math.sqrt(tangent.x * tangent.x + tangent.z * tangent.z);
+		return run < 1.0E-9 ? 0 : tangent.y / run;
+	}
+
+	/** Which way the route runs through this anchor, and how steeply it climbs there. */
+	public Vec3 tangent() {
+		return tangentOf(heading(), slope);
 	}
 
 	/** See {@link #flipped}. */
@@ -241,7 +285,9 @@ public class AngledTrackAnchorBlockEntity extends TrackBlockEntity {
 	 * intermediate state where one end has been turned and the other has not, which is a shape the
 	 * graph would have had to accept as real for a tick.
 	 *
-	 * @param thisHeading  where this anchor should point afterwards, or null to leave it.
+	 * @param thisHeading  where this anchor should point afterwards, or null to leave it. The y of the
+	 *                     vector is the climb, as {@link #tangentOf} writes it: a vector with none
+	 *                     leaves the anchor level.
 	 * @param otherHeading where {@code other} should point afterwards, or null to leave it.
 	 */
 	public void linkTo(AngledTrackAnchorBlockEntity other, @Nullable Vec3 thisHeading,
@@ -265,10 +311,12 @@ public class AngledTrackAnchorBlockEntity extends TrackBlockEntity {
 
 		if (thisHeading != null) {
 			yaw = yawOf(thisHeading);
+			slope = (float) slopeOf(thisHeading);
 			alignAxisToYaw();
 		}
 		if (otherHeading != null) {
 			other.yaw = yawOf(otherHeading);
+			other.slope = (float) slopeOf(otherHeading);
 			other.alignAxisToYaw();
 		}
 
@@ -419,6 +467,8 @@ public class AngledTrackAnchorBlockEntity extends TrackBlockEntity {
 		next = behind;
 
 		yaw = Mth.wrapDegrees(yaw + 180.0F);
+		// Running the other way, what was a climb is a descent.
+		slope = -slope;
 
 		// What was recorded is the curve this anchor used to own, which it no longer does, and
 		// clearing it would take up a floor that its new neighbour is about to renew.
@@ -635,6 +685,62 @@ public class AngledTrackAnchorBlockEntity extends TrackBlockEntity {
 	// so the pass deletes a working edge and puts nothing back. Recovering a discarded graph has to
 	// mean placing a block, where the surroundings are known to be loaded.
 
+	/**
+	 * Whether an anchor this one is linked to is in a chunk that is not loaded.
+	 *
+	 * <p>What the anchor reports to the graph is its curves, and a curve is built from the anchor at its
+	 * other end, so with that one out of reach the anchor reports fewer curves than it has — not none that
+	 * were removed, but none that can be seen. {@code onRailAdded} cannot tell the two apart. It removes the
+	 * nodes this block reports and builds the graph again from what is reported, so run in that state it
+	 * takes the link out and puts nothing back, and nothing is left to put it back later.
+	 *
+	 * <p>Links of Create's length, 32 blocks at most, are never far enough for this to happen, because the
+	 * chunk of one end is the chunk next to the other's. A link of a hundred blocks is seven chunks long.
+	 */
+	public boolean hasUnloadedNeighbour() {
+		return level != null && ((prev != null && !level.isLoaded(prev)) || (next != null && !level.isLoaded(next)));
+	}
+
+	/** Asks for this anchor's neighbourhood to be built into the graph again, {@code delay} ticks from now. */
+	public void requestRebuild(int delay) {
+		if (level != null && !level.isClientSide)
+			level.scheduleTick(worldPosition, getBlockState().getBlock(), delay);
+	}
+
+	/**
+	 * Whether a rebuild of this anchor's neighbourhood is already waiting to run. Until it has, the graph
+	 * may lack the links only because they have not been put in yet.
+	 */
+	public boolean hasRebuildPending() {
+		return level != null && !level.isClientSide && level.getBlockTicks()
+			.hasScheduledTick(worldPosition, getBlockState().getBlock());
+	}
+
+	/**
+	 * Whether the graph holds the curve to the anchor ahead, as an edge each way between its two ends.
+	 *
+	 * <p>True when there is nothing to check: no anchor ahead, or one that is not loaded, since a curve that
+	 * cannot be built cannot be told apart from one that is not there.
+	 */
+	public boolean linkAheadIsInGraph() {
+		if (level == null || level.isClientSide)
+			return true;
+		BezierConnection curve = buildCurveToNext();
+		if (curve == null)
+			return true;
+
+		TrackNodeLocation from = new TrackNodeLocation(curve.starts.getFirst()).in(level);
+		TrackNodeLocation to = new TrackNodeLocation(curve.starts.getSecond()).in(level);
+		TrackGraph graph = Create.RAILWAYS.sided(level)
+			.getGraph(level, from);
+		TrackNode fromNode = graph == null ? null : graph.locateNode(from);
+		TrackNode toNode = graph == null ? null : graph.locateNode(to);
+		return fromNode != null && toNode != null && graph.getConnectionsFrom(fromNode)
+			.containsKey(toNode)
+			&& graph.getConnectionsFrom(toNode)
+				.containsKey(fromNode);
+	}
+
 	/** Queues the rebuild, matching how Create defers propagation to a scheduled tick. */
 	private void attachNeighbourhood() {
 		if (level == null || level.isClientSide)
@@ -718,7 +824,7 @@ public class AngledTrackAnchorBlockEntity extends TrackBlockEntity {
 		// axis. Reporting the heading there had it refused at every angle where the two differ,
 		// which is why only multiples of 45 worked. Both directions already work there, because the
 		// span runs both ways out of the block's centre and each way matches the axis exactly.
-		if (!usesCentreNode(heading(), isInterior()))
+		if (!usesCentreNode(heading(), isInterior(), slope != 0))
 			return AngledTrackAnchorBlock.axisVector(getBlockState());
 
 		return routeTargetingAxis();
@@ -873,7 +979,16 @@ public class AngledTrackAnchorBlockEntity extends TrackBlockEntity {
 	 * the nearest axis, was never reconciling anything.
 	 */
 	public static boolean usesCentreNode(Vec3 heading, boolean interior) {
-		if (interior)
+		return usesCentreNode(heading, interior, false);
+	}
+
+	/**
+	 * The same, for an anchor that may be climbing. One that is has its node at the block's centre
+	 * whatever its heading: a span lying along an axis at the block's own height cannot continue a
+	 * climb, and the curve leaving its end would bend away from it by the whole of the slope.
+	 */
+	public static boolean usesCentreNode(Vec3 heading, boolean interior, boolean sloped) {
+		if (interior || sloped)
 			return true;
 		if (heading.lengthSqr() < 1.0E-8)
 			return true;
@@ -886,14 +1001,22 @@ public class AngledTrackAnchorBlockEntity extends TrackBlockEntity {
 
 	/** Where {@link #entryNode} would fall for an anchor at {@code pos} pointed along {@code heading}. */
 	public static Vec3 entryNode(BlockPos pos, Vec3 heading, boolean interior) {
+		return entryNode(pos, heading, interior, false);
+	}
+
+	public static Vec3 entryNode(BlockPos pos, Vec3 heading, boolean interior, boolean sloped) {
 		Vec3 centre = Vec3.atBottomCenterOf(pos);
-		return usesCentreNode(heading, interior) ? centre : centre.subtract(forwardOffset(heading));
+		return usesCentreNode(heading, interior, sloped) ? centre : centre.subtract(forwardOffset(heading));
 	}
 
 	/** Where {@link #exitNode} would fall for an anchor at {@code pos} pointed along {@code heading}. */
 	public static Vec3 exitNode(BlockPos pos, Vec3 heading, boolean interior) {
+		return exitNode(pos, heading, interior, false);
+	}
+
+	public static Vec3 exitNode(BlockPos pos, Vec3 heading, boolean interior, boolean sloped) {
 		Vec3 centre = Vec3.atBottomCenterOf(pos);
-		return usesCentreNode(heading, interior) ? centre : centre.add(forwardOffset(heading));
+		return usesCentreNode(heading, interior, sloped) ? centre : centre.add(forwardOffset(heading));
 	}
 
 	/**
@@ -909,12 +1032,12 @@ public class AngledTrackAnchorBlockEntity extends TrackBlockEntity {
 	 * puts its nodes and sharing one is what lets the two dock.
 	 */
 	public Vec3 entryNode() {
-		return entryNode(worldPosition, heading(), isInterior());
+		return entryNode(worldPosition, heading(), isInterior(), slope != 0);
 	}
 
 	/** The node the curve to {@link #next} leaves from. The block's centre when interior. */
 	public Vec3 exitNode() {
-		return exitNode(worldPosition, heading(), isInterior());
+		return exitNode(worldPosition, heading(), isInterior(), slope != 0);
 	}
 
 	/**
@@ -972,7 +1095,8 @@ public class AngledTrackAnchorBlockEntity extends TrackBlockEntity {
 			// Both tangents point into the curve: ours forwards along the route, the far end's
 			// backwards along it. Create's determineHandles negates the second before measuring
 			// the turn, so a tangent pointing out of the curve there puts a cusp in the bezier.
-			Couple.create(heading(), ahead.heading()
+			// Each carries its anchor's climb, which Create reads only for where the handles point.
+			Couple.create(tangent(), ahead.tangent()
 				.scale(-1)),
 			Couple.create(up, up), true, false, TrackMaterial.ANDESITE);
 	}
@@ -1058,6 +1182,8 @@ public class AngledTrackAnchorBlockEntity extends TrackBlockEntity {
 		long key = next == null ? 0L : next.asLong();
 		key = key * 31 + Float.floatToIntBits(yaw);
 		key = key * 31 + Float.floatToIntBits(ahead == null ? 0.0F : ahead.yaw);
+		key = key * 31 + Float.floatToIntBits(slope);
+		key = key * 31 + Float.floatToIntBits(ahead == null ? 0.0F : ahead.slope);
 		return key;
 	}
 
@@ -1120,6 +1246,16 @@ public class AngledTrackAnchorBlockEntity extends TrackBlockEntity {
 		if (level == null || level.isClientSide)
 			return;
 
+		// With the anchor ahead out of reach there is no curve to build, which is not the same as there
+		// being none: the link is still there and so is its floor. Clearing it here took the floor from
+		// under a long link every time its far end was out of the loaded chunks. The floor is kept alive
+		// as it was last laid, in the chunks that are here, since a floor nobody renews times out.
+		if (next != null && !level.isLoaded(next)) {
+			if (occupied != null)
+				CurveOccupancy.place(level, occupied);
+			return;
+		}
+
 		BezierConnection current = buildCurveToNext();
 		if (occupied != null && (current == null || !occupied.equalsSansMaterial(current)))
 			CurveOccupancy.clear(level, occupied);
@@ -1158,6 +1294,8 @@ public class AngledTrackAnchorBlockEntity extends TrackBlockEntity {
 	protected void write(CompoundTag tag, HolderLookup.Provider registries, boolean clientPacket) {
 		super.write(tag, registries, clientPacket);
 		tag.putFloat(TAG_YAW, yaw);
+		if (slope != 0)
+			tag.putFloat(TAG_SLOPE, slope);
 		if (flipped)
 			tag.putBoolean(TAG_AXIS_FLIPPED, true);
 		if (prev != null)
@@ -1170,6 +1308,7 @@ public class AngledTrackAnchorBlockEntity extends TrackBlockEntity {
 	protected void read(CompoundTag tag, HolderLookup.Provider registries, boolean clientPacket) {
 		super.read(tag, registries, clientPacket);
 		yaw = tag.getFloat(TAG_YAW);
+		slope = tag.getFloat(TAG_SLOPE);
 		prev = tag.contains(TAG_PREV) ? BlockPos.of(tag.getLong(TAG_PREV)) : null;
 		next = tag.contains(TAG_NEXT) ? BlockPos.of(tag.getLong(TAG_NEXT)) : null;
 		flipped = tag.getBoolean(TAG_AXIS_FLIPPED);

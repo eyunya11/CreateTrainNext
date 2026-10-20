@@ -1,0 +1,6 @@
+{
+  "__comment": "One variant for every rotation, and it draws nothing. SpeedLimitRenderer draws the sign from block/track_speed_release, so this model carries only the texture that breaking particles come from.",
+  "variants": {
+    "": { "model": "createtrainnext:block/track_speed_release_particle" }
+  }
+}

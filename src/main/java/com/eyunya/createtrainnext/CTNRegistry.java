@@ -10,6 +10,7 @@ import com.eyunya.createtrainnext.signal.RelaySignalBlockEntity;
 import com.eyunya.createtrainnext.speed.CTNEdgePointTypes;
 import com.eyunya.createtrainnext.speed.SpeedLimitBlock;
 import com.eyunya.createtrainnext.speed.SpeedLimitBlockEntity;
+import com.eyunya.createtrainnext.speed.SpeedReleaseBlock;
 import com.eyunya.createtrainnext.track.AngledTrackAnchorBlock;
 import com.eyunya.createtrainnext.track.AngledTrackAnchorBlockEntity;
 import com.simibubi.create.content.trains.graph.EdgePointType;
@@ -135,9 +136,26 @@ public class CTNRegistry {
 		ITEMS.registerItem("track_speed_limit", properties -> new TrackTargetingBlockItem(TRACK_SPEED_LIMIT.get(),
 			properties, CTNEdgePointTypes.SPEED_LIMIT));
 
+	/**
+	 * The sign that ends a limit. The same block entity and the same kind of point as the limit sign:
+	 * to a train it is a limit as high as any train goes, which is how a limit is lifted.
+	 */
+	public static final DeferredBlock<SpeedReleaseBlock> TRACK_SPEED_RELEASE = BLOCKS.registerBlock(
+		"track_speed_release",
+		SpeedReleaseBlock::new,
+		BlockBehaviour.Properties.of()
+			.mapColor(MapColor.PODZOL)
+			.strength(0.8F)
+			.sound(SoundType.NETHERITE_BLOCK)
+			.noOcclusion());
+
+	public static final DeferredItem<TrackTargetingBlockItem> TRACK_SPEED_RELEASE_ITEM =
+		ITEMS.registerItem("track_speed_release", properties -> new TrackTargetingBlockItem(TRACK_SPEED_RELEASE.get(),
+			properties, CTNEdgePointTypes.SPEED_LIMIT));
+
 	public static final Supplier<BlockEntityType<SpeedLimitBlockEntity>> TRACK_SPEED_LIMIT_ENTITY =
 		BLOCK_ENTITIES.register("track_speed_limit", () -> BlockEntityType.Builder
-			.of(SpeedLimitBlockEntity::new, TRACK_SPEED_LIMIT.get())
+			.of(SpeedLimitBlockEntity::new, TRACK_SPEED_LIMIT.get(), TRACK_SPEED_RELEASE.get())
 			.build(null));
 
 	public static final DeferredBlock<SignalPoleBlock> SIGNAL_POLE = BLOCKS.registerBlock(
@@ -216,6 +234,7 @@ public class CTNRegistry {
 				output.accept(ANGLED_TRACK_ANCHOR_ITEM.get());
 				output.accept(SURVEY_MARKER_ITEM.get());
 				output.accept(TRACK_SPEED_LIMIT_ITEM.get());
+				output.accept(TRACK_SPEED_RELEASE_ITEM.get());
 				output.accept(SIGNAL_POLE_ITEM.get());
 				output.accept(MULTI_ASPECT_SIGNAL_ITEM.get());
 				output.accept(RELAY_SIGNAL_ITEM.get());

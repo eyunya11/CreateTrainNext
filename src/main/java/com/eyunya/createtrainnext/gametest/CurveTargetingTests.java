@@ -48,6 +48,14 @@ public class CurveTargetingTests {
 
 	private static final String EMPTY = "empty";
 
+	/**
+	 * Run apart from the other tests, so that they are laid out where they were before these were
+	 * added. Some of the others build beyond the box their template gives them, and some count the
+	 * nodes in theirs, so which of them stand next to which is not something to change by adding
+	 * tests to the same batch.
+	 */
+	private static final String BATCH = "curveTargeting";
+
 	private static final float EAST = 270.0F;
 	private static final float WEST = 90.0F;
 
@@ -92,7 +100,7 @@ public class CurveTargetingTests {
 	 * Each curve is held by one of its two anchors, as a primary connection keyed by the other.
 	 * Running east, the lower position is the one the curve leaves from, and it is held as built.
 	 */
-	@GameTest(template = EMPTY, timeoutTicks = 60)
+	@GameTest(template = EMPTY, batch = BATCH, timeoutTicks = 60)
 	public static void aCurveIsHeldByItsLowerEndWhenTheRouteRunsUp(GameTestHelper helper) {
 		AngledTrackAnchorBlockEntity[] anchors = route(helper, EAST, along(6, 14, 22, 30));
 
@@ -124,7 +132,7 @@ public class CurveTargetingTests {
 	 * other way round. That is the point of choosing by position: a route turned round must not
 	 * change which anchor a signal on one of its curves was placed against.
 	 */
-	@GameTest(template = EMPTY, timeoutTicks = 60)
+	@GameTest(template = EMPTY, batch = BATCH, timeoutTicks = 60)
 	public static void aCurveIsHeldByItsLowerEndWhenTheRouteRunsDown(GameTestHelper helper) {
 		AngledTrackAnchorBlockEntity[] anchors = route(helper, WEST, along(30, 22, 14, 6));
 
@@ -163,7 +171,7 @@ public class CurveTargetingTests {
 	 * Create turns a picked segment into an edge of the graph. Both ways round, because which way
 	 * a signal faces is which way it is put.
 	 */
-	@GameTest(template = EMPTY, timeoutTicks = 60)
+	@GameTest(template = EMPTY, batch = BATCH, timeoutTicks = 60)
 	public static void everySegmentOfAHeldCurveFindsItsEdge(GameTestHelper helper) {
 		AngledTrackAnchorBlockEntity[] anchors = route(helper, EAST, along(6, 14, 22, 30));
 
@@ -208,7 +216,7 @@ public class CurveTargetingTests {
 	 * The whole chain from a picked segment to a signal that exists: the placement check passes, and
 	 * a signal told to stand against the curve makes itself a point on the edge between the anchors.
 	 */
-	@GameTest(template = EMPTY, timeoutTicks = 80)
+	@GameTest(template = EMPTY, batch = BATCH, timeoutTicks = 80)
 	public static void aSignalPlacedAgainstACurveStandsOnItsEdge(GameTestHelper helper) {
 		AngledTrackAnchorBlockEntity[] anchors = route(helper, EAST, along(6, 14, 22, 30));
 
@@ -252,7 +260,7 @@ public class CurveTargetingTests {
 	 * A route turned round leaves the graph alone, and the curve is held by the same anchor under the
 	 * same key, so a signal's address still means the same edge.
 	 */
-	@GameTest(template = EMPTY, timeoutTicks = 60)
+	@GameTest(template = EMPTY, batch = BATCH, timeoutTicks = 60)
 	public static void aCurveStillFindsItsEdgeAfterTheRouteIsTurnedRound(GameTestHelper helper) {
 		AngledTrackAnchorBlockEntity[] anchors = route(helper, EAST, along(6, 14, 22, 30));
 
@@ -283,7 +291,7 @@ public class CurveTargetingTests {
 	// ------------------------------------------------------------ splitting
 
 	/** A curve with a signal on it is not split, since the signal would be left with no curve. */
-	@GameTest(template = EMPTY, timeoutTicks = 80)
+	@GameTest(template = EMPTY, batch = BATCH, timeoutTicks = 80)
 	public static void aCurveWithASignalOnItIsNotSplit(GameTestHelper helper) {
 		AngledTrackAnchorBlockEntity[] anchors = route(helper, EAST, along(6, 14, 22, 30));
 
@@ -327,7 +335,7 @@ public class CurveTargetingTests {
 	// ------------------------------------------------------------ saving
 
 	/** What was held before a save is held after it, along with the links and the heading. */
-	@GameTest(template = EMPTY, timeoutTicks = 60)
+	@GameTest(template = EMPTY, batch = BATCH, timeoutTicks = 60)
 	public static void savingAndLoadingKeepsTheLinksAndTheCurves(GameTestHelper helper) {
 		AngledTrackAnchorBlockEntity[] anchors = route(helper, EAST, along(6, 14, 22));
 

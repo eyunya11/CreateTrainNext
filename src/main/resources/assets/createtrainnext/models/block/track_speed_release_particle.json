@@ -1,0 +1,6 @@
+{
+  "__comment": "Intentionally has no elements. See the blockstate.",
+  "textures": {
+    "particle": "createtrainnext:block/track_speed_release"
+  }
+}

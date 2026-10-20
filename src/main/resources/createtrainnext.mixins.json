@@ -1,0 +1,12 @@
+{
+  "required": true,
+  "minVersion": "0.8",
+  "package": "com.eyunya.createtrainnext.mixin",
+  "compatibilityLevel": "JAVA_21",
+  "mixins": [
+    "TrainMixin"
+  ],
+  "injectors": {
+    "defaultRequire": 1
+  }
+}

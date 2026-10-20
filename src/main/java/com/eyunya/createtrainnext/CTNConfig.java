@@ -35,6 +35,16 @@ public class CTNConfig {
 
 		public final ModConfigSpec.BooleanValue curveCollision;
 
+		public final ModConfigSpec.IntValue maxGrade;
+
+		public final ModConfigSpec.IntValue snapAngle;
+
+		public final ModConfigSpec.IntValue restrictedSpeed;
+
+		public final ModConfigSpec.IntValue approachSpeed;
+
+		public final ModConfigSpec.IntValue reducedSpeed;
+
 		private Server(ModConfigSpec.Builder builder) {
 			builder.comment("Free angle curves")
 				.push("curves");
@@ -51,6 +61,44 @@ public class CTNConfig {
 					"building over one simply takes it out. Turning this off stops new ones being",
 					"placed; the ones already down expire on their own within a few minutes.")
 				.define("collision", true);
+
+			maxGrade = builder
+				.comment("The steepest a curve may climb, in permille: metres of rise per thousand metres of run.",
+					"It is measured along the curve at its steepest point, so a gentle slope that has to",
+					"steepen to meet the track at either end is held to the steepest part of it, and the",
+					"number is rounded to a whole permille, which is the figure the wand shows.",
+					"333 is one block of rise in three of run, which is as steep as this mod has always",
+					"let a curve climb.")
+				.defineInRange("maxGrade", 333, 10, 1000);
+
+			snapAngle = builder
+				.comment("The step, in degrees, of the angles the wand prefers for the free end of a curve.",
+					"Compass angles that are a multiple of it - 0, 15, 30, 45 and so on for 15 - win over",
+					"the angle the aimed block would give, when that is within a quarter of the step of one.",
+					"The block aimed at is moved up to two blocks if that makes the angle exact, and the",
+					"angle is turned to it if not. A step that divides 45 keeps 45 and 90 degrees among them.",
+					"0 turns it off, and the curve takes whatever angle the aimed block gives.")
+				.defineInRange("snapAngle", 15, 0, 45);
+
+			builder.pop();
+
+			builder.comment("How fast a five-aspect signal lets a train go, in km/h",
+					"A train is held to the speed of the last signal it passed until it passes the next, and",
+					"a green signal holds it to nothing. A train passing a signal at red is held to the",
+					"restricted speed. The speed limit signs hold a train separately, and the slower wins.")
+				.push("signals");
+
+			restrictedSpeed = builder
+				.comment("The speed at 警戒, the two outer yellow lamps.")
+				.defineInRange("restrictedSpeed", 25, 1, 1000);
+
+			approachSpeed = builder
+				.comment("The speed at 注意, the lower yellow lamp.")
+				.defineInRange("approachSpeed", 45, 1, 1000);
+
+			reducedSpeed = builder
+				.comment("The speed at 減速, the upper yellow lamp and the green.")
+				.defineInRange("reducedSpeed", 75, 1, 1000);
 
 			builder.pop();
 		}
