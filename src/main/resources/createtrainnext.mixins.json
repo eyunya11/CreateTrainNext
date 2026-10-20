@@ -4,6 +4,7 @@
   "package": "com.eyunya.createtrainnext.mixin",
   "compatibilityLevel": "JAVA_21",
   "mixins": [
+    "CurvedTrackDestroyPacketMixin",
     "TrainMixin"
   ],
   "injectors": {

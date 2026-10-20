@@ -485,16 +485,17 @@ public class AngledTrackAnchorBlockEntity extends TrackBlockEntity {
 	}
 
 	private void markChanged() {
-		// Before the update goes out, so the client is sent the connections that go with the links.
-		syncConnections();
+		connectionsStale = true;
 		sendUpdate();
 
 		// A curve is built from both its ends, and is held by whichever of them has the lower
 		// position, so a change here can change what the anchor on either side is holding.
 		for (BlockPos neighbour : new BlockPos[] { prev, next }) {
 			AngledTrackAnchorBlockEntity anchor = anchorAt(neighbour);
-			if (anchor != null && anchor.syncConnections())
+			if (anchor != null) {
+				anchor.connectionsStale = true;
 				anchor.sendUpdate();
+			}
 		}
 	}
 
@@ -527,10 +528,13 @@ public class AngledTrackAnchorBlockEntity extends TrackBlockEntity {
 	 * <p>Asked when block entity data arrives, to decide whether to register this anchor with the
 	 * client's list of curves to pick from. Answering by the flag above is what keeps an anchor out
 	 * of that list while a wand is in hand.
+	 *
+	 * <p>Only a client's anchors are ever offered. The list is the client's, and a server's anchors —
+	 * on an integrated server, where the flag is set — have no business in it.
 	 */
 	@Override
 	public boolean hasInteractableConnections() {
-		return curveInteraction && super.hasInteractableConnections();
+		return level != null && level.isClientSide && curveInteraction && super.hasInteractableConnections();
 	}
 
 	/** Whether this anchor holds a curve for Create's targeting, whatever the client is offering. */
@@ -558,6 +562,47 @@ public class AngledTrackAnchorBlockEntity extends TrackBlockEntity {
 	}
 
 	/**
+	 * Whether the links, or a neighbour's, have changed since the connections were last brought into
+	 * line with them.
+	 *
+	 * <p>Brought into line when they are next looked at rather than at every change. A link operation
+	 * changes an anchor's state several times over, and a route turned round changes each of its
+	 * anchors in turn, so doing it at each change builds curves out of states that are half way
+	 * between two real ones, and builds them many times. It is looked at when Create asks for the
+	 * connections and when the anchor is saved or sent to a client, which is after the operation.
+	 */
+	private boolean connectionsStale = true;
+
+	/** The connections Create reads, brought into line with the links first if they have changed. */
+	@Override
+	public Map<BlockPos, BezierConnection> getConnections() {
+		if (refreshConnections())
+			sendUpdate();
+		return super.getConnections();
+	}
+
+	/** @return whether the connections changed, which is whether the client needs to be told. */
+	private boolean refreshConnections() {
+		if (!connectionsStale || level == null || level.isClientSide)
+			return false;
+		connectionsStale = false;
+		return syncConnections();
+	}
+
+	/**
+	 * Whether a connection already held is the one wanted: the same curve, held from the same end, as
+	 * the primary.
+	 *
+	 * <p>{@code equalsSansMaterial} is not enough. It takes a curve and its reverse for the same, and
+	 * says nothing about the primary flag, and those are the two things a connection read back from a
+	 * save or a client can have wrong while looking right.
+	 */
+	private static boolean sameConnection(@Nullable BezierConnection held, BezierConnection wanted) {
+		return held != null && held.isPrimary() == wanted.isPrimary() && held.bePositions.getFirst()
+			.equals(wanted.bePositions.getFirst()) && held.equalsSansMaterial(wanted);
+	}
+
+	/**
 	 * Brings the connections Create sees up to date with the curves this anchor is a link of.
 	 *
 	 * <p>Create's curve targeting finds a curve by looking in a {@code TrackBlockEntity}'s
@@ -567,7 +612,9 @@ public class AngledTrackAnchorBlockEntity extends TrackBlockEntity {
 	 *
 	 * <p>A curve that cannot be built because the anchor at its other end is not loaded is left as
 	 * it was. Taking it out would be an answer, and an unloaded chunk is not one: a signal on the
-	 * curve would have nothing to stand on until the chunk came back.
+	 * curve would have nothing to stand on until the chunk came back. The same for a link the other
+	 * anchor does not agree about, which is what the middle of turning a route round looks like. A
+	 * block that is loaded and is not an anchor any more is an answer, and the curve goes.
 	 *
 	 * @return whether the connections changed, which is whether the client needs to be told.
 	 */
@@ -575,7 +622,7 @@ public class AngledTrackAnchorBlockEntity extends TrackBlockEntity {
 		if (level == null || level.isClientSide)
 			return false;
 
-		Map<BlockPos, BezierConnection> held = getConnections();
+		Map<BlockPos, BezierConnection> held = super.getConnections();
 		Map<BlockPos, BezierConnection> wanted = new HashMap<>();
 
 		for (boolean ahead : new boolean[] { true, false }) {
@@ -583,19 +630,31 @@ public class AngledTrackAnchorBlockEntity extends TrackBlockEntity {
 			if (other == null || !holdsCurveWith(other))
 				continue;
 
+			AngledTrackAnchorBlockEntity neighbour = anchorAt(other);
+			if (neighbour == null) {
+				if (!level.isLoaded(other) && held.containsKey(other))
+					wanted.put(other, held.get(other));
+				continue;
+			}
+
+			// A link is held by both of its anchors, and the curve is the one it looks like only if
+			// they agree about it.
+			if (!worldPosition.equals(ahead ? neighbour.prev : neighbour.next)) {
+				if (held.containsKey(other))
+					wanted.put(other, held.get(other));
+				continue;
+			}
+
 			BezierConnection curve = ahead ? buildCurveToNext() : buildCurveFromPrev();
 			if (curve != null)
 				wanted.put(other, ahead ? curve : fromFarEnd(curve));
-			else if (anchorAt(other) == null && held.containsKey(other))
-				wanted.put(other, held.get(other));
 		}
 
 		boolean same = held.size() == wanted.size();
 		for (Map.Entry<BlockPos, BezierConnection> entry : wanted.entrySet()) {
 			if (!same)
 				break;
-			BezierConnection old = held.get(entry.getKey());
-			same = old != null && old.equalsSansMaterial(entry.getValue());
+			same = sameConnection(held.get(entry.getKey()), entry.getValue());
 		}
 		if (same)
 			return false;
@@ -605,18 +664,27 @@ public class AngledTrackAnchorBlockEntity extends TrackBlockEntity {
 		return true;
 	}
 
+	/** Whether a signal, station or the like stands on a curve this anchor is one end of. */
+	public boolean carriesPoints() {
+		if (level == null)
+			return false;
+		BezierConnection ahead = buildCurveToNext();
+		BezierConnection behind = buildCurveFromPrev();
+		return ahead != null && CurvePlanner.carriesPoints(level, ahead)
+			|| behind != null && CurvePlanner.carriesPoints(level, behind);
+	}
+
 	/**
-	 * Create asks for these to be taken out when a curve is broken by hand. Nothing is: a curve
+	 * Create asks for these to be taken out when a curve is broken by hand, and nothing is: a curve
 	 * here is its links, and the way to undo one is the wand.
 	 *
-	 * <p>The graph is rebuilt all the same. The packet that gets here goes on to take this block's
-	 * nodes out of the graph, and without a rebuild they would stay out.
+	 * <p>It is not asked. The packet that breaks a curve is stopped before it gets here, by
+	 * {@code CurvedTrackDestroyPacketMixin}, because what it does around this call — handing out the
+	 * curve's track and taking the block's nodes out of the graph — is not something this can stop.
+	 * Kept so that nothing else can take the connections away from under the links.
 	 */
 	@Override
-	public void removeConnection(BlockPos target) {
-		if (level != null && !level.isClientSide)
-			level.scheduleTick(worldPosition, getBlockState().getBlock(), 1);
-	}
+	public void removeConnection(BlockPos target) {}
 
 	/**
 	 * Create lays an invisible floor of its own along every curve it holds, here, which is what
@@ -1231,7 +1299,8 @@ public class AngledTrackAnchorBlockEntity extends TrackBlockEntity {
 		updateOccupancy();
 		// What puts connections on an anchor from a save that predates them, and mends any that a
 		// neighbour's chunk coming back late left out of date.
-		if (syncConnections())
+		connectionsStale = true;
+		if (refreshConnections())
 			sendUpdate();
 	}
 
@@ -1292,6 +1361,8 @@ public class AngledTrackAnchorBlockEntity extends TrackBlockEntity {
 	 */
 	@Override
 	protected void write(CompoundTag tag, HolderLookup.Provider registries, boolean clientPacket) {
+		// What is saved, and what the client is sent, is the connections as the links have them now.
+		refreshConnections();
 		super.write(tag, registries, clientPacket);
 		tag.putFloat(TAG_YAW, yaw);
 		if (slope != 0)

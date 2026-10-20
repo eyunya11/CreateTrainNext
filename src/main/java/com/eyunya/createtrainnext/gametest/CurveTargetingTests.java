@@ -1,5 +1,6 @@
 package com.eyunya.createtrainnext.gametest;
 
+import java.util.List;
 import java.util.concurrent.atomic.AtomicReference;
 
 import com.eyunya.createtrainnext.CTNRegistry;
@@ -16,6 +17,7 @@ import com.simibubi.create.content.trains.graph.TrackGraphLocation;
 import com.simibubi.create.content.trains.signal.SignalBoundary;
 import com.simibubi.create.content.trains.track.BezierConnection;
 import com.simibubi.create.content.trains.track.BezierTrackPointLocation;
+import com.simibubi.create.content.trains.track.CurvedTrackDestroyPacket;
 import com.simibubi.create.content.trains.track.TrackTargetingBlockItem;
 import com.simibubi.create.content.trains.track.TrackTargetingBlockItem.OverlapResult;
 
@@ -26,9 +28,14 @@ import net.minecraft.gametest.framework.GameTest;
 import net.minecraft.gametest.framework.GameTestHelper;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.NbtUtils;
+import net.minecraft.server.level.ServerLevel;
+import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.world.entity.item.ItemEntity;
 import net.minecraft.world.level.Level;
+import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
 
+import net.neoforged.neoforge.common.util.FakePlayerFactory;
 import net.neoforged.neoforge.gametest.GameTestHolder;
 import net.neoforged.neoforge.gametest.PrefixGameTestTemplate;
 
@@ -123,6 +130,15 @@ public class CurveTargetingTests {
 			}
 			helper.assertTrue(anchors[3].getConnections()
 				.isEmpty(), "the last anchor is nobody's lower end and should hold nothing");
+
+			// Only a client's anchors are ever offered to be picked, whatever the client is doing.
+			AngledTrackAnchorBlockEntity.setCurveInteraction(true);
+			try {
+				helper.assertTrue(anchors[0].hasCurves() && !anchors[0].hasInteractableConnections(),
+					"a server's anchor should hold curves and still not be offered to be picked");
+			} finally {
+				AngledTrackAnchorBlockEntity.setCurveInteraction(false);
+			}
 			helper.succeed();
 		});
 	}
@@ -327,6 +343,87 @@ public class CurveTargetingTests {
 				helper.assertTrue(other != null && other.valid(),
 					"the next curve along has nothing on it and should still be split, but: "
 						+ (other == null ? "no curve found" : other.error()));
+				helper.succeed();
+			});
+		});
+	}
+
+	/**
+	 * The ends of a curve with a signal on it say so, and no other anchor does. What the wand asks
+	 * before it takes an anchor's curves apart.
+	 */
+	@GameTest(template = EMPTY, batch = BATCH, timeoutTicks = 80)
+	public static void theEndsOfACurveWithASignalOnItSaySo(GameTestHelper helper) {
+		AngledTrackAnchorBlockEntity[] anchors = route(helper, EAST, along(6, 14, 22, 30));
+
+		helper.runAfterDelay(BUILD_TICKS, () -> {
+			AngledTrackAnchorBlockEntity holder = anchors[1];
+			BlockPos farEnd = anchors[2].getBlockPos();
+			int segment = (int) (holder.getConnections()
+				.get(farEnd)
+				.getLength() * 2) / 2;
+
+			for (AngledTrackAnchorBlockEntity anchor : anchors)
+				helper.assertTrue(!anchor.carriesPoints(), "setup: nothing is on any curve yet");
+
+			MultiAspectSignalBlockEntity signal =
+				signalOnCurve(helper, new BlockPos(18, 2, 18), holder, farEnd, segment, true);
+
+			helper.runAfterDelay(SIGNAL_TICKS, () -> {
+				helper.assertTrue(signal.edgePoint.getEdgePoint() != null, "setup: the signal should be on the curve");
+				helper.assertTrue(!anchors[0].carriesPoints(), "the anchor before the curve should say nothing is on it");
+				helper.assertTrue(anchors[1].carriesPoints() && anchors[2].carriesPoints(),
+					"both ends of the curve with the signal on it should say so");
+				helper.assertTrue(!anchors[3].carriesPoints(), "the anchor after the next curve should say nothing is on it");
+				helper.succeed();
+			});
+		});
+	}
+
+	// ------------------------------------------------------------ breaking
+
+	/**
+	 * Create's packet for breaking a curve by hand, sent for an anchor's curve, does nothing: no track
+	 * for the player, none on the ground, the curve still held, and the graph still has its edge.
+	 * What a client does cannot be relied on to keep it from being sent.
+	 */
+	@GameTest(template = EMPTY, batch = BATCH, timeoutTicks = 80)
+	public static void aDestroyPacketForAnAnchorCurveChangesNothing(GameTestHelper helper) {
+		AngledTrackAnchorBlockEntity[] anchors = route(helper, EAST, along(6, 14, 22, 30));
+
+		helper.runAfterDelay(BUILD_TICKS, () -> {
+			ServerLevel level = helper.getLevel();
+			AngledTrackAnchorBlockEntity holder = anchors[1];
+			BlockPos farEnd = anchors[2].getBlockPos();
+			int segment = (int) (holder.getConnections()
+				.get(farEnd)
+				.getLength() * 2) / 2;
+
+			// Not a creative player, who is given nothing for breaking track anyway.
+			ServerPlayer player = FakePlayerFactory.getMinecraft(level);
+			player.getInventory()
+				.clearContent();
+			Vec3 near = Vec3.atCenterOf(holder.getBlockPos());
+			player.setPos(near.x, near.y + 1, near.z);
+			helper.assertTrue(!player.isCreative(), "setup: the player should not be in creative");
+
+			for (boolean wrench : new boolean[] { true, false })
+				new CurvedTrackDestroyPacket(holder.getBlockPos(), farEnd, holder.getBlockPos(), wrench).handle(player);
+
+			helper.assertTrue(holder.getConnections()
+				.containsKey(farEnd), "the curve should still be held");
+			helper.assertTrue(holder.getNext() != null && anchors[2].getPrev() != null, "the links should be as they were");
+			helper.assertTrue(player.getInventory()
+				.isEmpty(), "the player should have been given no track");
+
+			List<ItemEntity> dropped = level.getEntitiesOfClass(ItemEntity.class,
+				new AABB(holder.getBlockPos()).inflate(40));
+			helper.assertTrue(dropped.isEmpty(), "no track should have been dropped, but " + dropped.size() + " was");
+
+			helper.runAfterDelay(SIGNAL_TICKS, () -> {
+				helper.assertTrue(TrackGraphHelper.getBezierGraphLocationAt(level, holder.getBlockPos(),
+					AxisDirection.NEGATIVE, new BezierTrackPointLocation(farEnd, segment)) != null,
+					"the curve should still have its edge in the graph");
 				helper.succeed();
 			});
 		});

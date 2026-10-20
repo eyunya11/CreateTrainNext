@@ -16,6 +16,7 @@ import net.minecraft.core.BlockPos;
 
 import net.neoforged.bus.api.EventPriority;
 import net.neoforged.neoforge.client.event.ClientTickEvent;
+import net.neoforged.neoforge.client.event.InputEvent;
 import net.neoforged.neoforge.common.NeoForge;
 
 /**
@@ -35,7 +36,13 @@ import net.neoforged.neoforge.common.NeoForge;
  *
  * <p>Curves can be broken from the same place: holding the attack key over a picked one starts
  * taking it apart. An anchor's curve is its links, which are undone with the wand and not by
- * punching, so that is stopped here before it begins.
+ * punching, so that is stopped here before it begins. The server refuses it too, for a client that
+ * does not stop itself.
+ *
+ * <p>The last pick is Create's, from the frame before, so a click or a tick that comes after the hand
+ * has changed would still see a curve picked with the old item in it. A pick of an anchor's curve is
+ * therefore dropped at the click itself if what is in the hand now is not an item that picks curves,
+ * and at every tick.
  */
 public final class CurveTargeting {
 
@@ -44,19 +51,22 @@ public final class CurveTargeting {
 	private CurveTargeting() {}
 
 	public static void init() {
-		// Ahead of Create's own tick handler, which reads the pick this can take back.
+		// Ahead of Create's own handlers, which read the pick these can take back.
 		NeoForge.EVENT_BUS.addListener(EventPriority.HIGH, CurveTargeting::onClientTick);
+		NeoForge.EVENT_BUS.addListener(EventPriority.HIGH, CurveTargeting::onInteraction);
+	}
+
+	private static boolean holdingTargetingItem(Minecraft mc) {
+		LocalPlayer player = mc.player;
+		return mc.level != null && player != null && player.getMainHandItem()
+			.getItem() instanceof TrackTargetingBlockItem;
 	}
 
 	private static void onClientTick(ClientTickEvent.Post event) {
 		Minecraft mc = Minecraft.getInstance();
 		ClientLevel level = mc.level;
-		LocalPlayer player = mc.player;
 
-		boolean wanted = level != null && player != null
-			&& player.getMainHandItem()
-				.getItem() instanceof TrackTargetingBlockItem;
-
+		boolean wanted = holdingTargetingItem(mc);
 		if (wanted != offered) {
 			offered = wanted;
 			AngledTrackAnchorBlockEntity.setCurveInteraction(wanted);
@@ -64,11 +74,21 @@ public final class CurveTargeting {
 				bringLoadedAnchorsInto(level, wanted);
 		}
 
-		if (wanted && mc.options.keyAttack.isDown()) {
-			BezierPointSelection picked = TrackBlockOutline.result;
-			if (picked != null && picked.blockEntity() instanceof AngledTrackAnchorBlockEntity)
-				TrackBlockOutline.result = null;
-		}
+		dropAnchorPick(!wanted || mc.options.keyAttack.isDown());
+	}
+
+	/**
+	 * A click or an attack, before Create reads the pick: ahead of the tick above, which is where
+	 * the hand changing is otherwise noticed.
+	 */
+	private static void onInteraction(InputEvent.InteractionKeyMappingTriggered event) {
+		dropAnchorPick(!holdingTargetingItem(Minecraft.getInstance()) || event.isAttack());
+	}
+
+	private static void dropAnchorPick(boolean drop) {
+		BezierPointSelection picked = TrackBlockOutline.result;
+		if (drop && picked != null && picked.blockEntity() instanceof AngledTrackAnchorBlockEntity)
+			TrackBlockOutline.result = null;
 	}
 
 	private static void bringLoadedAnchorsInto(ClientLevel level, boolean offer) {

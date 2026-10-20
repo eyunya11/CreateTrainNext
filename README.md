@@ -152,7 +152,7 @@ The ends of ordinary Create track (flat and straight) can be a start or an end. 
 
 Two points at different heights can be joined. The curve climbs at one steady grade from end to end, and the anchors at its ends remember it, so a route carried on from them continues at that grade instead of starting level again. Where one end is already fixed, the other takes the grade that makes the gentlest bend, so a curve that leaves level track and has to climb eases into the climb. The steepest a curve may be anywhere along it is the limit `curves.maxGrade`, which is one block of rise in three blocks of run by default.
 
-Breaking an anchor takes apart the links on both sides of it, and so does right clicking it with the wand while sneaking.
+Breaking an anchor takes apart the links on both sides of it, and so does right clicking it with the wand while sneaking. The wand will not do it while a signal or a station stands on one of those curves.
 
 ### Straight lines (Survey Marker)
 
