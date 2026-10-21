@@ -41,7 +41,13 @@ import net.neoforged.neoforge.gametest.PrefixGameTestTemplate;
 @PrefixGameTestTemplate(false)
 public class AngleGridTests {
 
-	private static final String EMPTY = "empty";
+	/**
+	 * An empty box of 64 by 128, not the 48 by 32 the other tests use. The grid is only seen working over
+	 * spans of thirty blocks and more, so the routes here are laid far down the box and aimed up to forty
+	 * blocks along it; in the small box they stood in the box of whichever test was laid out next, and a
+	 * test there that counts the nodes in its own box counted theirs.
+	 */
+	private static final String EMPTY = "empty_wide";
 
 	/** Two anchors running east, the second the end of the route. */
 	private static final BlockPos BEFORE = new BlockPos(2, 2, 40);
