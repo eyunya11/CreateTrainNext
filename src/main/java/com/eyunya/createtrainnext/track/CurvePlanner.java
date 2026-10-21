@@ -724,8 +724,9 @@ public final class CurvePlanner {
 		// and the graph merges them. Anywhere else and the curve simply stops next to the track.
 		if (state.getBlock() instanceof ITrackBlock track) {
 			List<Vec3> axes = track.getTrackAxes(level, hitPos, state);
+			// Not "junction": that key is the ghost's note that an anchor goes between two arcs.
 			if (axes.size() > 1)
-				return Endpoint.failed("junction");
+				return Endpoint.failed("junction_track");
 
 			Vec3 axis = axes.get(0);
 			if (Math.abs(axis.y) > 1.0E-4)

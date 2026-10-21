@@ -81,7 +81,7 @@
   "message.createtrainnext.wand.same_anchor": "Both ends would be the same anchor.",
   "message.createtrainnext.wand.start_taken": "Both sides of this anchor already have a curve.",
   "message.createtrainnext.wand.end_taken": "Both sides of this anchor already have a curve.",
-  "message.createtrainnext.wand.junction": "Cannot start from a junction.",
+  "message.createtrainnext.wand.junction_track": "Cannot start from a junction.",
   "message.createtrainnext.wand.slope": "Cannot start from sloped track.",
   "message.createtrainnext.wand.no_room": "No room for an anchor there.",
   "message.createtrainnext.wand.too_close": "Too close — give the curve some room.",
