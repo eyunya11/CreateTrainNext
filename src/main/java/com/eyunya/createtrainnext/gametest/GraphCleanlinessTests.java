@@ -570,7 +570,7 @@ public class GraphCleanlinessTests {
 	 * standing, and that there are as many as {@code expectedNodes} — unless that is negative, for
 	 * when it is only the first that is being asked.
 	 */
-	private static void assertClean(GameTestHelper helper, String when, int expectedNodes) {
+	static void assertClean(GameTestHelper helper, String when, int expectedNodes) {
 		Level level = helper.getLevel();
 		BlockPos origin = helper.absolutePos(BlockPos.ZERO);
 

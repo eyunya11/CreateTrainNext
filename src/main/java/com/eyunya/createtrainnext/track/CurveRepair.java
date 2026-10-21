@@ -236,8 +236,11 @@ public final class CurveRepair {
 			return Outcome.left(link, "no_room");
 		}
 
+		// Whether the far anchor is docked onto a slope goes with it too: between the two links it has
+		// no curve, and is not.
+		boolean toDocked = to.isSlopeDocked();
 		from.linkTo(middle, null, AngledTrackAnchorBlockEntity.tangentOf(junction.heading(), junctionSlope));
-		middle.linkTo(to, null, null);
+		middle.linkTo(to, null, null, false, toDocked);
 		return new Outcome(link, null, junction.pos(), moved);
 	}
 

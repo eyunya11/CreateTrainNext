@@ -1687,9 +1687,11 @@ public final class CurvePlanner {
 			return false;
 
 		// The first link takes the far end off the owner, so the anchor ahead has to be caught
-		// before it, not looked up again after.
+		// before it, not looked up again after. So does whether it is docked onto a slope, which it
+		// is not for the moment between the two links, when it has no curve.
+		boolean aheadDocked = ahead.isSlopeDocked();
 		owner.linkTo(inserted, null, AngledTrackAnchorBlockEntity.tangentOf(target.tangent(), target.slope()));
-		inserted.linkTo(ahead, null, null);
+		inserted.linkTo(ahead, null, null, false, aheadDocked);
 		return true;
 	}
 

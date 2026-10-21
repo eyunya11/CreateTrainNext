@@ -411,8 +411,12 @@ public class AngledTrackAnchorBlock extends Block implements EntityBlock, ITrack
 		//
 		// Asked from a location instead (connectedTo), both ends are the same point and neither leads
 		// anywhere, which is also true.
+		//
+		// An end docked onto a slope whose curve cannot be built, its far anchor not being loaded, has the
+		// same answer at the one place its node is, which is the slope's end and not the centre.
 		if (list.isEmpty()) {
-			ITrackBlock.addToListIfConnected(connectedTo, list, (d, b) -> center, b -> getUpNormal(world, pos, state),
+			Vec3 point = anchor.isSlopeDocked() ? anchor.entryNode() : center;
+			ITrackBlock.addToListIfConnected(connectedTo, list, (d, b) -> point, b -> getUpNormal(world, pos, state),
 				dimensionFactory, yOffsetFactory, axisVector(state), null,
 				(b, v) -> ITrackBlock.getMaterialSimple(world, v, getMaterial()));
 			// It adds both ends of a piece of track, and a point has the one.
