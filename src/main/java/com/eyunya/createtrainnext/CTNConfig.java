@@ -68,7 +68,9 @@ public class CTNConfig {
 					"steepen to meet the track at either end is held to the steepest part of it, and the",
 					"number is rounded to a whole permille, which is the figure the wand shows.",
 					"1000 is 45 degrees, a block of rise for each block of run, which is how steeply",
-					"Create's own sloped track climbs. 333 is one block in three.")
+					"Create's own sloped track climbs, and so how steep a curve joined to one is at that",
+					"end. Below 1000, no curve can be joined to Create's sloped track. 333 is one block in",
+					"three.")
 				.defineInRange("maxGrade", 1000, 10, 1000);
 
 			snapAngle = builder

@@ -3,13 +3,20 @@ package com.eyunya.createtrainnext.gametest;
 import static com.eyunya.createtrainnext.gametest.CurveConsistencyTests.GRAPH_TICKS;
 import static com.eyunya.createtrainnext.gametest.CurveConsistencyTests.anchor;
 import static com.eyunya.createtrainnext.gametest.CurveConsistencyTests.assertConsistent;
+import static com.eyunya.createtrainnext.gametest.CurveConsistencyTests.click;
+import static com.eyunya.createtrainnext.gametest.CurveConsistencyTests.relative;
 import static com.eyunya.createtrainnext.gametest.GraphCleanlinessTests.assertClean;
 
 import org.jetbrains.annotations.Nullable;
 
+import com.eyunya.createtrainnext.CTNConfig;
+import com.eyunya.createtrainnext.CTNRegistry;
 import com.eyunya.createtrainnext.CreateTrainNext;
 import com.eyunya.createtrainnext.track.AngledTrackAnchorBlockEntity;
 import com.eyunya.createtrainnext.track.CurvePlanner;
+import com.eyunya.createtrainnext.track.CurveWandItem;
+import com.eyunya.createtrainnext.track.CurveWandSelection;
+import com.eyunya.createtrainnext.track.GradeSpec;
 import com.simibubi.create.Create;
 import com.simibubi.create.content.trains.graph.TrackEdge;
 import com.simibubi.create.content.trains.graph.TrackGraph;
@@ -19,10 +26,15 @@ import com.simibubi.create.content.trains.track.BezierConnection;
 import com.simibubi.create.content.trains.track.TrackShape;
 
 import net.minecraft.core.BlockPos;
+import net.minecraft.core.Direction;
 import net.minecraft.core.HolderLookup;
 import net.minecraft.gametest.framework.GameTest;
 import net.minecraft.gametest.framework.GameTestHelper;
 import net.minecraft.nbt.CompoundTag;
+import net.minecraft.world.InteractionResult;
+import net.minecraft.world.entity.player.Player;
+import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.level.GameType;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.entity.BlockEntity;
@@ -33,8 +45,9 @@ import net.neoforged.neoforge.gametest.PrefixGameTestTemplate;
 
 /**
  * Checks curves docked onto Create's own sloped track, on a real server level: that the anchor at the
- * slope shares the slope's node and keeps it, and that the graph Create makes from the two is one a
- * train can cross either way.
+ * slope shares the slope's node and keeps it, that the graph Create makes from the two is one a train
+ * can cross either way, and that the planner and the wand lay such a curve only straight on along the
+ * slope's line and only the way the slope goes.
  *
  * <p>The slopes here climb north, {@link TrackShape#AN}. One at {@link #SLOPE} has its top end on the
  * boundary between it and the block north of it, a block up, and its foot on the boundary south of it at
@@ -328,6 +341,336 @@ public class SlopeDockTests {
 		seen.handleUpdateTag(dock.getUpdateTag(registries), registries);
 		helper.assertTrue(seen.isSlopeDocked(), "the client should be told the anchor is docked");
 		helper.succeed();
+	}
+
+	// ------------------------------------------------------------ the planner
+
+	/**
+	 * Clicked from a slope, a curve leaves the end that faces where it is aimed, from the slope's own node, at
+	 * the slope's climb, and runs straight on along the slope's line: a block aimed at two to the side is
+	 * taken onto the line. Built, the anchor at the slope is docked, and a train can cross the joint.
+	 */
+	@GameTest(template = EMPTY, timeoutTicks = 60)
+	public static void aCurveLeavesTheTopOfASlopeStraightOnAlongItsLine(GameTestHelper helper) {
+		helper.setBlock(SLOPE, CreateSlopeTests.slope(TrackShape.AN));
+		Level level = helper.getLevel();
+		Vec3 top = slopeTop(helper, SLOPE);
+
+		CurvePlanner.Plan plan = plan(helper, SLOPE, new BlockPos(18, 7, 8));
+		helper.assertTrue(plan.valid(), "a curve on from the top of the slope should be possible, but: " + plan.error());
+		helper.assertTrue(plan.start()
+			.onSlope()
+			&& plan.start()
+				.anchorPos()
+				.equals(helper.absolutePos(TOP_DOCK)),
+			"it should start from an anchor at " + TOP_DOCK + " docked onto the slope");
+		helper.assertTrue(plan.curve().starts.getFirst()
+			.distanceToSqr(top) < 1.0E-12, "it should leave from the slope's top, " + top);
+		helper.assertTrue(Math.abs(plan.curve().axes.getFirst()
+			.normalize()
+			.dot(new Vec3(0, 1, -1).normalize()) - 1) < 1.0E-9 && plan.startSlope() == 1.0,
+			"it should leave along the slope's axis, climbing at 1000 permille, but climbs at " + plan.startSlope());
+		helper.assertTrue(plan.end()
+			.anchorPos()
+			.equals(helper.absolutePos(new BlockPos(16, 7, 8))), "the far end should have been taken onto the slope's line, but is at "
+				+ relative(helper, plan.end()
+					.anchorPos()));
+		helper.assertTrue(plan.turnDegrees() < 1.0E-6 && plan.junction() == null, "it should be one straight curve");
+
+		helper.assertTrue(CurvePlanner.apply(level, plan) == null, "the curve should have been built");
+		AngledTrackAnchorBlockEntity dock = anchorAt(helper, TOP_DOCK);
+		helper.assertTrue(dock.isSlopeDocked() && dock.entryNode()
+			.distanceToSqr(top) < 1.0E-12, "the anchor at the slope should be docked onto it");
+
+		helper.runAfterDelay(GRAPH_TICKS, () -> {
+			// The slope's foot, the shared top, and the far anchor's centre, since it climbs.
+			assertClean(helper, "with a curve laid from the top of a slope", 3);
+			assertConsistent(helper, dock);
+			Vec3 far = Vec3.atBottomCenterOf(helper.absolutePos(new BlockPos(16, 7, 8)));
+			assertCrossing(helper, level, slopeFoot(helper, SLOPE), top, far, "up the slope and onto the curve");
+			assertCrossing(helper, level, far, top, slopeFoot(helper, SLOPE), "off the curve and down the slope");
+			helper.succeed();
+		});
+	}
+
+	/** The same for a slope that climbs east, whose line runs along x rather than z. */
+	@GameTest(template = EMPTY)
+	public static void aCurveRunsAlongASlopeThatClimbsEastToo(GameTestHelper helper) {
+		BlockPos slope = new BlockPos(8, 1, 8);
+		helper.setBlock(slope, CreateSlopeTests.slope(TrackShape.AE));
+		Vec3 top = Vec3.atBottomCenterOf(helper.absolutePos(slope))
+			.add(0.5, 1, 0);
+
+		CurvePlanner.Plan plan = plan(helper, slope, new BlockPos(20, 7, 9));
+		helper.assertTrue(plan.valid(), "a curve on from the top of the slope should be possible, but: " + plan.error());
+		helper.assertTrue(plan.start()
+			.anchorPos()
+			.equals(helper.absolutePos(new BlockPos(9, 2, 8))) && plan.curve().starts.getFirst()
+				.distanceToSqr(top) < 1.0E-12, "it should leave from the slope's top, " + top + ", from an anchor at (9, 2, 8)");
+		helper.assertTrue(plan.end()
+			.anchorPos()
+			.equals(helper.absolutePos(new BlockPos(20, 7, 8))), "the far end should have been taken onto the slope's line, but is at "
+				+ relative(helper, plan.end()
+					.anchorPos()));
+		helper.succeed();
+	}
+
+	/** From the foot, the curve leaves going down. */
+	@GameTest(template = EMPTY, timeoutTicks = 60)
+	public static void aCurveLeavesTheFootOfASlopeGoingDown(GameTestHelper helper) {
+		helper.setBlock(HIGH_SLOPE, CreateSlopeTests.slope(TrackShape.AN));
+		Level level = helper.getLevel();
+		Vec3 foot = slopeFoot(helper, HIGH_SLOPE);
+
+		CurvePlanner.Plan plan = plan(helper, HIGH_SLOPE, LEVEL_BELOW);
+		helper.assertTrue(plan.valid(), "a curve on from the foot of the slope should be possible, but: " + plan.error());
+		helper.assertTrue(plan.start()
+			.anchorPos()
+			.equals(helper.absolutePos(FOOT_DOCK)) && plan.curve().starts.getFirst()
+				.distanceToSqr(foot) < 1.0E-12, "it should leave from the slope's foot, at " + FOOT_DOCK);
+		helper.assertTrue(plan.startSlope() == -1.0, "it should leave falling at 1000 permille, but climbs at " + plan.startSlope());
+
+		helper.assertTrue(CurvePlanner.apply(level, plan) == null, "the curve should have been built");
+		helper.runAfterDelay(GRAPH_TICKS, () -> {
+			assertClean(helper, "with a curve laid from the foot of a slope", 3);
+			Vec3 far = Vec3.atBottomCenterOf(helper.absolutePos(LEVEL_BELOW));
+			assertCrossing(helper, level, slopeTop(helper, HIGH_SLOPE), foot, far, "down the slope and onto the curve");
+			assertCrossing(helper, level, far, foot, slopeTop(helper, HIGH_SLOPE), "off the curve and up the slope");
+			helper.succeed();
+		});
+	}
+
+	/**
+	 * A curve may end at a slope from the slope's line, and from nowhere else: one from an anchor to the side
+	 * of it would have to turn.
+	 */
+	@GameTest(template = EMPTY)
+	public static void aCurveMayArriveAtASlopeOnlyAlongItsLine(GameTestHelper helper) {
+		helper.setBlock(SLOPE, CreateSlopeTests.slope(TrackShape.AN));
+		BlockPos inLine = new BlockPos(16, 6, 8);
+		BlockPos aside = new BlockPos(22, 6, 8);
+		anchor(helper, inLine);
+		anchor(helper, aside);
+
+		CurvePlanner.Plan straight = plan(helper, inLine, SLOPE);
+		helper.assertTrue(straight.valid(), "a curve down to the top of the slope along its line should be possible, but: "
+			+ straight.error());
+		helper.assertTrue(straight.end()
+			.onSlope()
+			&& straight.end()
+				.anchorPos()
+				.equals(helper.absolutePos(TOP_DOCK)) && straight.endSlope() == -1.0,
+			"it should arrive at the top dock going down at 1000 permille, but arrives at " + straight.endSlope());
+		helper.assertTrue(straight.curve().starts.getSecond()
+			.distanceToSqr(slopeTop(helper, SLOPE)) < 1.0E-12,
+			"and the ghost should end on the slope's top, " + slopeTop(helper, SLOPE) + ", not at "
+				+ straight.curve().starts.getSecond());
+
+		CurvePlanner.Plan turning = plan(helper, aside, SLOPE);
+		helper.assertTrue("slope_turn".equals(turning.error()), "one from the side should be refused as a turn, but: " + turning.error());
+		helper.assertTrue(turning.curve() != null, "and still have a curve to draw in red");
+		helper.succeed();
+	}
+
+	/**
+	 * A curve leaving the top of a slope only goes up from there, and one leaving the foot only down: nothing
+	 * that climbs out of the slope and comes back over itself.
+	 */
+	@GameTest(template = EMPTY)
+	public static void nothingComesBackDownOffTheTopOfASlope(GameTestHelper helper) {
+		helper.setBlock(SLOPE, CreateSlopeTests.slope(TrackShape.AN));
+		for (int y : new int[] { 1, 2, 4 }) {
+			CurvePlanner.Plan plan = plan(helper, SLOPE, new BlockPos(16, y, 8));
+			helper.assertTrue("slope_way".equals(plan.error()),
+				"a curve from the top of the slope to a block at height " + y + " should be refused, but: " + plan.error());
+		}
+		helper.succeed();
+	}
+
+	/** The grade screen's level-off works from a slope: the curve eases from 45 degrees to level. */
+	@GameTest(template = EMPTY)
+	public static void aGradeOfNothingLevelsACurveOffASlope(GameTestHelper helper) {
+		helper.setBlock(SLOPE, CreateSlopeTests.slope(TrackShape.AN));
+		CurvePlanner.Plan plan = CurvePlanner.plan(helper.getLevel(), helper.absolutePos(SLOPE),
+			helper.absolutePos(new BlockPos(16, 1, 14)), Direction.UP, 0, new GradeSpec(0));
+		helper.assertTrue(plan.valid() && plan.grade() != null, "a curve laid at no grade should be possible, but: " + plan.error());
+		helper.assertTrue(plan.endSlope() == 0.0 && plan.rise() > 0,
+			"it should climb out of the slope and arrive level, but rises " + plan.rise() + " and arrives at " + plan.endSlope());
+		helper.assertTrue(!CurvePlanner.startsLevel(helper.getLevel(), helper.absolutePos(SLOPE)),
+			"a slope does not start level, so a grade of nothing there means levelling off");
+
+		CurvePlanner.Plan ahead = CurvePlanner.planByDistance(helper.getLevel(), helper.absolutePos(SLOPE), new GradeSpec(0), 10,
+			NORTH);
+		helper.assertTrue(ahead.valid() && ahead.end()
+			.anchorPos()
+			.getX() == helper.absolutePos(SLOPE)
+				.getX(), "a distance laid from the slope should run along its line, but: " + ahead.error());
+		helper.succeed();
+	}
+
+	/**
+	 * Under a limit below 45 degrees no curve can be docked onto a slope at all, since its end there is as
+	 * steep as the slope.
+	 */
+	@GameTest(template = EMPTY)
+	public static void aLimitBelowFortyFiveDegreesLeavesSlopesAlone(GameTestHelper helper) {
+		helper.setBlock(SLOPE, CreateSlopeTests.slope(TrackShape.AN));
+		int original = CTNConfig.SERVER.maxGrade.get();
+		try {
+			CTNConfig.SERVER.maxGrade.set(333);
+			CurvePlanner.Plan plan = plan(helper, SLOPE, new BlockPos(16, 7, 8));
+			helper.assertTrue("too_steep".equals(plan.error()), "under a limit of 333 it should be too steep, but: " + plan.error());
+		} finally {
+			CTNConfig.SERVER.maxGrade.set(original);
+		}
+		helper.succeed();
+	}
+
+	/**
+	 * An anchor standing on its own where the dock goes is docked as it stands; one that is already the end
+	 * of another route is in the way; and a docked one is no end to start or finish another curve at.
+	 */
+	@GameTest(template = EMPTY)
+	public static void whatIsAlreadyBesideASlope(GameTestHelper helper) {
+		helper.setBlock(SLOPE, CreateSlopeTests.slope(TrackShape.AN));
+		anchor(helper, TOP_DOCK);
+		CurvePlanner.Plan lone = plan(helper, SLOPE, new BlockPos(16, 7, 8));
+		helper.assertTrue(lone.valid() && !lone.start()
+			.mustPlace() && lone.start()
+				.onSlope(), "an anchor on its own beside the slope should be docked as it is, but: " + lone.error());
+		helper.assertTrue(CurvePlanner.apply(helper.getLevel(), lone) == null, "the curve should have been built");
+		AngledTrackAnchorBlockEntity docked = anchorAt(helper, TOP_DOCK);
+		helper.assertTrue(docked.isSlopeDocked() && docked.entryNode()
+			.distanceToSqr(slopeTop(helper, SLOPE)) < 1.0E-12
+			&& docked.tangent()
+				.subtract(new Vec3(0, 1, -1))
+				.lengthSqr() < 1.0E-6,
+			"and the anchor that was there docked, aimed up the slope's line, but it points along " + docked.tangent());
+
+		helper.assertTrue("start_taken".equals(plan(helper, TOP_DOCK, new BlockPos(16, 7, 4)).error()),
+			"a docked anchor should not be somewhere to start a curve");
+		helper.assertTrue("start_taken".equals(plan(helper, SLOPE, new BlockPos(16, 7, 4)).error()),
+			"nor the slope it is docked onto, at that end");
+		BlockPos other = new BlockPos(16, 6, 2);
+		anchor(helper, other);
+		helper.assertTrue("end_taken".equals(plan(helper, other, TOP_DOCK).error()), "nor somewhere to finish one");
+
+		helper.setBlock(HIGH_SLOPE, CreateSlopeTests.slope(TrackShape.AN));
+		CurveConsistencyTests.route(helper, 0.0F, new BlockPos(32, 6, 10), new BlockPos(32, 6, 19));
+		helper.assertTrue("no_room".equals(plan(helper, HIGH_SLOPE, new BlockPos(32, 7, 4)).error()),
+			"the end of another route where the dock would go should be in the way");
+		helper.succeed();
+	}
+
+	/** A slope is somewhere to start; a junction still is not. */
+	@GameTest(template = EMPTY)
+	public static void aSlopeIsSomewhereToStartAndAJunctionIsNot(GameTestHelper helper) {
+		helper.setBlock(SLOPE, CreateSlopeTests.slope(TrackShape.AN));
+		BlockPos crossing = new BlockPos(32, 1, 16);
+		helper.setBlock(crossing, CreateSlopeTests.slope(TrackShape.CR_O));
+		Level level = helper.getLevel();
+		helper.assertTrue(CurvePlanner.canStartFrom(level, helper.absolutePos(SLOPE)), "a slope should be somewhere to start");
+		helper.assertTrue(!CurvePlanner.canStartFrom(level, helper.absolutePos(crossing)), "a crossing should not");
+		helper.assertTrue("junction_track".equals(plan(helper, crossing, new BlockPos(32, 1, 4)).error()),
+			"a curve from a crossing should be refused as one, but: " + plan(helper, crossing, new BlockPos(32, 1, 4)).error());
+		helper.succeed();
+	}
+
+	/** Turning the far end by hand does not turn a curve off a slope: it runs along the slope's line all the same. */
+	@GameTest(template = EMPTY)
+	public static void aCurveOffASlopeIsNotTurnedByHand(GameTestHelper helper) {
+		helper.setBlock(SLOPE, CreateSlopeTests.slope(TrackShape.AN));
+		CurvePlanner.Plan plan = CurvePlanner.plan(helper.getLevel(), helper.absolutePos(SLOPE),
+			helper.absolutePos(new BlockPos(16, 7, 8)), Direction.UP, 10.0F);
+		helper.assertTrue(plan.valid() && plan.turnDegrees() < 1.0E-6 && !plan.adjustable(),
+			"turned by hand it should still be straight and not to be turned, but: " + plan.error() + ", turning "
+				+ plan.turnDegrees() + " degrees");
+		helper.succeed();
+	}
+
+	/**
+	 * Where the block on the slope's line has something in it already: an anchor there is where the curve
+	 * ends, and anything else is in the way. So is something in the block the anchor at the slope needs.
+	 */
+	@GameTest(template = EMPTY)
+	public static void whatIsInTheWayOfACurveOffASlope(GameTestHelper helper) {
+		helper.setBlock(SLOPE, CreateSlopeTests.slope(TrackShape.AN));
+		BlockPos waiting = new BlockPos(16, 7, 8);
+		anchor(helper, waiting);
+		CurvePlanner.Plan toAnchor = plan(helper, SLOPE, new BlockPos(18, 7, 8));
+		helper.assertTrue(toAnchor.valid() && !toAnchor.end()
+			.mustPlace()
+			&& toAnchor.end()
+				.anchorPos()
+				.equals(helper.absolutePos(waiting)),
+			"a curve aimed beside an anchor on the line should end at the anchor, but: " + toAnchor.error());
+
+		helper.setBlock(new BlockPos(16, 6, 12), Blocks.STONE);
+		CurvePlanner.Plan blocked = plan(helper, SLOPE, new BlockPos(17, 6, 12));
+		helper.assertTrue("no_room".equals(blocked.error()), "a block in the way on the line should be no room, but: " + blocked.error());
+
+		helper.setBlock(HIGH_SLOPE, CreateSlopeTests.slope(TrackShape.AN));
+		helper.setBlock(FOOT_DOCK, Blocks.STONE);
+		CurvePlanner.Plan noDock = plan(helper, HIGH_SLOPE, LEVEL_BELOW);
+		helper.assertTrue("no_room".equals(noDock.error()),
+			"a block where the anchor at the slope would go should be no room, but: " + noDock.error());
+		helper.succeed();
+	}
+
+	// ------------------------------------------------------------ the wand
+
+	/**
+	 * Through the wand: a click on the slope and one where the curve should go lays it and carries the
+	 * selection on from the far end, and a curve laid onto a slope is where the route stops. A click on the
+	 * docked anchor starts nothing.
+	 */
+	@GameTest(template = EMPTY, timeoutTicks = 60)
+	public static void theWandDocksCurvesOntoSlopes(GameTestHelper helper) {
+		helper.setBlock(SLOPE, CreateSlopeTests.slope(TrackShape.AN));
+		helper.setBlock(HIGH_SLOPE, CreateSlopeTests.slope(TrackShape.AN));
+		anchor(helper, LEVEL_BELOW);
+		Player player = helper.makeMockPlayer(GameType.CREATIVE);
+		Level level = helper.getLevel();
+
+		// What the ghost shows before each click, to hold the built curves to.
+		CurvePlanner.Plan off = plan(helper, SLOPE, new BlockPos(17, 7, 8));
+		CurvePlanner.Plan onto = plan(helper, LEVEL_BELOW, HIGH_SLOPE);
+
+		ItemStack wand = new ItemStack(CTNRegistry.CURVE_WAND.get());
+		helper.assertTrue(click(helper, player, wand, SLOPE).consumesAction(), "the click on the slope should pick it as the start");
+		helper.assertTrue(click(helper, player, wand, new BlockPos(17, 7, 8)).consumesAction(), "the second click should lay the curve");
+		CurveWandSelection carried = CurveWandItem.selectionIn(wand, level);
+		helper.assertTrue(carried != null && carried.pos()
+			.equals(helper.absolutePos(new BlockPos(16, 7, 8))), "the selection should carry on from the far end, on the line");
+		helper.assertTrue(anchorAt(helper, TOP_DOCK).isSlopeDocked(), "the anchor at the slope should be docked");
+
+		ItemStack fresh = new ItemStack(CTNRegistry.CURVE_WAND.get());
+		helper.assertTrue(click(helper, player, fresh, TOP_DOCK) == InteractionResult.FAIL,
+			"a click on the docked anchor should start nothing");
+
+		ItemStack up = new ItemStack(CTNRegistry.CURVE_WAND.get());
+		helper.assertTrue(click(helper, player, up, LEVEL_BELOW).consumesAction(), "the click on the anchor should pick it");
+		helper.assertTrue(click(helper, player, up, HIGH_SLOPE).consumesAction(), "the click on the slope should lay the curve up to it");
+		helper.assertTrue(CurveWandItem.selectionIn(up, level) == null, "a curve laid onto a slope should end the selection");
+		helper.assertTrue(anchorAt(helper, FOOT_DOCK).isSlopeDocked(), "and the anchor at its foot should be docked");
+
+		// The ghost is the track: the same curve, to the same node at the slope, whichever end it is.
+		double offBy = CurvePlanner.deviation(off.curve(), anchorAt(helper, TOP_DOCK).buildCurveToNext());
+		double ontoBy = CurvePlanner.deviation(onto.curve(), anchorAt(helper, LEVEL_BELOW).buildCurveToNext());
+		helper.assertTrue(offBy < 1.0E-6 && ontoBy < 1.0E-6,
+			"the curves built should be the ones planned, but are " + offBy + " and " + ontoBy + " off them");
+
+		helper.runAfterDelay(GRAPH_TICKS, () -> {
+			// Each slope's two ends, one shared, and the centre of the anchor at the other end of each curve.
+			assertClean(helper, "with a curve docked onto each slope", 6);
+			assertConsistent(helper, anchorAt(helper, TOP_DOCK));
+			assertConsistent(helper, anchorAt(helper, LEVEL_BELOW));
+			helper.succeed();
+		});
+	}
+
+	private static CurvePlanner.Plan plan(GameTestHelper helper, BlockPos start, BlockPos end) {
+		return CurvePlanner.plan(helper.getLevel(), helper.absolutePos(start), helper.absolutePos(end), Direction.UP, 0);
 	}
 
 	// --------------------------------------------------------------- helpers
