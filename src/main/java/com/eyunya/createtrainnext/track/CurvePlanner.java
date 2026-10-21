@@ -153,8 +153,11 @@ public final class CurvePlanner {
 
 	private static final int ORIENTATION_SAMPLES = 120;
 
-	/** {@code curves.maxGrade} where the config cannot be read, in permille. One block of rise in three of run. */
-	static final int DEFAULT_MAX_GRADE = 333;
+	/**
+	 * {@code curves.maxGrade} where the config cannot be read, in permille: 45 degrees, which is how steeply
+	 * Create's own sloped track climbs.
+	 */
+	static final int DEFAULT_MAX_GRADE = 1000;
 
 	/** {@code curves.snapAngle} where the config cannot be read, in degrees. */
 	static final int DEFAULT_SNAP_ANGLE = 15;
@@ -1931,8 +1934,8 @@ public final class CurvePlanner {
 	/**
 	 * Whether a rise of {@code ascend} over {@code horizontal} of run is steeper than a curve may be,
 	 * which is about how much a train can climb rather than anything to do with the shape of the
-	 * curve. The limit is {@code curves.maxGrade}, rounded to the whole permille the wand shows, so a
-	 * rise of one block in three of run is allowed at the default and one in two and a half is not.
+	 * curve. The limit is {@code curves.maxGrade}, rounded to the whole permille the wand shows, so at the
+	 * default a rise of a block for each block of run is allowed and anything steeper is not.
 	 */
 	static boolean tooSteep(double horizontal, double ascend) {
 		return ascend > 1.0E-4 && (horizontal < 1.0E-6 || steeperThanAllowed(ascend / horizontal));

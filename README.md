@@ -81,7 +81,7 @@ When a curve cannot be built, the ghost turns red and the message says why.
 | "Too close" | The two points are less than 1.5 blocks apart horizontally. |
 | "Too far" | The distance exceeds Create's maximum track placement length (32 blocks by default). |
 | "Too sharp for a train to take" | The curve turns more than 135 degrees, its radius is under 2 blocks, or it differs from the existing track by more than about 26 degrees where they meet. |
-| "Too steep" | The curve is steeper than the limit somewhere along it. The message gives how steep it is at its steepest and the limit, `curves.maxGrade`, which is 333 permille by default. |
+| "Too steep" | The curve is steeper than the limit somewhere along it. The message gives how steep it is at its steepest and the limit, `curves.maxGrade`, which is 1000 permille by default. |
 | "The curve would double back on itself" | One end points against the direction of the line joining the two points. |
 | "The ends point too differently for one curve…" | One curve cannot join them, and there is no free block to put an anchor in between two arcs. |
 | "No room for an anchor there" | The block the anchor needs is occupied. In grade mode that is the block at the height the grade gives, not the one you look at. |
@@ -150,7 +150,7 @@ Signals, stations and the like can be placed directly on the stretch of a curve.
 
 The ends of ordinary Create track (flat and straight) can be a start or an end. The wand puts an anchor in the neighbouring block and joins the Create track at the same point. The selection ends at an end joined to Create track, and the route cannot be extended past it. Track with a junction, and sloped track, cannot be used.
 
-Two points at different heights can be joined. The curve climbs at one steady grade from end to end, and the anchors at its ends remember it, so a route carried on from them continues at that grade instead of starting level again. Where one end is already fixed, the other takes the grade that makes the gentlest bend, so a curve that leaves level track and has to climb eases into the climb. The steepest a curve may be anywhere along it is the limit `curves.maxGrade`, which is one block of rise in three blocks of run by default.
+Two points at different heights can be joined. The curve climbs at one steady grade from end to end, and the anchors at its ends remember it, so a route carried on from them continues at that grade instead of starting level again. Where one end is already fixed, the other takes the grade that makes the gentlest bend, so a curve that leaves level track and has to climb eases into the climb. The steepest a curve may be anywhere along it is the limit `curves.maxGrade`, which is 45 degrees by default, a block of rise for each block of run, as steep as Create's own sloped track.
 
 Breaking an anchor takes apart the links on both sides of it, and so does right clicking it with the wand while sneaking. The wand will not do it while a signal or a station stands on one of those curves.
 
@@ -259,7 +259,7 @@ The server setting affects what is in the world, so the same value applies to ev
 | Key | Default | Range | Description |
 |---|---|---|---|
 | `curves.collision` | true | true, false | Whether to lay the floor along curves |
-| `curves.maxGrade` | 333 | 10 to 1000 | The steepest any curve or straight line may be anywhere along it, in permille. 333 is one block of rise in three blocks of run. |
+| `curves.maxGrade` | 1000 | 10 to 1000 | The steepest any curve or straight line may be anywhere along it, in permille. 1000 is 45 degrees, the grade of Create's own sloped track. At 333 a curve climbs at most one block in three. |
 | `curves.snapAngle` | 15 | 0 to 45 | The step, in degrees, of the angles the free end of a curve is drawn to. 0 turns it off. Use a step that divides 45, so that 45 and 90 are on the grid. |
 | `signals.restrictedSpeed` | 25 | 1 to 1000 | The speed in km/h that a signal at Restricted holds a train to |
 | `signals.approachSpeed` | 45 | 1 to 1000 | The speed in km/h that a signal at Approach holds a train to |
@@ -283,7 +283,7 @@ Create rounds the X and Z of every node in its track graph onto a half-block lat
 
 An anchor in this mod keeps its node on one of those four directions, and holds the direction of the curve as a free value of its own. The node sits on the lattice while the tangent of the curve is at any angle. The curve is a Create bezier curve, and Create's own machinery runs the trains, the signals and the section reservation as it is.
 
-A slope is held the same way. Create works out a bezier's handles from the horizontal part of the direction it is given, so an anchor writes the direction of its curve as a horizontal direction plus a climb. Seen from above the curve keeps its shape, to within about a quarter of a block at the default limit and far less at ordinary grades, and only how it climbs changes. Create also puts every node at a whole block height, which is why a curve gains a whole number of blocks.
+A slope is held the same way. Create works out a bezier's handles from the horizontal part of the direction it is given, so an anchor writes the direction of its curve as a horizontal direction plus a climb. Seen from above, a curve that climbs the same at both ends keeps its shape exactly, and only how it climbs changes. One whose climb differs between its ends is pulled out of shape a little: a quarter turn whose chord is 32 blocks, Create's longest placement, laid from level into a climb, is about 0.2 blocks off at 333 permille and about 1.4 at 1000. Create also puts every node at a whole block height, which is why a curve gains a whole number of blocks.
 
 A bezier curve is worked out again from the other end for trains running the opposite way. A circular arc, whose end angles are symmetric, gives the same shape both ways. Other curves can differ by several blocks between the two directions. The wand builds such a curve as two arcs, which keeps the difference within 0.1 block.
 
