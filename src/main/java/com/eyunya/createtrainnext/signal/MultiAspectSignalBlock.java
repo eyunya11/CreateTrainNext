@@ -11,11 +11,7 @@ import com.simibubi.create.foundation.block.IBE;
 
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
-import net.minecraft.network.chat.Component;
-import net.minecraft.world.InteractionResult;
-import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.context.BlockPlaceContext;
-import net.minecraft.world.item.context.UseOnContext;
 import net.minecraft.world.level.BlockGetter;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.Block;
@@ -32,7 +28,8 @@ import net.minecraft.world.phys.shapes.Shapes;
 import net.minecraft.world.phys.shapes.VoxelShape;
 
 /**
- * A Japanese five-aspect signal head.
+ * A Japanese multi-aspect signal head, of any of the types in {@link SignalType}: two, three, four, five
+ * or six lamps. Each type is a block of its own, and the lamps and what they say are the type's.
  *
  * <p>Placed the way Create's own signals are, because it is one: its item is a
  * {@code TrackTargetingBlockItem} built on {@code EdgePointType.SIGNAL}, so clicking a piece of
@@ -41,12 +38,11 @@ import net.minecraft.world.phys.shapes.VoxelShape;
  * why sharing Create's point type rather than inventing one is what makes that work.
  *
  * <p>The head turns in 22.5 degree steps, which is why only the mast is left in the blockstate
- * model: a blockstate turns in quarters, so the head and its five lamps are drawn by the block
+ * model: a blockstate turns in quarters, so the head and its lamps are drawn by the block
  * entity renderer instead. See {@link SignalRotation} for why there is no way around that.
  *
  * <p>Which way a head points is settled once, when it is placed, from the direction the player was
- * facing. There is no way to turn a placed one — the wrench is taken by the 警戒 toggle, and right
- * clicking does nothing.
+ * facing. There is no way to turn a placed one: the wrench and a right click do nothing.
  */
 public class MultiAspectSignalBlock extends Block
 	implements IBE<MultiAspectSignalBlockEntity>, IWrenchable, PoleConnectable {
@@ -94,6 +90,24 @@ public class MultiAspectSignalBlock extends Block
 		 */
 		public float localX() {
 			return localX / 16F;
+		}
+
+		/** The name of the model of the turning half of the housing for this offset, in a type's folder. */
+		public String headModelName() {
+			return switch (this) {
+				case CENTER -> "housing_head";
+				case LEFT -> "housing_left_head";
+				case RIGHT -> "housing_right_head";
+			};
+		}
+
+		/** The name of the model of the mast for this offset, in a type's folder. */
+		public String postModelName() {
+			return switch (this) {
+				case CENTER -> "housing_post";
+				case LEFT -> "housing_left_post";
+				case RIGHT -> "housing_right_post";
+			};
 		}
 	}
 
@@ -147,10 +161,18 @@ public class MultiAspectSignalBlock extends Block
 		}
 	}
 
-	public MultiAspectSignalBlock(Properties properties) {
+	private final SignalType signalType;
+
+	public MultiAspectSignalBlock(Properties properties, SignalType signalType) {
 		super(properties);
+		this.signalType = signalType;
 		registerDefaultState(defaultBlockState().setValue(ROTATION, 0)
 			.setValue(OFFSET, HorizontalOffset.CENTER));
+	}
+
+	/** Which head this is: how many lamps it has and what they say. */
+	public SignalType signalType() {
+		return signalType;
 	}
 
 	@Override
@@ -179,39 +201,6 @@ public class MultiAspectSignalBlock extends Block
 	@Override
 	protected VoxelShape getShape(BlockState state, BlockGetter level, BlockPos pos, CollisionContext context) {
 		return SHAPES.get(state.getValue(OFFSET))[state.getValue(ROTATION)];
-	}
-
-	/**
-	 * A wrench toggles 警戒, matching Create's own signal, where a wrench cycles entry and cross
-	 * mode rather than turning the block.
-	 *
-	 * <p>It is a toggle rather than something worked out from traffic because it cannot be worked
-	 * out from traffic: 警戒 exists where the block ahead is too short to stop in from 注意 speed,
-	 * which is a fact about the layout that only the person who built it knows.
-	 *
-	 * <p>Taking the wrench over costs the rotation IWrenchable would otherwise give, which here only
-	 * ever worked when clicking the top or bottom face anyway. Nothing replaces it: which way a head
-	 * points is settled when it is placed, by which way the player was facing, and a placed head does
-	 * not turn. Right clicking a signal does nothing at all, which is the point — there is no way to
-	 * knock one round by walking into it with a spare click.
-	 */
-	@Override
-	public InteractionResult onWrenched(BlockState state, UseOnContext context) {
-		Level level = context.getLevel();
-		BlockPos pos = context.getClickedPos();
-		if (level.isClientSide)
-			return InteractionResult.SUCCESS;
-
-		return onBlockEntityUse(level, pos, be -> {
-			boolean restricted = !be.isRestricted();
-			be.setRestricted(restricted);
-			Player player = context.getPlayer();
-			if (player != null)
-				player.displayClientMessage(Component.translatable(restricted
-					? "message.createtrainnext.signal.restricted_on"
-					: "message.createtrainnext.signal.restricted_off"), true);
-			return InteractionResult.SUCCESS;
-		});
 	}
 
 	/**

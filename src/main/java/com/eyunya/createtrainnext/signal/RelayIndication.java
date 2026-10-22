@@ -36,7 +36,7 @@ public enum RelayIndication {
 	/** 制限中継. Three on the diagonal. The signal ahead is at 警戒, 注意 or 減速. */
 	RESTRICTED,
 
-	/** 進行中継. Three upright. The signal ahead is at 進行. */
+	/** 進行中継. Three upright. The signal ahead is at 進行 or 高速進行. */
 	PROCEED;
 
 	/** Whether this indication lights the lamp in the given socket. */
@@ -51,7 +51,7 @@ public enum RelayIndication {
 		return switch (aspect) {
 			case STOP -> STOP;
 			case RESTRICTED, APPROACH, REDUCED_SPEED -> RESTRICTED;
-			case PROCEED -> PROCEED;
+			case PROCEED, HIGH_SPEED_PROCEED -> PROCEED;
 		};
 	}
 }

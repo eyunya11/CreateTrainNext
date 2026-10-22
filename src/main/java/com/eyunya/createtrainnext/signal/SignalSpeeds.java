@@ -15,7 +15,8 @@ import net.minecraft.server.level.ServerLevel;
  * the aspect that head shows, worked out afresh as the train passes rather than read from what it
  * showed up to half a second before. The speed is that aspect's, from the config, and it lasts until
  * the train passes the next signal, as a signal's does on a real line. A green signal imposes
- * nothing, so it lifts the one before it.
+ * nothing, so it lifts the one before it; the exception is the six-aspect signal's 進行, a single
+ * green, which holds a train to a speed, and its 高速進行, two greens, which lifts it.
  *
  * <p>A train passing at red, which a driver at the controls can do, is held to the speed of the
  * lowest aspect that has one, 警戒. The lamps never lie about being at stop, and a driver who has
@@ -31,10 +32,16 @@ public final class SignalSpeeds {
 
 	private SignalSpeeds() {}
 
-	/** The speed in km/h an aspect holds a train to, or {@link #NONE}. */
-	public static int speedOf(SignalAspect aspect) {
+	/**
+	 * The speed in km/h an aspect shown by a head of this type holds a train to, or {@link #NONE}.
+	 *
+	 * <p>The type matters for 進行 alone, which the six-aspect holds to a speed of its own and every
+	 * other head holds to nothing.
+	 */
+	public static int speedOf(SignalType type, SignalAspect aspect) {
 		return switch (aspect) {
-			case PROCEED -> NONE;
+			case PROCEED -> type.proceedSpeed() == SignalAspect.NO_LIMIT ? NONE : type.proceedSpeed();
+			case HIGH_SPEED_PROCEED -> NONE;
 			case STOP -> SignalAspect.RESTRICTED.getSpeedLimit();
 			default -> aspect.getSpeedLimit();
 		};
@@ -88,7 +95,7 @@ public final class SignalSpeeds {
 				unloaded = true;
 				continue;
 			}
-			int speed = speedOf(aspect);
+			int speed = speedOf(head.signalType(), aspect);
 			if (speed != NONE)
 				result = result == NONE ? speed : Math.min(result, speed);
 		}

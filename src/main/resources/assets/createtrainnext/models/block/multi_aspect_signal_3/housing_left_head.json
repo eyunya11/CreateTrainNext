@@ -1,0 +1,4 @@
+{
+	"__comment": "Placeholder: this type borrows the five-aspect signal's model until its own is drawn. Replace the file with the real model; the name and the folder are what the code looks for.",
+	"parent": "createtrainnext:block/multi_aspect_signal/housing_left_head"
+}

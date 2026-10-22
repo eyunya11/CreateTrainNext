@@ -17,6 +17,7 @@ import com.simibubi.create.content.trains.graph.TrackGraph;
 import java.util.List;
 import com.eyunya.createtrainnext.signal.MultiAspectSignalBlockEntity;
 import com.eyunya.createtrainnext.signal.SignalAspect;
+import com.eyunya.createtrainnext.signal.SignalType;
 import com.eyunya.createtrainnext.signal.SignalSpeeds;
 import com.eyunya.createtrainnext.speed.SpeedLimitBlockEntity;
 import com.eyunya.createtrainnext.speed.SpeedLimitEdgePoint;
@@ -234,16 +235,16 @@ public class SpeedLimitTests {
 			CTNConfig.SERVER.restrictedSpeed.set(25);
 			CTNConfig.SERVER.approachSpeed.set(45);
 			CTNConfig.SERVER.reducedSpeed.set(75);
-			helper.assertTrue(SignalSpeeds.speedOf(SignalAspect.PROCEED) == SignalSpeeds.NONE, "green holds a train to nothing");
-			helper.assertTrue(SignalSpeeds.speedOf(SignalAspect.REDUCED_SPEED) == 75, "減速 should be 75");
-			helper.assertTrue(SignalSpeeds.speedOf(SignalAspect.APPROACH) == 45, "注意 should be 45");
-			helper.assertTrue(SignalSpeeds.speedOf(SignalAspect.RESTRICTED) == 25, "警戒 should be 25");
-			helper.assertTrue(SignalSpeeds.speedOf(SignalAspect.STOP) == 25, "a train passing at red is held as the lowest, 25");
+			helper.assertTrue(SignalSpeeds.speedOf(SignalType.FIVE, SignalAspect.PROCEED) == SignalSpeeds.NONE, "green holds a train to nothing");
+			helper.assertTrue(SignalSpeeds.speedOf(SignalType.FIVE, SignalAspect.REDUCED_SPEED) == 75, "減速 should be 75");
+			helper.assertTrue(SignalSpeeds.speedOf(SignalType.FIVE, SignalAspect.APPROACH) == 45, "注意 should be 45");
+			helper.assertTrue(SignalSpeeds.speedOf(SignalType.FIVE, SignalAspect.RESTRICTED) == 25, "警戒 should be 25");
+			helper.assertTrue(SignalSpeeds.speedOf(SignalType.FIVE, SignalAspect.STOP) == 25, "a train passing at red is held as the lowest, 25");
 
 			CTNConfig.SERVER.approachSpeed.set(55);
 			CTNConfig.SERVER.restrictedSpeed.set(20);
-			helper.assertTrue(SignalSpeeds.speedOf(SignalAspect.APPROACH) == 55 && SignalSpeeds.speedOf(SignalAspect.RESTRICTED) == 20
-				&& SignalSpeeds.speedOf(SignalAspect.STOP) == 20, "the speeds should follow the config");
+			helper.assertTrue(SignalSpeeds.speedOf(SignalType.FIVE, SignalAspect.APPROACH) == 55 && SignalSpeeds.speedOf(SignalType.FIVE, SignalAspect.RESTRICTED) == 20
+				&& SignalSpeeds.speedOf(SignalType.FIVE, SignalAspect.STOP) == 20, "the speeds should follow the config");
 		} finally {
 			CTNConfig.SERVER.restrictedSpeed.set(restricted);
 			CTNConfig.SERVER.approachSpeed.set(approach);

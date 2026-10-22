@@ -1,10 +1,14 @@
 package com.eyunya.createtrainnext.client;
 
+import java.util.EnumMap;
+import java.util.Map;
+
 import com.eyunya.createtrainnext.CTNConfig;
 import com.eyunya.createtrainnext.CTNRegistry;
 import com.eyunya.createtrainnext.CreateTrainNext;
 import com.eyunya.createtrainnext.signal.MultiAspectSignalBlock.HorizontalOffset;
 import com.eyunya.createtrainnext.signal.SignalAspect.LampColour;
+import com.eyunya.createtrainnext.signal.SignalType;
 import com.eyunya.createtrainnext.track.SurveyMarkerBlockEntity;
 
 import dev.engine_room.flywheel.lib.model.baked.PartialModel;
@@ -101,25 +105,31 @@ public class CreateTrainNextClient {
 	 * different transform: the offset housings carry their own arm and collars rather than being the
 	 * centred one slid sideways.
 	 */
-	public static final PartialModel SIGNAL_HEAD =
-		PartialModel.of(CreateTrainNext.asResource("block/multi_aspect_signal/housing_head"));
-
-	public static final PartialModel SIGNAL_HEAD_LEFT =
-		PartialModel.of(CreateTrainNext.asResource("block/multi_aspect_signal/housing_left_head"));
-
-	public static final PartialModel SIGNAL_HEAD_RIGHT =
-		PartialModel.of(CreateTrainNext.asResource("block/multi_aspect_signal/housing_right_head"));
+	private static final Map<SignalType, Map<HorizontalOffset, PartialModel>> SIGNAL_HEADS = signalHeads();
 
 	public static final PartialModel RELAY_HEAD =
 		PartialModel.of(CreateTrainNext.asResource("block/relay_signal/housing_head"));
 
-	/** The turning half of the five-aspect housing for an offset. Kept beside the fields above. */
-	public static PartialModel signalHead(HorizontalOffset offset) {
-		return switch (offset) {
-			case CENTER -> SIGNAL_HEAD;
-			case LEFT -> SIGNAL_HEAD_LEFT;
-			case RIGHT -> SIGNAL_HEAD_RIGHT;
-		};
+	/** The turning half of a signal's housing, for its type and offset. Kept beside the fields above. */
+	public static PartialModel signalHead(SignalType type, HorizontalOffset offset) {
+		return SIGNAL_HEADS.get(type)
+			.get(offset);
+	}
+
+	/**
+	 * One model for each type and offset, under the folder the type names. They are the same file names
+	 * in every folder, so redrawing a type's housing means replacing the files there and nothing else.
+	 */
+	private static Map<SignalType, Map<HorizontalOffset, PartialModel>> signalHeads() {
+		Map<SignalType, Map<HorizontalOffset, PartialModel>> heads = new EnumMap<>(SignalType.class);
+		for (SignalType type : SignalType.values()) {
+			Map<HorizontalOffset, PartialModel> offsets = new EnumMap<>(HorizontalOffset.class);
+			for (HorizontalOffset offset : HorizontalOffset.values())
+				offsets.put(offset, PartialModel.of(CreateTrainNext.asResource(
+					"block/" + type.modelDir() + "/" + offset.headModelName())));
+			heads.put(type, offsets);
+		}
+		return heads;
 	}
 
 	private static PartialModel signalLamp(String name) {

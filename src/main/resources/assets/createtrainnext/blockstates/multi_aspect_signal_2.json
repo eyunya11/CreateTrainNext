@@ -1,0 +1,14 @@
+{
+	"__comment": "The mast only, keyed on offset alone, as for the five-aspect signal; the head is drawn by MultiAspectSignalRenderer. The models are the type's own folder, which holds placeholders that borrow the five-aspect signal's until they are drawn.",
+	"variants": {
+		"offset=center": {
+			"model": "createtrainnext:block/multi_aspect_signal_2/housing_post"
+		},
+		"offset=left": {
+			"model": "createtrainnext:block/multi_aspect_signal_2/housing_left_post"
+		},
+		"offset=right": {
+			"model": "createtrainnext:block/multi_aspect_signal_2/housing_right_post"
+		}
+	}
+}

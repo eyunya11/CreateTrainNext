@@ -6,6 +6,7 @@ import java.util.concurrent.atomic.AtomicReference;
 import com.eyunya.createtrainnext.CTNRegistry;
 import com.eyunya.createtrainnext.CreateTrainNext;
 import com.eyunya.createtrainnext.signal.MultiAspectSignalBlockEntity;
+import com.eyunya.createtrainnext.signal.SignalAspect;
 import com.eyunya.createtrainnext.track.AnchorAxis;
 import com.eyunya.createtrainnext.track.AngledTrackAnchorBlock;
 import com.eyunya.createtrainnext.track.AngledTrackAnchorBlockEntity;
@@ -32,6 +33,7 @@ import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.entity.item.ItemEntity;
 import net.minecraft.world.level.Level;
+import net.minecraft.world.level.block.Block;
 import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
 
@@ -71,6 +73,9 @@ public class CurveTargetingTests {
 
 	/** How long a signal takes to find its edge once it has been told where to stand. */
 	private static final int SIGNAL_TICKS = 6;
+
+	/** Long enough for a head to have worked out its aspect, which it does every ten ticks. */
+	private static final int OPEN_LINE_TICKS = 30;
 
 	private static final double SAME = 1.0E-3;
 
@@ -273,6 +278,57 @@ public class CurveTargetingTests {
 	}
 
 	/**
+	 * A head on a line with nothing ahead of it shows the most permissive aspect its type has, and not
+	 * the five-aspect's: the line is clear as far as the head can look, and how far that is, and so what
+	 * it is called, is for the type's ladder to say. The head here has its own block, so a head that read
+	 * the wrong ladder would show the wrong rung.
+	 */
+	@GameTest(template = EMPTY, batch = BATCH, timeoutTicks = 120)
+	public static void aTwoAspectHeadOnAnOpenLineShowsProceed(GameTestHelper helper) {
+		openLine(helper, CTNRegistry.MULTI_ASPECT_SIGNAL_2.get(), SignalAspect.PROCEED);
+	}
+
+	@GameTest(template = EMPTY, batch = BATCH, timeoutTicks = 120)
+	public static void aThreeAspectHeadOnAnOpenLineShowsProceed(GameTestHelper helper) {
+		openLine(helper, CTNRegistry.MULTI_ASPECT_SIGNAL_3.get(), SignalAspect.PROCEED);
+	}
+
+	@GameTest(template = EMPTY, batch = BATCH, timeoutTicks = 120)
+	public static void aFourAspectHeadOnAnOpenLineShowsProceed(GameTestHelper helper) {
+		openLine(helper, CTNRegistry.MULTI_ASPECT_SIGNAL_4.get(), SignalAspect.PROCEED);
+	}
+
+	@GameTest(template = EMPTY, batch = BATCH, timeoutTicks = 120)
+	public static void aFiveAspectHeadOnAnOpenLineShowsProceed(GameTestHelper helper) {
+		openLine(helper, CTNRegistry.MULTI_ASPECT_SIGNAL.get(), SignalAspect.PROCEED);
+	}
+
+	@GameTest(template = EMPTY, batch = BATCH, timeoutTicks = 120)
+	public static void aSixAspectHeadOnAnOpenLineShowsHighSpeedProceed(GameTestHelper helper) {
+		openLine(helper, CTNRegistry.MULTI_ASPECT_SIGNAL_6.get(), SignalAspect.HIGH_SPEED_PROCEED);
+	}
+
+	private static void openLine(GameTestHelper helper, Block block, SignalAspect expected) {
+		AngledTrackAnchorBlockEntity[] anchors = route(helper, EAST, along(6, 14, 22, 30));
+
+		helper.runAfterDelay(BUILD_TICKS, () -> {
+			AngledTrackAnchorBlockEntity holder = anchors[1];
+			BlockPos farEnd = anchors[2].getBlockPos();
+			int segment = (int) (holder.getConnections()
+				.get(farEnd)
+				.getLength() * 2) / 2;
+			MultiAspectSignalBlockEntity signal =
+				signalOnCurve(helper, new BlockPos(18, 2, 18), holder, farEnd, segment, true, block);
+
+			helper.runAfterDelay(SIGNAL_TICKS + OPEN_LINE_TICKS, () -> {
+				helper.assertTrue(signal.getAspect() == expected, "a head of " + signal.signalType() + " on an open line should show "
+					+ expected + ", but shows " + signal.getAspect());
+				helper.succeed();
+			});
+		});
+	}
+
+	/**
 	 * A route turned round leaves the graph alone, and the curve is held by the same anchor under the
 	 * same key, so a signal's address still means the same edge.
 	 */
@@ -468,8 +524,12 @@ public class CurveTargetingTests {
 	 */
 	private static MultiAspectSignalBlockEntity signalOnCurve(GameTestHelper helper, BlockPos relative,
 		AngledTrackAnchorBlockEntity holder, BlockPos farEnd, int segment, boolean front) {
-		helper.setBlock(relative, CTNRegistry.MULTI_ASPECT_SIGNAL.get()
-			.defaultBlockState());
+		return signalOnCurve(helper, relative, holder, farEnd, segment, front, CTNRegistry.MULTI_ASPECT_SIGNAL.get());
+	}
+
+	private static MultiAspectSignalBlockEntity signalOnCurve(GameTestHelper helper, BlockPos relative,
+		AngledTrackAnchorBlockEntity holder, BlockPos farEnd, int segment, boolean front, Block block) {
+		helper.setBlock(relative, block.defaultBlockState());
 		helper.assertTrue(helper.getBlockEntity(relative) instanceof MultiAspectSignalBlockEntity,
 			"no signal block entity where one was placed at " + relative);
 		MultiAspectSignalBlockEntity signal = (MultiAspectSignalBlockEntity) helper.getBlockEntity(relative);

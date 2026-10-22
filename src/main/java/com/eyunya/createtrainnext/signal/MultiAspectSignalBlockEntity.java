@@ -41,7 +41,7 @@ import net.minecraft.world.phys.BlockHitResult;
 import net.minecraft.world.phys.Vec3;
 
 /**
- * A five-aspect signal head, standing on one of Create's own signal boundaries.
+ * A multi-aspect signal head, standing on one of Create's own signal boundaries.
  *
  * <p>The targeting behaviour is built with {@link EdgePointType#SIGNAL} rather than a type of this
  * mod's own, and that is the load-bearing decision. Create's train control reaches for
@@ -59,7 +59,6 @@ import net.minecraft.world.phys.Vec3;
 public class MultiAspectSignalBlockEntity extends SmartBlockEntity implements TransformableBlockEntity {
 
 	private static final String TAG_ASPECT = "Aspect";
-	private static final String TAG_RESTRICTED = "Restricted";
 
 	/**
 	 * Slower than the game ticks, and safe to be: the aspect is only what the lamps show. Braking
@@ -74,8 +73,6 @@ public class MultiAspectSignalBlockEntity extends SmartBlockEntity implements Tr
 
 	/** Starts at the most restrictive: a signal that has not worked itself out yet shows 停止. */
 	private SignalAspect aspect = SignalAspect.STOP;
-
-	private boolean restricted;
 
 	/** Cached because finding it means scanning every network; revalidated before each use. */
 	@Nullable
@@ -117,14 +114,9 @@ public class MultiAspectSignalBlockEntity extends SmartBlockEntity implements Tr
 		return aspect;
 	}
 
-	/** Whether 警戒 is a rung on this signal's ladder, between 注意 and 停止. */
-	public boolean isRestricted() {
-		return restricted;
-	}
-
-	public void setRestricted(boolean restricted) {
-		this.restricted = restricted;
-		notifyUpdate();
+	/** Which head this is. It is the block it stands in, so it never changes and is never saved. */
+	public SignalType signalType() {
+		return ((MultiAspectSignalBlock) getBlockState().getBlock()).signalType();
 	}
 
 	@Override
@@ -153,7 +145,7 @@ public class MultiAspectSignalBlockEntity extends SmartBlockEntity implements Tr
 	 * @param side which side of the signal this head is on, which is the one the train meets it from.
 	 */
 	public SignalAspect aspectSeenFrom(TrackGraph graph, SignalBoundary signal, boolean side) {
-		SignalAspect resolved = AspectResolver.resolve(graph, signal, side, SignalAspect.Ladder.of(restricted));
+		SignalAspect resolved = AspectResolver.resolve(graph, signal, side, signalType().ladder());
 		if (resolved != aspect) {
 			aspect = resolved;
 			notifyUpdate();
@@ -174,7 +166,7 @@ public class MultiAspectSignalBlockEntity extends SmartBlockEntity implements Tr
 		if (graph == null)
 			return SignalAspect.STOP;
 
-		return AspectResolver.resolve(graph, signal, side, SignalAspect.Ladder.of(restricted));
+		return AspectResolver.resolve(graph, signal, side, signalType().ladder());
 	}
 
 	/**
@@ -210,7 +202,6 @@ public class MultiAspectSignalBlockEntity extends SmartBlockEntity implements Tr
 	protected void write(CompoundTag tag, HolderLookup.Provider registries, boolean clientPacket) {
 		super.write(tag, registries, clientPacket);
 		NBTHelper.writeEnum(tag, TAG_ASPECT, aspect);
-		tag.putBoolean(TAG_RESTRICTED, restricted);
 	}
 
 	@Override
@@ -218,7 +209,6 @@ public class MultiAspectSignalBlockEntity extends SmartBlockEntity implements Tr
 		super.read(tag, registries, clientPacket);
 		if (tag.contains(TAG_ASPECT))
 			aspect = NBTHelper.readEnum(tag, TAG_ASPECT, SignalAspect.class);
-		restricted = tag.getBoolean(TAG_RESTRICTED);
 	}
 
 	@Override
