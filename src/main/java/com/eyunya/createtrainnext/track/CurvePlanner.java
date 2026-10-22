@@ -250,6 +250,15 @@ public final class CurvePlanner {
 		public boolean onSlope() {
 			return dockNode != null;
 		}
+
+		/**
+		 * The normal of the rails at this end of the curve: the slope's, for an end that shares a node with one,
+		 * and straight up for every other. It is what the anchor will give the node
+		 * ({@link AngledTrackAnchorBlockEntity#nodeNormal}), so the ghost and the curve built are alike.
+		 */
+		Vec3 normal() {
+			return onSlope() ? AngledTrackAnchorBlockEntity.slopeNormal(fixedHeading, fixedSlope) : UP;
+		}
 	}
 
 	/**
@@ -971,7 +980,7 @@ public final class CurvePlanner {
 		Vec3 endPoint = layout.endPoint();
 
 		BezierConnection curve = curveBetween(start.anchorPos(), end.anchorPos(), startPoint, endPoint, startHeading,
-			endHeading, slopes[0], slopes[1]);
+			endHeading, slopes[0], slopes[1], start.normal(), end.normal());
 
 		Plan plan = new Plan(null, start, end, startHeading, endHeading, curve, layout.adjustable(), layout.turn(),
 			forward, reverseEnd, null, null, slopes[0], slopes[1], 0, laid);
@@ -1213,11 +1222,20 @@ public final class CurvePlanner {
 	 */
 	static BezierConnection curveBetween(BlockPos from, BlockPos to, Vec3 fromPoint, Vec3 toPoint,
 		Vec3 fromHeading, Vec3 toHeading, double fromSlope, double toSlope) {
+		return curveBetween(from, to, fromPoint, toPoint, fromHeading, toHeading, fromSlope, toSlope, UP, UP);
+	}
+
+	/**
+	 * The same with the normals of the rails at its two ends, which are straight up except where an end is
+	 * docked onto a slope: see {@link Endpoint#normal}.
+	 */
+	static BezierConnection curveBetween(BlockPos from, BlockPos to, Vec3 fromPoint, Vec3 toPoint,
+		Vec3 fromHeading, Vec3 toHeading, double fromSlope, double toSlope, Vec3 fromNormal, Vec3 toNormal) {
 		return new BezierConnection(Couple.create(from, to), Couple.create(fromPoint, toPoint),
 			Couple.create(AngledTrackAnchorBlockEntity.tangentOf(fromHeading, fromSlope),
 				AngledTrackAnchorBlockEntity.tangentOf(toHeading, toSlope)
 					.scale(-1)),
-			Couple.create(UP, UP), true, false, TrackMaterial.ANDESITE);
+			Couple.create(fromNormal, toNormal), true, false, TrackMaterial.ANDESITE);
 	}
 
 	/** The same level curve this always was: no climb at either end. */
@@ -1280,9 +1298,9 @@ public final class CurvePlanner {
 		double endSlope = keepSloped(secondSlopes[1], endSloped);
 
 		BezierConnection first = curveBetween(start.anchorPos(), junction.pos(), startPoint, junction.point(),
-			startHeading, junction.heading(), startSlope, junctionSlope);
+			startHeading, junction.heading(), startSlope, junctionSlope, start.normal(), UP);
 		BezierConnection second = curveBetween(junction.pos(), end.anchorPos(), junction.point(), endPoint,
-			junction.heading(), endHeading, junctionSlope, endSlope);
+			junction.heading(), endHeading, junctionSlope, endSlope, UP, end.normal());
 		Plan plan = new Plan(null, start, end, startHeading, endHeading, first, single.adjustable(),
 			single.turnDegrees(), single.forward(), single.reverseEnd(), junction, second, startSlope, endSlope,
 			junctionSlope, single.grade());

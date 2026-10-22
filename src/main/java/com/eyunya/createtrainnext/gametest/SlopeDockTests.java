@@ -7,6 +7,9 @@ import static com.eyunya.createtrainnext.gametest.CurveConsistencyTests.click;
 import static com.eyunya.createtrainnext.gametest.CurveConsistencyTests.relative;
 import static com.eyunya.createtrainnext.gametest.GraphCleanlinessTests.assertClean;
 
+import java.util.ArrayList;
+import java.util.List;
+
 import org.jetbrains.annotations.Nullable;
 
 import com.eyunya.createtrainnext.CTNConfig;
@@ -22,7 +25,10 @@ import com.simibubi.create.content.trains.graph.TrackEdge;
 import com.simibubi.create.content.trains.graph.TrackGraph;
 import com.simibubi.create.content.trains.graph.TrackNode;
 import com.simibubi.create.content.trains.graph.TrackNodeLocation;
+import com.simibubi.create.content.trains.graph.TrackNodeLocation.DiscoveredLocation;
 import com.simibubi.create.content.trains.track.BezierConnection;
+import com.simibubi.create.content.trains.track.ITrackBlock;
+import com.simibubi.create.content.trains.track.TrackPropagator;
 import com.simibubi.create.content.trains.track.TrackShape;
 
 import net.minecraft.core.BlockPos;
@@ -38,6 +44,7 @@ import net.minecraft.world.level.GameType;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.entity.BlockEntity;
+import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.phys.Vec3;
 
 import net.neoforged.neoforge.gametest.GameTestHolder;
@@ -319,6 +326,118 @@ public class SlopeDockTests {
 		first.linkTo(second, south, south);
 		helper.assertTrue(!first.isSlopeDocked(), "the anchor the link was made from should not be docked");
 		helper.assertTrue(!second.isSlopeDocked(), "nor the one it was made to");
+		helper.succeed();
+	}
+
+	/**
+	 * The node an anchor shares with a slope has the slope's normal, and so does the slope's edge from it,
+	 * whichever block last built the graph around them.
+	 *
+	 * <p>Create gives a straight edge the normal of its first node and puts a carriage's anchor a block along
+	 * it, and a node keeps the normal of whatever created it first. The anchor creates the shared node when
+	 * it rebuilds the graph from itself, from its own seed, or from the curve its far neighbour reports; the
+	 * slope creates it when the graph is rebuilt from the slope. All three have to say the same, or a train
+	 * on the slope in one direction is a few tenths of a block off the rail, and which direction it is
+	 * depends on who rebuilt last.
+	 */
+	@GameTest(template = EMPTY, timeoutTicks = 80)
+	public static void theNodeSharedWithASlopeHasTheSlopesNormal(GameTestHelper helper) {
+		dockedOnTop(helper);
+		helper.setBlock(HIGH_SLOPE, CreateSlopeTests.slope(TrackShape.AN));
+		AngledTrackAnchorBlockEntity start = anchor(helper, LEVEL_BELOW);
+		AngledTrackAnchorBlockEntity foot = anchor(helper, FOOT_DOCK);
+		start.linkTo(foot, AngledTrackAnchorBlockEntity.tangentOf(NORTH, 0), AngledTrackAnchorBlockEntity.tangentOf(NORTH, 1),
+			false, true);
+		Level level = helper.getLevel();
+
+		helper.runAfterDelay(GRAPH_TICKS, () -> {
+			assertSlopeNormals(helper, level, SLOPE, "after the graph was built from the top dock");
+			assertSlopeNormals(helper, level, HIGH_SLOPE, "after the graph was built from the foot dock");
+
+			// Rebuilt from each block that reports the node, one at a time: the slope, the anchor docked onto
+			// it, and the anchor at the far end of the curve, which reports the node as the end of a curve.
+			BlockPos[][] triggers = { { SLOPE, TOP_DOCK, LEVEL_BEYOND }, { HIGH_SLOPE, FOOT_DOCK, LEVEL_BELOW } };
+			String[] names = { "the slope", "the docked anchor", "the anchor at the far end" };
+			for (BlockPos[] group : triggers)
+				for (int i = 0; i < group.length; i++) {
+					BlockPos at = helper.absolutePos(group[i]);
+					TrackPropagator.onRailAdded(level, at, level.getBlockState(at));
+					BlockPos slope = group[0];
+					assertSlopeNormals(helper, level, slope, "after the graph was rebuilt from " + names[i] + " of the slope at "
+						+ slope);
+				}
+			helper.succeed();
+		});
+	}
+
+	/**
+	 * A docked end whose neighbour cannot be found, because it is in a chunk that is not loaded, still reports
+	 * the slope's node, with the slope's normal, rather than falling back on the middle of its block.
+	 *
+	 * <p>What a block reports is what the graph is rebuilt from, and what nothing reports is never taken out
+	 * again: a node made at the centre of the block, which nothing else knows of, would stay as a post of its
+	 * own in the F3 view for good. The neighbour is made unfindable by pointing the link at a block with
+	 * nothing in it, which is how the anchor sees an unloaded one as well.
+	 */
+	@GameTest(template = EMPTY, timeoutTicks = 40)
+	public static void aDockedEndWithNoNeighbourToBeFoundStillReportsTheSlopesNode(GameTestHelper helper) {
+		AngledTrackAnchorBlockEntity dock = dockedOnTop(helper);
+		HolderLookup.Provider registries = helper.getLevel()
+			.registryAccess();
+		CompoundTag tag = dock.saveWithFullMetadata(registries);
+		tag.putLong("Next", helper.absolutePos(new BlockPos(16, 3, 4))
+			.asLong());
+		dock.loadWithComponents(tag, registries);
+		helper.assertTrue(dock.isSlopeDocked() && dock.buildCurveToNext() == null,
+			"setup: the anchor should be docked and have no curve it can build");
+
+		Level level = helper.getLevel();
+		BlockPos pos = helper.absolutePos(TOP_DOCK);
+		BlockState state = level.getBlockState(pos);
+		List<DiscoveredLocation> reported = new ArrayList<>(((ITrackBlock) state.getBlock()).getConnected(level, pos, state, false, null));
+		helper.assertTrue(reported.size() == 1, "it should report one place, but reports " + reported.size());
+		Vec3 top = slopeTop(helper, SLOPE);
+		helper.assertTrue(reported.get(0)
+			.getLocation()
+			.distanceToSqr(top) < 1.0E-12, "it should report the slope's top, " + top + ", but reports " + reported.get(0)
+				.getLocation());
+
+		// The normal is not readable from the location; it is what a node made from it comes out with.
+		TrackGraph graph = new TrackGraph();
+		Create.RAILWAYS.putGraphWithDefaultGroup(graph);
+		try {
+			graph.createNodeIfAbsent(reported.get(0));
+			Vec3 normal = graph.locateNode(reported.get(0))
+				.getNormal();
+			helper.assertTrue(normal.distanceToSqr(TrackShape.AN.getNormal()) < 1.0E-9,
+				"and with the slope's normal " + TrackShape.AN.getNormal() + ", but has " + normal);
+		} finally {
+			Create.RAILWAYS.removeGraphAndGroup(graph);
+		}
+		helper.succeed();
+	}
+
+	/**
+	 * The normal an anchor docked onto a slope is given is the one Create gives that slope, whichever of the
+	 * four it is and whichever way the route runs over it.
+	 */
+	@GameTest(template = EMPTY)
+	public static void theNormalOfADockIsTheNormalOfEachCreateSlope(GameTestHelper helper) {
+		for (TrackShape shape : new TrackShape[] { TrackShape.AN, TrackShape.AS, TrackShape.AE, TrackShape.AW }) {
+			Vec3 axis = shape.getAxes()
+				.get(0);
+			double run = Math.hypot(axis.x, axis.z);
+			Vec3 heading = new Vec3(axis.x / run, 0, axis.z / run);
+			double climb = axis.y / run;
+			for (double way : new double[] { 1, -1 }) {
+				Vec3 normal = AngledTrackAnchorBlockEntity.slopeNormal(heading.scale(way), climb * way);
+				helper.assertTrue(normal.distanceToSqr(shape.getNormal()) < 1.0E-12,
+					shape + " should have the normal " + shape.getNormal() + " running either way, but running " + (way > 0 ? "up" : "down")
+						+ " it is " + normal);
+			}
+		}
+		helper.assertTrue(AngledTrackAnchorBlockEntity.slopeNormal(new Vec3(0, 0, 1), 0)
+			.distanceToSqr(new Vec3(0, 1, 0)) < 1.0E-12, "level track should have straight up for a normal");
 		helper.succeed();
 	}
 
@@ -659,6 +778,8 @@ public class SlopeDockTests {
 		double ontoBy = CurvePlanner.deviation(onto.curve(), anchorAt(helper, LEVEL_BELOW).buildCurveToNext());
 		helper.assertTrue(offBy < 1.0E-6 && ontoBy < 1.0E-6,
 			"the curves built should be the ones planned, but are " + offBy + " and " + ontoBy + " off them");
+		assertSameNormals(helper, off.curve(), anchorAt(helper, TOP_DOCK).buildCurveToNext(), "the curve off the top");
+		assertSameNormals(helper, onto.curve(), anchorAt(helper, LEVEL_BELOW).buildCurveToNext(), "the curve onto the foot");
 
 		helper.runAfterDelay(GRAPH_TICKS, () -> {
 			// Each slope's two ends, one shared, and the centre of the anchor at the other end of each curve.
@@ -735,6 +856,39 @@ public class SlopeDockTests {
 		return startNode == null || endNode == null ? null
 			: graph.getConnectionsFrom(startNode)
 				.get(endNode);
+	}
+
+	/** Checks the normal of both nodes of the slope at {@code slope}, and of its edge each way. */
+	private static void assertSlopeNormals(GameTestHelper helper, Level level, BlockPos slope, String when) {
+		Vec3 expected = TrackShape.AN.getNormal();
+		TrackNodeLocation topLocation = new TrackNodeLocation(slopeTop(helper, slope)).in(level);
+		TrackNodeLocation footLocation = new TrackNodeLocation(slopeFoot(helper, slope)).in(level);
+		TrackGraph graph = Create.RAILWAYS.sided(level)
+			.getGraph(level, topLocation);
+		TrackNode top = graph == null ? null : graph.locateNode(topLocation);
+		TrackNode foot = graph == null ? null : graph.locateNode(footLocation);
+		helper.assertTrue(top != null && foot != null, when + ", both ends of the slope should be nodes of the graph");
+		TrackEdge down = graph.getConnectionsFrom(top)
+			.get(foot);
+		TrackEdge up = graph.getConnectionsFrom(foot)
+			.get(top);
+		helper.assertTrue(down != null && up != null, when + ", the slope should be an edge each way");
+
+		String[] what = { "the top node", "the foot node", "the edge from the top", "the edge from the foot" };
+		Vec3[] seen = { top.getNormal(), foot.getNormal(), down.getNormal(graph, 0.5), up.getNormal(graph, 0.5) };
+		for (int i = 0; i < what.length; i++)
+			helper.assertTrue(seen[i].distanceToSqr(expected) < 1.0E-9,
+				when + ", " + what[i] + " should have the slope's normal " + expected + ", but has " + seen[i]);
+	}
+
+	/** Checks that two curves have the same normal at each end, which is what rails are laid and trains stand by. */
+	private static void assertSameNormals(GameTestHelper helper, BezierConnection planned, BezierConnection built, String what) {
+		helper.assertTrue(built != null, what + " should have been built");
+		for (boolean first : new boolean[] { true, false })
+			helper.assertTrue(planned.normals.get(first)
+				.distanceToSqr(built.normals.get(first)) < 1.0E-9,
+				what + ": the ghost's normal at its " + (first ? "start" : "end") + " should be the built curve's, "
+					+ built.normals.get(first) + ", but is " + planned.normals.get(first));
 	}
 
 	private static AngledTrackAnchorBlockEntity anchorAt(GameTestHelper helper, BlockPos relative) {

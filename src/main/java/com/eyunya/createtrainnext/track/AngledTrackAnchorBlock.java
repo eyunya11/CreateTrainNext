@@ -376,9 +376,14 @@ public class AngledTrackAnchorBlock extends Block implements EntityBlock, ITrack
 				: Couple.create(center.subtract(axisVector(state).scale(0.5)),
 					center.add(axisVector(state).scale(0.5)));
 
-			ITrackBlock.addToListIfConnected(connectedTo, list, (d, b) -> seed.get(b),
-				b -> getUpNormal(world, pos, state), dimensionFactory, yOffsetFactory,
-				axisVector(state), null,
+			// The normal a node is given when it is first made is the one it keeps, and the seed is where
+			// the graph is built from when it is rebuilt from this anchor: an end docked onto a slope
+			// has the slope's, as its node is the slope's.
+			Couple<Vec3> normals = anchor != null ? anchor.seedNormals()
+				: Couple.create(getUpNormal(world, pos, state), getUpNormal(world, pos, state));
+
+			ITrackBlock.addToListIfConnected(connectedTo, list, (d, b) -> seed.get(b), normals::get, dimensionFactory,
+				yOffsetFactory, axisVector(state), null,
 				(b, v) -> ITrackBlock.getMaterialSimple(world, v, getMaterial()));
 		}
 		// Otherwise this anchor is mid-chain: its curves meet at the centre and it has no span.
@@ -416,7 +421,8 @@ public class AngledTrackAnchorBlock extends Block implements EntityBlock, ITrack
 		// same answer at the one place its node is, which is the slope's end and not the centre.
 		if (list.isEmpty()) {
 			Vec3 point = anchor.isSlopeDocked() ? anchor.entryNode() : center;
-			ITrackBlock.addToListIfConnected(connectedTo, list, (d, b) -> point, b -> getUpNormal(world, pos, state),
+			Vec3 normal = anchor.isSlopeDocked() ? anchor.nodeNormal() : getUpNormal(world, pos, state);
+			ITrackBlock.addToListIfConnected(connectedTo, list, (d, b) -> point, b -> normal,
 				dimensionFactory, yOffsetFactory, axisVector(state), null,
 				(b, v) -> ITrackBlock.getMaterialSimple(world, v, getMaterial()));
 			// It adds both ends of a piece of track, and a point has the one.

@@ -82,6 +82,9 @@ public class AngledTrackAnchorBlockEntity extends TrackBlockEntity {
 	 */
 	private static final int MAX_ROUTE_ANCHORS = 4096;
 
+	/** The normal of level track. */
+	private static final Vec3 UP = new Vec3(0, 1, 0);
+
 	private static final String TAG_YAW = "Yaw";
 	private static final String TAG_PREV = "Prev";
 	private static final String TAG_NEXT = "Next";
@@ -193,6 +196,17 @@ public class AngledTrackAnchorBlockEntity extends TrackBlockEntity {
 	 */
 	public static Vec3 tangentOf(Vec3 heading, double slope) {
 		return new Vec3(heading.x, slope, heading.z);
+	}
+
+	/**
+	 * The normal of track that runs along {@code heading} climbing at {@code slope}: straight up, tilted back
+	 * against the climb. It is the vector Create gives its own sloped track, {@code (0, 1, 1)} for the one that
+	 * climbs north, and it is the same whichever way the route is read, since turning round negates the heading
+	 * and the climb together.
+	 */
+	public static Vec3 slopeNormal(Vec3 heading, double slope) {
+		double length = Math.sqrt(1 + slope * slope);
+		return new Vec3(-slope * heading.x / length, 1 / length, -slope * heading.z / length);
 	}
 
 	/** The climb in a vector made by {@link #tangentOf}: its y over the length of its horizontal part. */
@@ -1206,6 +1220,26 @@ public class AngledTrackAnchorBlockEntity extends TrackBlockEntity {
 	}
 
 	/**
+	 * The normal of the rails at this anchor's node: the slope's for an end docked onto one, and straight up
+	 * for every other.
+	 *
+	 * <p>The node is shared with the slope, and Create gives a straight edge the normal of its first node and
+	 * puts a carriage's anchor a block along it. A node keeps the normal of whatever created it first, which
+	 * is the anchor or the slope depending on which of them the graph was last rebuilt from, so the two have
+	 * to say the same or the slope's edge is a few tenths of a block off the rail in one direction. Create's
+	 * own curve between a slope and flat track does it the same way: the slope's normal at that end, straight
+	 * up at the other, turning between them.
+	 */
+	public Vec3 nodeNormal() {
+		return isSlopeDocked() ? slopeNormal(heading(), slope) : UP;
+	}
+
+	/** The normals of the two points {@link #seedPair} gives, in the same order. */
+	public Couple<Vec3> seedNormals() {
+		return isSlopeDocked() ? Couple.create(nodeNormal(), UP) : Couple.create(UP, UP);
+	}
+
+	/**
 	 * Where the node of an anchor at {@code pos} docked onto a slope is: on the boundary of its block that
 	 * faces the slope, at its floor. Shared with the planner, which has to put the same point under a
 	 * curve to an anchor that does not exist yet.
@@ -1276,8 +1310,6 @@ public class AngledTrackAnchorBlockEntity extends TrackBlockEntity {
 			.lengthSqr() < 1.0E-4)
 			return null;
 
-		Vec3 up = new Vec3(0, 1, 0);
-
 		return new BezierConnection(Couple.create(worldPosition, next), Couple.create(start, end),
 			// Both tangents point into the curve: ours forwards along the route, the far end's
 			// backwards along it. Create's determineHandles negates the second before measuring
@@ -1285,7 +1317,8 @@ public class AngledTrackAnchorBlockEntity extends TrackBlockEntity {
 			// Each carries its anchor's climb, which Create reads only for where the handles point.
 			Couple.create(tangent(), ahead.tangent()
 				.scale(-1)),
-			Couple.create(up, up), true, false, TrackMaterial.ANDESITE);
+			// Straight up, except where an end is docked onto a slope, which the rails there lie on.
+			Couple.create(nodeNormal(), ahead.nodeNormal()), true, false, TrackMaterial.ANDESITE);
 	}
 
 	/**
