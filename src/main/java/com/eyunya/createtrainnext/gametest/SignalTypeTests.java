@@ -349,6 +349,14 @@ public class SignalTypeTests {
 			JsonObject blockstate = json(helper, "assets", "blockstates", name + ".json");
 			JsonObject variants = blockstate.getAsJsonObject("variants");
 			for (HorizontalOffset offset : HorizontalOffset.values()) {
+				String head = switch (offset) {
+					case CENTER -> "housing_head";
+					case LEFT -> "housing_left_head";
+					case RIGHT -> "housing_right_head";
+				};
+				String post = head.replace("_head", "_post");
+				helper.assertTrue(offset.headModelName().equals(head) && offset.postModelName().equals(post),
+					"the models for " + offset + " should be " + head + " and " + post);
 				String model = variants.getAsJsonObject("offset=" + offset.getSerializedName())
 					.get("model")
 					.getAsString();

@@ -11,7 +11,9 @@ import com.eyunya.createtrainnext.track.AnchorAxis;
 import com.eyunya.createtrainnext.track.AngledTrackAnchorBlock;
 import com.eyunya.createtrainnext.track.AngledTrackAnchorBlockEntity;
 import com.eyunya.createtrainnext.track.CurvePlanner;
+import com.simibubi.create.Create;
 import com.simibubi.create.content.trains.graph.EdgePointType;
+import com.simibubi.create.content.trains.graph.TrackGraph;
 import com.simibubi.create.content.trains.graph.TrackEdge;
 import com.simibubi.create.content.trains.graph.TrackGraphHelper;
 import com.simibubi.create.content.trains.graph.TrackGraphLocation;
@@ -323,6 +325,19 @@ public class CurveTargetingTests {
 			helper.runAfterDelay(SIGNAL_TICKS + OPEN_LINE_TICKS, () -> {
 				helper.assertTrue(signal.getAspect() == expected, "a head of " + signal.signalType() + " on an open line should show "
 					+ expected + ", but shows " + signal.getAspect());
+
+				// The train's own question, asked afresh as it passes, climbs the same ladder.
+				SignalBoundary point = signal.edgePoint.getEdgePoint();
+				TrackGraph graph = Create.RAILWAYS.trackNetworks.values()
+					.stream()
+					.filter(g -> g.getPoint(EdgePointType.SIGNAL, point.getId()) == point)
+					.findFirst()
+					.orElse(null);
+				helper.assertTrue(graph != null, "the signal's point should be in a graph");
+				boolean side = point.blockEntities.get(true)
+					.containsKey(signal.getBlockPos());
+				helper.assertTrue(signal.aspectSeenFrom(graph, point, side) == expected,
+					"a head of " + signal.signalType() + " asked as a train passes should show " + expected);
 				helper.succeed();
 			});
 		});
