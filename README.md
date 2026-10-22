@@ -2,7 +2,7 @@
 
 [日本語](README.ja.md)
 
-An addon for [Create](https://github.com/Creators-of-Create/Create) that lets train track run at any curve angle, instead of the 45 and 90 degree steps Create's own placement tools allow. Besides the wand that draws the curves, it adds trackside equipment: a Japanese-style five-aspect signal, a relay signal, a speed limit sign and the poles that carry them.
+An addon for [Create](https://github.com/Creators-of-Create/Create) that lets train track run at any curve angle, instead of the 45 and 90 degree steps Create's own placement tools allow. Besides the wand that draws the curves, it adds trackside equipment: Japanese-style signals with two to six lamps, a relay signal, a speed limit sign and the poles that carry them.
 
 | Item | Supported |
 |---|---|
@@ -13,11 +13,11 @@ An addon for [Create](https://github.com/Creators-of-Create/Create) that lets tr
 ## Features
 
 - Lay a curve at any angle with two right clicks. A ghost shows what will be built before you build it: green means it can be laid, red means it cannot. Angles near a multiple of 15 degrees are drawn to it, so 45 and 90 degrees come out exact.
-- Trains run on these curves as they do on any Create track. The five-aspect signal is built on Create's own signal system.
+- Trains run on these curves as they do on any Create track. The signals are built on Create's own signal system.
 - Two ends at different heights are joined at one steady grade, which the anchors remember, so a climb is a slope and not a staircase. Hold the sprint key and scroll to set a grade, and the wand lays the whole route at it.
 - A Survey Marker lays a dead straight line at a bearing, length and grade you set.
 - An invisible floor is laid along each curve at rail height, so you can walk on curves.
-- Adds a Japanese-style five-aspect signal, a relay signal and a speed limit sign, and a pole that carries the signals.
+- Adds Japanese-style signals with two, three, four, five and six lamps, a relay signal and a speed limit sign, and a pole that carries the signals.
 - Signals and stations, Create's and this mod's, can be put directly on a curve, with no point added first.
 - Commands inspect and repair the track.
 
@@ -27,7 +27,7 @@ You need Minecraft 1.21.1, NeoForge and Create itself. Ponder and Flywheel ship 
 
 There is no download page yet. Build the jar from source and put it in the `mods` folder. The steps are in the Development section.
 
-There are no crafting recipes yet either. Take the items from the "Create Train Next" creative tab, or use `/give`, for example `/give @s createtrainnext:curve_wand`. There are seven items.
+There are no crafting recipes yet either. Take the items from the "Create Train Next" creative tab, or use `/give`, for example `/give @s createtrainnext:curve_wand`. There are twelve items.
 
 | Name | Japanese name | ID | Purpose |
 |---|---|---|---|
@@ -37,7 +37,11 @@ There are no crafting recipes yet either. Take the items from the "Create Train 
 | Track Speed Limit | 速度制限標識 | `createtrainnext:track_speed_limit` | A sign that shows a speed limit |
 | Track Speed Limit Release | 最高速度解除標識 | `createtrainnext:track_speed_release` | A sign that ends a speed limit |
 | Signal Pole | 信号柱 | `createtrainnext:signal_pole` | A pole that carries signals |
+| 2-Aspect Railway Signal | 2灯式信号機 | `createtrainnext:multi_aspect_signal_2` | A Japanese-style two-aspect signal |
+| 3-Aspect Railway Signal | 3灯式信号機 | `createtrainnext:multi_aspect_signal_3` | A Japanese-style three-aspect signal |
+| 4-Aspect Railway Signal | 4灯式信号機 | `createtrainnext:multi_aspect_signal_4` | A Japanese-style four-aspect signal |
 | 5-Aspect Railway Signal | 5灯式信号機 | `createtrainnext:multi_aspect_signal` | A Japanese-style five-aspect signal |
+| 6-Aspect Railway Signal | 6灯式信号機 | `createtrainnext:multi_aspect_signal_6` | A Japanese-style six-aspect signal |
 | Relay Signal | 中継信号機 | `createtrainnext:relay_signal` | Repeats the next signal's aspect in advance |
 
 Create 6.0.10 is the version this has been verified on. The declared range is 6.0 and later, but other versions have not been tried.
@@ -181,23 +185,45 @@ An anchor is the track block at the end of a curve. The wand places them where t
 
 An anchor behaves as a Create track block, so it can also be the target of a signal and the like. It also remembers the grade the route has at that point, so a route carried on from it continues at that grade.
 
-### 5-Aspect Railway Signal
+### Railway Signals
 
-There are five lamps, from the top: yellow, yellow, red, yellow, green. The aspect depends on how many consecutive signal sections (the stretches Create's signals divide the track into) are clear beyond the signal. On a line with no signal ahead, it shows Proceed.
+There are five Japanese-style signals, with two, three, four, five and six lamps. The aspect depends on how many consecutive signal sections (the stretches Create's signals divide the track into) are clear beyond the signal. On a line with no signal ahead, it shows the most permissive aspect it has. The lamps are numbered from the top.
 
-| Aspect | Lamps lit | Clear sections (normal) | Clear sections (with Restricted on) |
-|---|---|---|---|
-| Stop (停止) | red | 0 | 0 |
-| Restricted (警戒) | top yellow and bottom yellow | not shown | 1 |
-| Approach (注意) | bottom yellow | 1 | 2 |
-| Reduced speed (減速) | second yellow and green | 2 | 3 |
-| Proceed (進行) | green | 3 or more | 4 or more |
+| Signal | Lamps, from the top |
+|---|---|
+| 2-Aspect | red, green |
+| 3-Aspect | yellow, red, green |
+| 4-Aspect | yellow, red, yellow, green |
+| 5-Aspect | yellow, yellow, red, yellow, green |
+| 6-Aspect | yellow, green, red, green, yellow, green |
 
-Restricted is a step for places where the section ahead is too short to stop in from Approach speed. Each signal decides whether to use it, and a right click with a wrench switches it. After you switch, the message shows the order of aspects.
+The numbers of the lamps that are lit are below. A dash means the signal has no such aspect.
+
+| Aspect | 2-Aspect | 3-Aspect | 4-Aspect | 5-Aspect | 6-Aspect |
+|---|---|---|---|---|---|
+| Stop (停止) | 1 | 2 | 2 | 3 | 3 |
+| Restricted (警戒) | - | - | - | 1 and 4 | - |
+| Approach (注意) | - | 1 | 3 | 4 | 5 |
+| Reduced speed (減速) | - | - | 1 and 4 | 2 and 5 | 1 and 4 |
+| Proceed (進行) | 2 | 3 | 4 | 5 | 4 |
+| High-speed proceed (高速進行) | - | - | - | - | 2 and 6 |
+
+The number of clear sections that gives each aspect:
+
+| Aspect | 2-Aspect | 3-Aspect | 4-Aspect | 5-Aspect | 6-Aspect |
+|---|---|---|---|---|---|
+| Stop | 0 | 0 | 0 | 0 | 0 |
+| Restricted | - | - | - | 1 | - |
+| Approach | - | 1 | 1 | 2 | 1 |
+| Reduced speed | - | - | 2 | 3 | 2 |
+| Proceed | 1 or more | 2 or more | 3 or more | 4 or more | 3 |
+| High-speed proceed | - | - | - | - | 4 or more |
+
+Restricted is a step only the 5-Aspect signal has, for places where the section ahead is too short to stop in from Approach speed. The 5-Aspect signal steps through Proceed, Reduced speed, Approach, Restricted and Stop. Earlier versions let a wrench switch Restricted on or off for each signal. There is no switch now and Restricted is always used, so a 5-Aspect signal placed before shows one more step.
 
 It is placed as Create's signals are. Hold the signal, right click the track, then right click where it should stand. The placed signal is a signal boundary just like Create's own, and trains stop at red. It can be used together with Create's signals. On a stretch of curve, aim at the curve itself, as described in "Joining, reversing and splitting routes".
 
-A signal also holds the trains that pass it to a speed, by the aspect it shows as the train passes: Restricted 25 km/h, Approach 45 km/h and Reduced speed 75 km/h by default, which the server settings `signals.restrictedSpeed`, `signals.approachSpeed` and `signals.reducedSpeed` change. The speed lasts until the train passes the next signal, and Proceed holds it to nothing. A train that passes at red, which only a driver at the controls can do, is held to the Restricted speed. A signal of Create's own lifts the limit as Proceed does. A speed limit sign holds the train separately, and the slower of the two applies. As with a sign, the train slows in time, so that it is at that speed as its front passes the signal. The train slows for the aspect the lamps show at the time, and a signal at Stop does not slow it, since Create stops the train there.
+A signal also holds the trains that pass it to a speed, by the aspect it shows as the train passes: Restricted 25 km/h, Approach 45 km/h and Reduced speed 75 km/h by default, which the server settings `signals.restrictedSpeed`, `signals.approachSpeed` and `signals.reducedSpeed` change. The speed lasts until the train passes the next signal, and Proceed holds it to nothing, except on the 6-Aspect signal. There Proceed, the single green, holds a train to 130 km/h by default, which the server setting `signals.sixAspectProceedSpeed` changes, and High-speed proceed, the two greens, holds it to nothing and so lifts that. A train that passes at red, which only a driver at the controls can do, is held to the Restricted speed. A signal of Create's own lifts the limit, as High-speed proceed does. A speed limit sign holds the train separately, and the slower of the two applies. As with a sign, the train slows in time, so that it is at that speed as its front passes the signal. The train slows for the aspect the lamps show at the time, and a signal at Stop does not slow it, since Create stops the train there.
 
 The housing can be moved to the centre, left or right. That is handy when a pole stands between two tracks and heads are shared out to either side. Pick it in the value box. The direction is set by which way you face when you place it, in 22.5 degree steps. A placed signal cannot be turned.
 
@@ -213,7 +239,7 @@ All lamps are the same white, and three of the seven light up. The meaning is re
 |---|---|---|
 | Three across | Stop relay (停止中継) | Stop |
 | Three on the diagonal | Restricted relay (制限中継) | Restricted, Approach or Reduced speed |
-| Three upright | Proceed relay (進行中継) | Proceed |
+| Three upright | Proceed relay (進行中継) | Proceed or High-speed proceed |
 | Dark | Nothing to show | There is no next signal |
 
 Where the line divides ahead, it shows the strictest aspect among the signals on each branch.
@@ -228,9 +254,9 @@ A train that passes a sign going the way it faces is held to its number from the
 
 ### Signal Pole
 
-A thin pole that carries signals. One block serves as a mast and as a crossbeam between masts. The direction it runs is set by the face you place it on, and it joins neighbouring poles and signals by itself. It joins the 5-Aspect Railway Signal and the Relay Signal, and does not join the Track Speed Limit.
+A thin pole that carries signals. One block serves as a mast and as a crossbeam between masts. The direction it runs is set by the face you place it on, and it joins neighbouring poles and signals by itself. It joins the Railway Signals and the Relay Signal, and does not join the Track Speed Limit.
 
-It joins a 5-Aspect Railway Signal from behind, below and either side, and not from the front. A right click with a wrench changes the direction. To run a long length, hold a pole and right click a pole already placed, and Create's placement assist suggests the position at the far end.
+It joins a Railway Signal from behind, below and either side, and not from the front. A right click with a wrench changes the direction. To run a long length, hold a pole and right click a pole already placed, and Create's placement assist suggests the position at the far end.
 
 ### Curve floor
 
@@ -273,6 +299,7 @@ A config file keeps the values it was written with. One written by an earlier ve
 | `signals.restrictedSpeed` | 25 | 1 to 1000 | The speed in km/h that a signal at Restricted holds a train to |
 | `signals.approachSpeed` | 45 | 1 to 1000 | The speed in km/h that a signal at Approach holds a train to |
 | `signals.reducedSpeed` | 75 | 1 to 1000 | The speed in km/h that a signal at Reduced speed holds a train to |
+| `signals.sixAspectProceedSpeed` | 130 | 1 to 1000 | The speed in km/h that a 6-Aspect signal at Proceed holds a train to. High-speed proceed holds a train to nothing. |
 
 The client settings change only how things are drawn, so each player can pick their own.
 
@@ -355,7 +382,7 @@ The main packages are as follows.
 | Package | Role |
 |---|---|
 | `track/` | Curve planning (`CurvePlanner`), anchors, the wand, survey markers, the curve floor, graph cleaning and repair |
-| `signal/` | The five-aspect signal and the relay signal |
+| `signal/` | The signals of two to six lamps (`SignalType`) and the relay signal |
 | `speed/` | The speed limit sign and its edge point |
 | `pole/` | The signal pole |
 | `client/` | Rendering, the ghost, screens |
