@@ -82,11 +82,15 @@ public class AngledTrackAnchorBlockEntity extends TrackBlockEntity {
 	 */
 	private static final int MAX_ROUTE_ANCHORS = 4096;
 
+	/** The normal of level track. */
+	private static final Vec3 UP = new Vec3(0, 1, 0);
+
 	private static final String TAG_YAW = "Yaw";
 	private static final String TAG_PREV = "Prev";
 	private static final String TAG_NEXT = "Next";
 	private static final String TAG_AXIS_FLIPPED = "AxisFlipped";
 	private static final String TAG_SLOPE = "Slope";
+	private static final String TAG_SLOPE_DOCK = "SlopeDock";
 
 	private float yaw = 0.0F;
 
@@ -133,6 +137,27 @@ public class AngledTrackAnchorBlockEntity extends TrackBlockEntity {
 	 */
 	private boolean flipped = false;
 
+	/**
+	 * Whether the side of this anchor that has no curve is joined to the end of a piece of Create's sloped
+	 * track, which then shares this anchor's one node.
+	 *
+	 * <p>Neither of the places an end usually puts its node meets a slope. A slope's end node is on the
+	 * boundary of the block beyond it, at that block's floor, and the track there runs at 45 degrees. An
+	 * end that climbs puts its node at the centre of its block, half a block from the slope's; an end that
+	 * is level keeps a span across its block, and a level span against a 45 degree slope is a joint
+	 * {@code TrackEdge.canTravelTo} lets no train across. So a docked end has a single node, on the
+	 * boundary of its free side at its floor, which is the slope's own, and its curve leaves from there
+	 * along the slope's axis. See {@link #dockNode}.
+	 *
+	 * <p>It only means anything for an end, an anchor with a curve on one side: see {@link #isSlopeDocked}.
+	 * The wand sets it as it lays the curve ({@link #linkTo(AngledTrackAnchorBlockEntity, Vec3, Vec3,
+	 * boolean, boolean)}), and it stays through whatever leaves the anchor an end — the route turned round,
+	 * a point put on the curve, the curve mended — since all of those keep the free side free. It is
+	 * dropped once the anchor has a curve on both sides or none, either of which leaves it no free side
+	 * that faces the slope. False for every anchor saved before there was any.
+	 */
+	private boolean slopeDock = false;
+
 	@Nullable
 	private BezierConnection cachedCurve = null;
 	private long cachedKey = Long.MIN_VALUE;
@@ -173,6 +198,17 @@ public class AngledTrackAnchorBlockEntity extends TrackBlockEntity {
 		return new Vec3(heading.x, slope, heading.z);
 	}
 
+	/**
+	 * The normal of track that runs along {@code heading} climbing at {@code slope}: straight up, tilted back
+	 * against the climb. It is the vector Create gives its own sloped track, {@code (0, 1, 1)} for the one that
+	 * climbs north, and it is the same whichever way the route is read, since turning round negates the heading
+	 * and the climb together.
+	 */
+	public static Vec3 slopeNormal(Vec3 heading, double slope) {
+		double length = Math.sqrt(1 + slope * slope);
+		return new Vec3(-slope * heading.x / length, 1 / length, -slope * heading.z / length);
+	}
+
 	/** The climb in a vector made by {@link #tangentOf}: its y over the length of its horizontal part. */
 	public static double slopeOf(Vec3 tangent) {
 		double run = Math.sqrt(tangent.x * tangent.x + tangent.z * tangent.z);
@@ -187,6 +223,23 @@ public class AngledTrackAnchorBlockEntity extends TrackBlockEntity {
 	/** See {@link #flipped}. */
 	public boolean isFlipped() {
 		return flipped;
+	}
+
+	/**
+	 * Whether this anchor is an end docked onto Create's sloped track, with its node on the slope's end:
+	 * see {@link #slopeDock}. Only an end can be, so this is false for an anchor with a curve on both sides
+	 * or on neither, whatever was set.
+	 */
+	public boolean isSlopeDocked() {
+		return slopeDock && (prev == null) != (next == null);
+	}
+
+	/** Drops {@link #slopeDock} from an anchor that is no longer an end, once its links have settled. */
+	private void dropDockUnlessEnd() {
+		if (!slopeDock || (prev == null) != (next == null))
+			return;
+		slopeDock = false;
+		markChanged();
 	}
 
 	/**
@@ -251,9 +304,13 @@ public class AngledTrackAnchorBlockEntity extends TrackBlockEntity {
 	 * <p>An anchor holds one link in each direction, so it has two sides and a route runs through
 	 * it rather than branching at it. A new curve takes whichever side is free: out of the next
 	 * side, carrying the route on, or out of the prev side, going back the way the route came.
+	 *
+	 * <p>An end docked onto a slope has none. The side without a curve is the slope's, and a curve there
+	 * would make the anchor one with a curve on each side, whose node is at its centre and not on the
+	 * slope's end.
 	 */
 	public boolean hasFreeSide() {
-		return prev == null || next == null;
+		return (prev == null || next == null) && !isSlopeDocked();
 	}
 
 	/**
@@ -292,8 +349,30 @@ public class AngledTrackAnchorBlockEntity extends TrackBlockEntity {
 	 */
 	public void linkTo(AngledTrackAnchorBlockEntity other, @Nullable Vec3 thisHeading,
 		@Nullable Vec3 otherHeading) {
+		linkTo(other, thisHeading, otherHeading, false, false);
+	}
+
+	/**
+	 * The same, docking either anchor onto Create's sloped track at the side the link leaves free: see
+	 * {@link #slopeDock}. It is set in the same step as the link rather than before or after it, so that
+	 * the graph is torn down around what the anchors reported and rebuilt around where their nodes are
+	 * now, once, with nothing reported in between.
+	 *
+	 * <p>An anchor that already had a curve and is not docked here keeps whatever it was, which is how one
+	 * docked stays so when its curve is moved to a new neighbour. One that had none is docked exactly when
+	 * it is asked to be: it has just become an end, and nothing it was before is about this end. Putting a
+	 * point on a curve or mending one takes the far anchor's link away and gives it a new one in the next
+	 * call, so those pass on whether it was docked.
+	 *
+	 * @param thisDocks  whether this anchor's free side is to be the slope's end.
+	 * @param otherDocks the same for {@code other}.
+	 */
+	public void linkTo(AngledTrackAnchorBlockEntity other, @Nullable Vec3 thisHeading, @Nullable Vec3 otherHeading,
+		boolean thisDocks, boolean otherDocks) {
 		if (other == this)
 			return;
+		boolean thisWasLone = !isLinked();
+		boolean otherWasLone = !other.isLinked();
 
 		// What every anchor this is about to change reports, so that each can go on reporting the
 		// same way afterwards: see keepAxisSign. Whatever is displaced from either side loses a link
@@ -323,6 +402,14 @@ public class AngledTrackAnchorBlockEntity extends TrackBlockEntity {
 		next = other.getBlockPos();
 		other.prev = worldPosition;
 
+		// Before the axes are held and the graph is pruned, both of which go by where the nodes are now.
+		if (thisDocks || thisWasLone)
+			slopeDock = thisDocks;
+		if (otherDocks || otherWasLone)
+			other.slopeDock = otherDocks;
+		dropDockUnlessEnd();
+		other.dropDockUnlessEnd();
+
 		invalidateNeighbourhood();
 		other.invalidateNeighbourhood();
 		keepAxisSigns(reported);
@@ -340,10 +427,19 @@ public class AngledTrackAnchorBlockEntity extends TrackBlockEntity {
 		// middle of a route: see keepAxisSign. This one is left to report whatever it does, since with
 		// no curve left it has no edge for anything to stand on.
 		Map<AngledTrackAnchorBlockEntity, Vec3> reported = reportedBy(anchorAt(prev), anchorAt(next));
+		AngledTrackAnchorBlockEntity before = anchorAt(prev);
+		AngledTrackAnchorBlockEntity after = anchorAt(next);
 
 		Set<TrackNodeLocation> stale = detachNeighbourhood();
 		clearNextOfThis();
 		clearPrevOfThis();
+		// Neither this anchor nor a neighbour whose only curve this was has a curve left, and an anchor
+		// docked onto a slope is an end of one.
+		slopeDock = false;
+		if (before != null)
+			before.dropDockUnlessEnd();
+		if (after != null)
+			after.dropDockUnlessEnd();
 		invalidateNeighbourhood();
 		keepAxisSigns(reported);
 		pruneGraph(stale);
@@ -1097,15 +1193,65 @@ public class AngledTrackAnchorBlockEntity extends TrackBlockEntity {
 	 * and the curves either side simply meet there with opposite tangents.
 	 *
 	 * <p>An open side keeps its boundary node instead, because that is where Create's own track
-	 * puts its nodes and sharing one is what lets the two dock.
+	 * puts its nodes and sharing one is what lets the two dock. An end docked onto a slope has the one
+	 * node, on the slope's end: see {@link #dockNode}.
 	 */
 	public Vec3 entryNode() {
-		return entryNode(worldPosition, heading(), isInterior(), slope != 0);
+		Vec3 dock = dockNode();
+		return dock != null ? dock : entryNode(worldPosition, heading(), isInterior(), slope != 0);
 	}
 
 	/** The node the curve to {@link #next} leaves from. The block's centre when interior. */
 	public Vec3 exitNode() {
-		return exitNode(worldPosition, heading(), isInterior(), slope != 0);
+		Vec3 dock = dockNode();
+		return dock != null ? dock : exitNode(worldPosition, heading(), isInterior(), slope != 0);
+	}
+
+	/**
+	 * The one node of an end docked onto a slope, or null for any other anchor: see {@link #slopeDock}.
+	 *
+	 * <p>The free side is the one the slope is on. With nothing behind, the route leaves the slope and
+	 * the slope is behind; with nothing ahead, the route arrives at the slope and it is ahead. Turning the
+	 * route round swaps the two and turns the heading round as well, so the node does not move.
+	 */
+	@Nullable
+	private Vec3 dockNode() {
+		return isSlopeDocked() ? slopeDockNode(worldPosition, heading(), prev == null) : null;
+	}
+
+	/**
+	 * The normal of the rails at this anchor's node: the slope's for an end docked onto one, and straight up
+	 * for every other.
+	 *
+	 * <p>The node is shared with the slope, and Create gives a straight edge the normal of its first node and
+	 * puts a carriage's anchor a block along it. A node keeps the normal of whatever created it first, which
+	 * is the anchor or the slope depending on which of them the graph was last rebuilt from, so the two have
+	 * to say the same or the slope's edge is a few tenths of a block off the rail in one direction. Create's
+	 * own curve between a slope and flat track does it the same way: the slope's normal at that end, straight
+	 * up at the other, turning between them.
+	 */
+	public Vec3 nodeNormal() {
+		return isSlopeDocked() ? slopeNormal(heading(), slope) : UP;
+	}
+
+	/** The normals of the two points {@link #seedPair} gives, in the same order. */
+	public Couple<Vec3> seedNormals() {
+		return isSlopeDocked() ? Couple.create(nodeNormal(), UP) : Couple.create(UP, UP);
+	}
+
+	/**
+	 * Where the node of an anchor at {@code pos} docked onto a slope is: on the boundary of its block that
+	 * faces the slope, at its floor. Shared with the planner, which has to put the same point under a
+	 * curve to an anchor that does not exist yet.
+	 *
+	 * @param heading     which way the route runs through the anchor; it lies along one of the four axes,
+	 *                    since a slope does.
+	 * @param trackBehind whether the slope is behind the anchor, against its heading.
+	 */
+	public static Vec3 slopeDockNode(BlockPos pos, Vec3 heading, boolean trackBehind) {
+		Vec3 centre = Vec3.atBottomCenterOf(pos);
+		Vec3 offset = forwardOffset(heading);
+		return trackBehind ? centre.subtract(offset) : centre.add(offset);
 	}
 
 	/**
@@ -1130,8 +1276,15 @@ public class AngledTrackAnchorBlockEntity extends TrackBlockEntity {
 	 * has only its centre, so pair it with a boundary the real graph never uses: seeding stops at
 	 * the first location it can make a node of, and reporting the centre first means that is the
 	 * centre.
+	 *
+	 * <p>An end docked onto a slope has only the slope's end, and is paired with its own centre, which
+	 * nothing else reports while it is docked. The slope's end is always where seeding stops, since its
+	 * curve leaves from it.
 	 */
 	public Couple<Vec3> seedPair() {
+		Vec3 dock = dockNode();
+		if (dock != null)
+			return Couple.create(dock, Vec3.atBottomCenterOf(worldPosition));
 		Vec3 entry = entryNode();
 		Vec3 exit = exitNode();
 		if (entry.distanceToSqr(exit) > 1.0E-6)
@@ -1157,8 +1310,6 @@ public class AngledTrackAnchorBlockEntity extends TrackBlockEntity {
 			.lengthSqr() < 1.0E-4)
 			return null;
 
-		Vec3 up = new Vec3(0, 1, 0);
-
 		return new BezierConnection(Couple.create(worldPosition, next), Couple.create(start, end),
 			// Both tangents point into the curve: ours forwards along the route, the far end's
 			// backwards along it. Create's determineHandles negates the second before measuring
@@ -1166,7 +1317,8 @@ public class AngledTrackAnchorBlockEntity extends TrackBlockEntity {
 			// Each carries its anchor's climb, which Create reads only for where the handles point.
 			Couple.create(tangent(), ahead.tangent()
 				.scale(-1)),
-			Couple.create(up, up), true, false, TrackMaterial.ANDESITE);
+			// Straight up, except where an end is docked onto a slope, which the rails there lie on.
+			Couple.create(nodeNormal(), ahead.nodeNormal()), true, false, TrackMaterial.ANDESITE);
 	}
 
 	/**
@@ -1369,6 +1521,8 @@ public class AngledTrackAnchorBlockEntity extends TrackBlockEntity {
 			tag.putFloat(TAG_SLOPE, slope);
 		if (flipped)
 			tag.putBoolean(TAG_AXIS_FLIPPED, true);
+		if (slopeDock)
+			tag.putBoolean(TAG_SLOPE_DOCK, true);
 		if (prev != null)
 			tag.putLong(TAG_PREV, prev.asLong());
 		if (next != null)
@@ -1383,6 +1537,7 @@ public class AngledTrackAnchorBlockEntity extends TrackBlockEntity {
 		prev = tag.contains(TAG_PREV) ? BlockPos.of(tag.getLong(TAG_PREV)) : null;
 		next = tag.contains(TAG_NEXT) ? BlockPos.of(tag.getLong(TAG_NEXT)) : null;
 		flipped = tag.getBoolean(TAG_AXIS_FLIPPED);
+		slopeDock = tag.getBoolean(TAG_SLOPE_DOCK);
 		invalidateCurve();
 	}
 }

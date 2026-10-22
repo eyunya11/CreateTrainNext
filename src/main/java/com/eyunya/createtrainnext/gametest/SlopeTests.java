@@ -314,22 +314,64 @@ public class SlopeTests {
 	// ------------------------------------------------------------------ limit
 
 	/**
-	 * One block of rise in three of run is as steep as a curve may be, and no steeper: the limit the
-	 * mod has always had, now measured as a grade.
+	 * With the limit at 333, one block of rise in three of run is as steep as a curve may be, and no
+	 * steeper: the limit is a grade, compared to the whole permille.
+	 *
+	 * <p>The setting is put back whether or not the checks pass: the tests share one server.
 	 */
 	@GameTest(template = EMPTY)
-	public static void oneBlockInThreeIsTheSteepestAllowed(GameTestHelper helper) {
+	public static void oneBlockInThreeIsTheSteepestAllowedAtALimitOf333(GameTestHelper helper) {
 		BlockPos from = new BlockPos(4, 1, 16);
 		anchor(helper, from);
+		int original = CTNConfig.SERVER.maxGrade.get();
 
-		// Five up over fifteen is 333 permille, which is the limit and not over it.
-		CurvePlanner.Plan exactly = plan(helper, from, new BlockPos(19, 6, 16));
-		helper.assertTrue(exactly.valid(), "five blocks of rise in fifteen should be allowed, but: " + exactly.error());
+		try {
+			CTNConfig.SERVER.maxGrade.set(333);
+			// Five up over fifteen is 333 permille, which is the limit and not over it.
+			CurvePlanner.Plan exactly = plan(helper, from, new BlockPos(19, 6, 16));
+			helper.assertTrue(exactly.valid(), "five blocks of rise in fifteen should be allowed, but: " + exactly.error());
 
-		// Five over fourteen is 357.
-		CurvePlanner.Plan steeper = plan(helper, from, new BlockPos(18, 6, 16));
-		helper.assertTrue("too_steep".equals(steeper.error()),
-			"five blocks of rise in fourteen should be too steep, but: " + steeper.error());
+			// Five over fourteen is 357.
+			CurvePlanner.Plan steeper = plan(helper, from, new BlockPos(18, 6, 16));
+			helper.assertTrue("too_steep".equals(steeper.error()),
+				"five blocks of rise in fourteen should be too steep, but: " + steeper.error());
+		} finally {
+			CTNConfig.SERVER.maxGrade.set(original);
+		}
+		helper.succeed();
+	}
+
+	/**
+	 * Left at its default, the limit is 45 degrees, a block of rise for each block of run, which is how
+	 * steeply Create's own sloped track climbs: a straight climb that steep is allowed, and one steeper
+	 * is not.
+	 *
+	 * <p>The default is put in for the test rather than assumed: a server's config file keeps the value it
+	 * was first written with, and a test folder that is not thrown away keeps one from an older default.
+	 */
+	@GameTest(template = EMPTY)
+	public static void theDefaultLimitIsFortyFiveDegrees(GameTestHelper helper) {
+		BlockPos from = new BlockPos(4, 1, 16);
+		anchor(helper, from);
+		int original = CTNConfig.SERVER.maxGrade.get();
+		helper.assertTrue(CTNConfig.SERVER.maxGrade.getDefault() == 1000,
+			"the default should be 1000 permille, but is " + CTNConfig.SERVER.maxGrade.getDefault());
+
+		try {
+			CTNConfig.SERVER.maxGrade.set(CTNConfig.SERVER.maxGrade.getDefault());
+			// Five up over five.
+			CurvePlanner.Plan exactly = plan(helper, from, new BlockPos(9, 6, 16));
+			helper.assertTrue(exactly.valid(), "five blocks of rise in five should be allowed, but: " + exactly.error());
+			helper.assertTrue(near(exactly.steepestGrade(), 1.0, 1.0E-6),
+				"it should be 45 degrees all the way, but is " + exactly.steepestGrade() + " at its steepest");
+
+			// Five over four is 1250.
+			CurvePlanner.Plan steeper = plan(helper, from, new BlockPos(8, 6, 16));
+			helper.assertTrue("too_steep".equals(steeper.error()),
+				"five blocks of rise in four should be too steep, but: " + steeper.error());
+		} finally {
+			CTNConfig.SERVER.maxGrade.set(original);
+		}
 		helper.succeed();
 	}
 
@@ -707,20 +749,28 @@ public class SlopeTests {
 	/**
 	 * A climb that is too steep is refused with how steep it is and what the limit is, and any other
 	 * refusal is only its reason.
+	 *
+	 * <p>The setting is put back whether or not the checks pass: the tests share one server.
 	 */
 	@GameTest(template = EMPTY)
 	public static void aClimbThatIsTooSteepIsToldHowSteepAndWhatTheLimitIs(GameTestHelper helper) {
 		BlockPos from = new BlockPos(4, 1, 16);
 		anchor(helper, from);
+		int original = CTNConfig.SERVER.maxGrade.get();
 
-		// Five up over fourteen: 357 permille against the limit of 333.
-		CurvePlanner.Plan steep = plan(helper, from, new BlockPos(18, 6, 16));
-		helper.assertTrue("too_steep".equals(steep.error()), "setup: the climb should be too steep, but: " + steep.error());
-		TranslatableContents said = translatable(helper, CurveWandItem.refusal(steep));
-		helper.assertTrue("message.createtrainnext.wand.too_steep_by".equals(said.getKey()),
-			"it should say how steep, but uses " + said.getKey());
-		helper.assertTrue(Arrays.equals(said.getArgs(), new Object[] { 357, CurvePlanner.maxGradePermille() }),
-			"it should say 357 against the limit, but says " + Arrays.toString(said.getArgs()));
+		try {
+			CTNConfig.SERVER.maxGrade.set(333);
+			// Five up over fourteen: 357 permille against the limit of 333.
+			CurvePlanner.Plan steep = plan(helper, from, new BlockPos(18, 6, 16));
+			helper.assertTrue("too_steep".equals(steep.error()), "setup: the climb should be too steep, but: " + steep.error());
+			TranslatableContents said = translatable(helper, CurveWandItem.refusal(steep));
+			helper.assertTrue("message.createtrainnext.wand.too_steep_by".equals(said.getKey()),
+				"it should say how steep, but uses " + said.getKey());
+			helper.assertTrue(Arrays.equals(said.getArgs(), new Object[] { 357, 333 }),
+				"it should say 357 against the limit, but says " + Arrays.toString(said.getArgs()));
+		} finally {
+			CTNConfig.SERVER.maxGrade.set(original);
+		}
 
 		CurvePlanner.Plan close = plan(helper, from, new BlockPos(5, 1, 16));
 		TranslatableContents other = translatable(helper, CurveWandItem.refusal(close));
@@ -1404,9 +1454,9 @@ public class SlopeTests {
 	 * A line steeper than the limit is refused, with how steep it came out, and the limit is
 	 * {@code curves.maxGrade}.
 	 *
-	 * <p>The grade asked for is within the limit and the one the line has is not: 330 permille over five
-	 * blocks is 1.65, which is two blocks, which is 400. The setting is put back whether or not the checks
-	 * pass: the tests share one server.
+	 * <p>The grade asked for is within a limit of 333 and the one the line has is not: 330 permille over
+	 * five blocks is 1.65, which is two blocks, which is 400. The setting is put back whether or not the
+	 * checks pass: the tests share one server.
 	 */
 	@GameTest(template = EMPTY)
 	public static void aSurveyLineSteeperThanTheLimitIsRefused(GameTestHelper helper) {
@@ -1415,11 +1465,12 @@ public class SlopeTests {
 		int original = CTNConfig.SERVER.maxGrade.get();
 
 		try {
+			CTNConfig.SERVER.maxGrade.set(333);
 			CurvePlanner.StraightPlan steep = CurvePlanner.planStraight(level, helper.absolutePos(from), EAST, 5, 330);
 			helper.assertTrue("too_steep".equals(steep.error()), "400 permille should be too steep, but: " + steep.error());
 			helper.assertTrue(steep.hasGeometry(), "a refusal for steepness should still have a line to draw in red");
 			TranslatableContents said = translatable(helper, CurveWandItem.refusal(steep.error(), Math.abs(steep.slope())));
-			helper.assertTrue(Arrays.equals(said.getArgs(), new Object[] { 400, original }),
+			helper.assertTrue(Arrays.equals(said.getArgs(), new Object[] { 400, 333 }),
 				"it should say 400 against the limit, but says " + Arrays.toString(said.getArgs()));
 
 			helper.assertTrue(CurvePlanner.planStraight(level, helper.absolutePos(from), EAST, 16, 100)
@@ -1518,11 +1569,20 @@ public class SlopeTests {
 		CurvePlanner.StraightPlan expected = CurvePlanner.planStraight(level, helper.absolutePos(pos), 270, 16, 100);
 		helper.assertTrue(expected.valid() && expected.rise() == 2, "setup: the line should climb two blocks: " + expected.error());
 
-		// Too steep for the limit: nothing is laid, and the marker is still a marker.
-		marker(helper, pos).configure(270, 5, 330);
+		// Too steep for a limit of 333: 330 over five blocks rounds to two, which is 400. Nothing is laid,
+		// and the marker is still a marker. The setting is put back whatever happens: the tests share one
+		// server.
 		BlockHitResult hit = new BlockHitResult(Vec3.atCenterOf(helper.absolutePos(pos)), Direction.UP, helper.absolutePos(pos), false);
-		ItemInteractionResult refused = level.getBlockState(helper.absolutePos(pos))
-			.useItemOn(wand, level, player, InteractionHand.MAIN_HAND, hit);
+		int original = CTNConfig.SERVER.maxGrade.get();
+		ItemInteractionResult refused;
+		try {
+			CTNConfig.SERVER.maxGrade.set(333);
+			marker(helper, pos).configure(270, 5, 330);
+			refused = level.getBlockState(helper.absolutePos(pos))
+				.useItemOn(wand, level, player, InteractionHand.MAIN_HAND, hit);
+		} finally {
+			CTNConfig.SERVER.maxGrade.set(original);
+		}
 		helper.assertTrue(refused == ItemInteractionResult.FAIL, "a line that is too steep should be refused, but gave " + refused);
 		helper.assertTrue(level.getBlockState(helper.absolutePos(pos))
 			.is(CTNRegistry.SURVEY_MARKER.get()), "a refused line should leave the marker where it was");
