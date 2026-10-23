@@ -227,6 +227,8 @@ A signal also holds the trains that pass it to a speed, by the aspect it shows a
 
 The housing can be moved to the centre, left or right. That is handy when a pole stands between two tracks and heads are shared out to either side. Pick it in the value box. The direction is set by which way you face when you place it, in 22.5 degree steps. A placed signal cannot be turned.
 
+The 6-Aspect signal is taller than a block, 18.25 pixels. It is still one block, so the block above it stays free and anything can be placed there. The top 2.25 pixels are drawn in that space but cannot be pointed at and have no collision.
+
 Stopping trains and reserving sections is Create's job, and this signal decides its lamps and the speed set by them. The lamps refresh about every 0.5 seconds.
 
 ### Relay Signal
