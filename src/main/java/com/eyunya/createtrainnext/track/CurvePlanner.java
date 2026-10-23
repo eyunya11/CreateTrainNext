@@ -818,20 +818,7 @@ public final class CurvePlanner {
 			Vec3 axis = axes.get(0);
 			Vec3 toOther = flat(towards.subtract(Vec3.atBottomCenterOf(hitPos)));
 			Vec3 side = axis.dot(toOther) < 0 ? axis.scale(-1) : axis;
-			if (Math.abs(axis.y) > 1.0E-4)
-				return slopeEnd(level, hitPos, state, track, side, role);
-
-			BlockPos anchorPos = hitPos.offset(BlockPos.containing(side));
-			if (level.getBlockEntity(anchorPos) instanceof AngledTrackAnchorBlockEntity existing)
-				return fromExisting(existing, role);
-			if (!level.getBlockState(anchorPos)
-				.canBeReplaced())
-				return Endpoint.failed("no_room");
-
-			// Headings always point downstream, so a route leaving a track points away from it and
-			// one arriving points into it. Both put the anchor's shared node on the track's side.
-			Vec3 heading = (role == Role.START ? side : side.scale(-1)).normalize();
-			return new Endpoint(null, anchorPos, true, heading, false, true, Side.EITHER, 0.0);
+			return trackEnd(level, hitPos, state, track, side, role);
 		}
 
 		// Open ground: the anchor goes where a block would have gone. Only ever the far end of a
@@ -852,38 +839,45 @@ public final class CurvePlanner {
 	}
 
 	/**
-	 * The end of a piece of Create's sloped track that faces the rest of the curve, as an end for the curve
-	 * to dock onto.
+	 * The end of a piece of Create's track that faces the rest of the curve, as an end for the curve: level
+	 * track, which the curve meets beside it, and sloped track, which it docks onto. One for both, so that
+	 * where the anchor goes and what is in its way are worked out the same way for each.
 	 *
-	 * <p>The node is where Create puts it, half the slope's axis from a centre half a block up
-	 * ({@code ITrackBlock#getConnected}): on the boundary of the block beyond that end, at that block's
-	 * floor, which is a block above the slope's floor at the top and level with it at the foot. The anchor
-	 * goes in that block and shares the node — {@link AngledTrackAnchorBlockEntity#slopeDockNode} puts it
+	 * <p>The node is where Create puts it, half the track's axis from the centre of the block at the height
+	 * of the track there ({@code ITrackBlock#getConnected}): on the boundary of the block beyond that end, at
+	 * that block's floor. For level track that is the floor of the track's own block; for a slope it is a
+	 * block above the slope's floor at the top and level with it at the foot. The anchor goes in the block
+	 * beyond and shares the node — at a slope {@link AngledTrackAnchorBlockEntity#slopeDockNode} puts it
 	 * there from the anchor's side, and is what is used here, so that the planner and the anchor cannot
-	 * disagree — and the curve runs along the slope's axis at that end, at its climb: up and out of the
-	 * top, down and out of the foot, and the other way round for a curve that arrives.
+	 * disagree — and the curve runs along the track's axis at that end, at its climb: out of the track at a
+	 * start and into it at an end, so up and out of a slope's top, down and out of its foot.
 	 *
-	 * <p>An anchor already there is taken as it is when it stands on its own, and refused when it is the end
-	 * of anything: one docked onto this slope has nowhere left to go, and the end of another route is in
+	 * <p>An anchor already there is where they differ. Beside level track it is taken as it is, whatever it
+	 * holds, since it shares the track's node either way. Beside a slope it has to become docked, and only one
+	 * standing on its own can: a docked one has that end of the slope already, and the end of another route
+	 * would be docked with a curve it already has, which nothing here measures against the slope, so it is in
 	 * the way.
 	 *
-	 * @param side the slope's axis, pointing out of the end that faces the rest of the curve.
+	 * @param side the track's axis, pointing out of the end that faces the rest of the curve.
 	 */
-	private static Endpoint slopeEnd(Level level, BlockPos hitPos, BlockState state, ITrackBlock track, Vec3 side,
+	private static Endpoint trackEnd(Level level, BlockPos hitPos, BlockState state, ITrackBlock track, Vec3 side,
 		Role role) {
 		Vec3 node = Vec3.atBottomCenterOf(hitPos)
 			.add(0, track.getElevationAtCenter(level, hitPos, state), 0)
 			.add(side.scale(0.5));
 		BlockPos anchorPos = BlockPos.containing(node.add(flatUnit(side).scale(0.5)));
 
-		// Which way the curve runs at this end, climb and all: out of the slope at the start, into it at the
-		// end. The slope is behind a start and ahead of an end, the way it goes.
+		// Headings always point downstream, so a route leaving a track points away from it and one arriving
+		// points into it, climb and all. The track is behind a start and ahead of an end, the way it goes.
 		Vec3 travel = role == Role.START ? side : side.scale(-1);
 		Vec3 heading = flatUnit(travel);
 		double slope = AngledTrackAnchorBlockEntity.slopeOf(travel);
-		Vec3 dockNode = AngledTrackAnchorBlockEntity.slopeDockNode(anchorPos, heading, role == Role.START);
+		boolean sloped = Math.abs(side.y) > 1.0E-4;
+		Vec3 dockNode = sloped ? AngledTrackAnchorBlockEntity.slopeDockNode(anchorPos, heading, role == Role.START) : null;
 
 		if (level.getBlockEntity(anchorPos) instanceof AngledTrackAnchorBlockEntity existing) {
+			if (!sloped)
+				return fromExisting(existing, role);
 			if (existing.isSlopeDocked())
 				return Endpoint.failed("dock_taken");
 			if (existing.isLinked())
