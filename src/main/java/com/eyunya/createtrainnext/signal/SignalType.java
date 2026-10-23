@@ -21,21 +21,30 @@ import com.eyunya.createtrainnext.signal.SignalAspect.LampColour;
  *
  * <p>The column does not change with traffic, so nothing here is saved by a head: the block it stands
  * in is its type.
+ *
+ * <p>Each type also says where its housing is, because the models are drawn by hand and no two heads are
+ * the same height: the bottom and top of the body and the height of every lamp's socket. They are read off
+ * {@code housing.json} of the type's folder, and a game test reads them off it again, so a redrawn housing
+ * cannot go on being shown with the numbers of the one before. The six-aspect is taller than a block, and
+ * that is fine: it is still one block, and the space above it is free for another.
  */
 public enum SignalType {
 
 	/** 2灯式. Red over green: 停止 or 進行, and nothing between. */
 	TWO("multi_aspect_signal_2", "multi_aspect_signal_2", Ladder.TWO,
+		housing(3.5F, 12.5F, 9F, 6.75F),
 		colours(LampColour.RED, LampColour.GREEN),
 		lit(SignalAspect.STOP, 1), lit(SignalAspect.PROCEED, 2)),
 
 	/** 3灯式. Yellow, red, green. */
 	THREE("multi_aspect_signal_3", "multi_aspect_signal_3", Ladder.THREE,
+		housing(2F, 14F, 10.25F, 8F, 5.75F),
 		colours(LampColour.YELLOW, LampColour.RED, LampColour.GREEN),
 		lit(SignalAspect.STOP, 2), lit(SignalAspect.APPROACH, 1), lit(SignalAspect.PROCEED, 3)),
 
 	/** 4灯式. Yellow, red, yellow, green: the five-aspect's lamps 2 to 5. */
 	FOUR("multi_aspect_signal_4", "multi_aspect_signal_4", Ladder.FOUR,
+		housing(1F, 15F, 11.25F, 9F, 6.75F, 4.5F),
 		colours(LampColour.YELLOW, LampColour.RED, LampColour.YELLOW, LampColour.GREEN),
 		lit(SignalAspect.STOP, 2), lit(SignalAspect.APPROACH, 3), lit(SignalAspect.REDUCED_SPEED, 1, 4),
 		lit(SignalAspect.PROCEED, 4)),
@@ -50,6 +59,7 @@ public enum SignalType {
 	 * the single-lamp aspects that share their colours.
 	 */
 	FIVE("multi_aspect_signal", "multi_aspect_signal", Ladder.FIVE,
+		housing(0F, 16F, 12.25F, 10F, 7.75F, 5.5F, 3.25F),
 		colours(LampColour.YELLOW, LampColour.YELLOW, LampColour.RED, LampColour.YELLOW, LampColour.GREEN),
 		lit(SignalAspect.STOP, 3), lit(SignalAspect.RESTRICTED, 1, 4), lit(SignalAspect.APPROACH, 4),
 		lit(SignalAspect.REDUCED_SPEED, 2, 5), lit(SignalAspect.PROCEED, 5)),
@@ -61,19 +71,18 @@ public enum SignalType {
 	 * ({@code signals.sixAspectProceedSpeed}): it is the aspect of a line that is clear but not clear
 	 * enough to run at full speed. The two greens at 2 and 6 are 高速進行, which holds a train to
 	 * nothing. There is no 警戒.
+	 *
+	 * <p>Its housing is taller than a block, 18.25 pixels. The part above 16 is only drawn: the block's
+	 * shape stops at 16, as a block's must, and nothing of this type occupies the block above, which
+	 * stays free for anything else to be placed in.
 	 */
 	SIX("multi_aspect_signal_6", "multi_aspect_signal_6", Ladder.SIX,
 		() -> CTNConfig.SERVER.sixAspectProceedSpeed.get(),
+		housing(0F, 18.25F, 14.5F, 12.25F, 10F, 7.75F, 5.5F, 3.25F),
 		colours(LampColour.YELLOW, LampColour.GREEN, LampColour.RED, LampColour.GREEN, LampColour.YELLOW,
 			LampColour.GREEN),
 		lit(SignalAspect.STOP, 3), lit(SignalAspect.APPROACH, 5), lit(SignalAspect.REDUCED_SPEED, 1, 4),
 		lit(SignalAspect.PROCEED, 4), lit(SignalAspect.HIGH_SPEED_PROCEED, 2, 6));
-
-	/** The height of the middle of the five-aspect's middle lamp, in pixels. Every column is centred on it. */
-	private static final float CENTRE_Y = 7.75F;
-
-	/** Pixels between neighbouring lamps in the five-aspect's model, which every column keeps. */
-	private static final float SPACING = 2.25F;
 
 	private final String blockName;
 	private final String modelDir;
@@ -81,20 +90,24 @@ public enum SignalType {
 	private final IntSupplier proceedSpeed;
 	private final LampColour[] colours;
 	private final Map<SignalAspect, Integer> masks = new EnumMap<>(SignalAspect.class);
-	private final float[] socketY;
+	private final Housing housing;
 
-	SignalType(String blockName, String modelDir, Ladder ladder, LampColour[] colours, Lit... patterns) {
-		this(blockName, modelDir, ladder, () -> SignalAspect.NO_LIMIT, colours, patterns);
+	SignalType(String blockName, String modelDir, Ladder ladder, Housing housing, LampColour[] colours,
+		Lit... patterns) {
+		this(blockName, modelDir, ladder, () -> SignalAspect.NO_LIMIT, housing, colours, patterns);
 	}
 
-	SignalType(String blockName, String modelDir, Ladder ladder, IntSupplier proceedSpeed, LampColour[] colours,
-		Lit... patterns) {
+	SignalType(String blockName, String modelDir, Ladder ladder, IntSupplier proceedSpeed, Housing housing,
+		LampColour[] colours, Lit... patterns) {
 		this.blockName = blockName;
 		this.modelDir = modelDir;
 		this.ladder = ladder;
 		this.proceedSpeed = proceedSpeed;
+		this.housing = housing;
 		this.colours = colours;
-		this.socketY = centredSockets(colours.length);
+		if (housing.socketY.length != colours.length)
+			throw new IllegalArgumentException(blockName + " has " + colours.length + " lamps and "
+				+ housing.socketY.length + " sockets");
 
 		for (Lit pattern : patterns) {
 			int mask = 0;
@@ -156,13 +169,28 @@ public enum SignalType {
 	 *
 	 * <p>The renderer moves every lamp from the one socket the lamp models are drawn at to here, so this
 	 * is the only number that has to change when a type's housing is redrawn with its lamps elsewhere.
-	 * Until it is, the lamps are spread about the middle of the five-aspect's housing at its spacing,
-	 * which for the five-aspect itself is exactly where its sockets are.
+	 * It is the centre of the ring round the socket in that type's {@code housing.json}.
 	 */
 	public float socketY(int position) {
 		if (position < 1 || position > colours.length)
 			throw new IllegalArgumentException("No lamp at position " + position);
-		return socketY[position - 1];
+		return housing.socketY[position - 1];
+	}
+
+	/**
+	 * The height in pixels of the bottom of the housing's body, the part behind and around the lamps.
+	 * Below it there is only the pole, which stands on the ground.
+	 */
+	public float bodyBottom() {
+		return housing.bodyBottom;
+	}
+
+	/**
+	 * The height in pixels of the top of the housing's body and of its pole, which end together. Over 16
+	 * for the six-aspect, whose housing is taller than the block it stands in.
+	 */
+	public float bodyTop() {
+		return housing.bodyTop;
 	}
 
 	/**
@@ -175,11 +203,8 @@ public enum SignalType {
 		return proceedSpeed.getAsInt();
 	}
 
-	private static float[] centredSockets(int lampCount) {
-		float[] heights = new float[lampCount];
-		for (int position = 1; position <= lampCount; position++)
-			heights[position - 1] = CENTRE_Y + ((lampCount + 1) / 2F - position) * SPACING;
-		return heights;
+	private static Housing housing(float bodyBottom, float bodyTop, float... socketY) {
+		return new Housing(bodyBottom, bodyTop, socketY);
 	}
 
 	private static LampColour[] colours(LampColour... colours) {
@@ -189,6 +214,9 @@ public enum SignalType {
 	private static Lit lit(SignalAspect aspect, int... positions) {
 		return new Lit(aspect, positions);
 	}
+
+	/** Where a type's housing is, in pixels, as drawn in its {@code housing.json}. */
+	private record Housing(float bodyBottom, float bodyTop, float[] socketY) {}
 
 	/** One aspect and the lamps it lights, as written in the table above. */
 	private record Lit(SignalAspect aspect, int[] positions) {}

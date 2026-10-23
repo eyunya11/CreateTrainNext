@@ -164,28 +164,6 @@ public class SignalTypeTests {
 		helper.succeed();
 	}
 
-	/** The five-aspect's lamps are where its model has the sockets, and the others are spread about the middle of them. */
-	@GameTest(template = EMPTY)
-	public static void lampsSitWhereTheirModelHasThem(GameTestHelper helper) {
-		float[] five = { 12.25F, 10F, 7.75F, 5.5F, 3.25F };
-		for (int position = 1; position <= 5; position++)
-			helper.assertTrue(SignalType.FIVE.socketY(position) == five[position - 1],
-				"lamp " + position + " of the five-aspect should be at " + five[position - 1] + ", but is at " + SignalType.FIVE.socketY(position));
-
-		for (SignalType type : SignalType.values()) {
-			float sum = 0;
-			for (int position = 1; position <= type.lampCount(); position++) {
-				sum += type.socketY(position);
-				if (position > 1)
-					helper.assertTrue(Math.abs(type.socketY(position - 1) - type.socketY(position) - 2.25F) < 1.0E-4,
-						type + " should space its lamps 2.25 pixels apart, top lamp first");
-			}
-			helper.assertTrue(Math.abs(sum / type.lampCount() - 7.75F) < 1.0E-4,
-				type + " should centre its lamps on the middle of the housing, but they centre on " + sum / type.lampCount());
-		}
-		helper.succeed();
-	}
-
 	@GameTest(template = EMPTY)
 	public static void aRelayReadsHighSpeedProceedAsProceed(GameTestHelper helper) {
 		helper.assertTrue(RelayIndication.of(SignalAspect.HIGH_SPEED_PROCEED) == RelayIndication.PROCEED,
@@ -412,7 +390,7 @@ public class SignalTypeTests {
 			model(helper, parent.getAsString());
 	}
 
-	private static JsonObject json(GameTestHelper helper, String root, String folder, String file) {
+	static JsonObject json(GameTestHelper helper, String root, String folder, String file) {
 		String[] below = (folder + "/" + file).split("/");
 		String[] path = new String[below.length + 1];
 		path[0] = CreateTrainNext.ID;

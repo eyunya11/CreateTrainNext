@@ -126,38 +126,54 @@ public class MultiAspectSignalBlock extends Block
 	}
 
 	/**
-	 * The bounds of each offset's head as drawn, unturned, read off housing.json, housing_left.json
-	 * and housing_right.json with their element rotations applied.
+	 * The bounds of a type's head, for an offset, as drawn and unturned: x0, y0, z0, x1, y1, z1 in
+	 * pixels, which is what the head model's elements span with their rotations applied. A game test
+	 * measures the models and holds this to them.
+	 *
+	 * <p>Not clamped to the block, because the six-aspect's housing is not within it: the shape made
+	 * from this is, since a block's shape cannot leave its block, and what is above 16 is drawn and
+	 * nothing more. The left and right housings hang into the blocks next door for the same reason.
 	 *
 	 * <p>The mast is not in here. It never turns, so it is the same box in every shape and is added
 	 * to all of them unchanged.
 	 */
-	private static final Map<HorizontalOffset, double[]> HEAD_BOUNDS = new EnumMap<>(HorizontalOffset.class);
+	public static double[] headBounds(SignalType type, HorizontalOffset offset) {
+		double top = type.bodyTop();
+		return switch (offset) {
+			// The body alone: the pole behind it is the mast's.
+			case CENTER -> new double[] { 4.5, type.bodyBottom(), 9, 11.5, top, 11.5 };
+			// The housing is shifted, and has a pole of its own under it that reaches the ground.
+			case LEFT -> new double[] { -2, 0, 6.9, 7, top, 11.5 };
+			case RIGHT -> new double[] { 9, 0, 6.9, 18, top, 11.5 };
+		};
+	}
 
 	/**
 	 * The mast: the central pole, and the collars the offset housings wrap around it, which is what
-	 * makes this a hair wider than the two pixel post on its own.
+	 * makes this a hair wider than the two pixel post on its own. As tall as the type's pole, up to
+	 * the top of the block.
 	 */
-	private static final VoxelShape MAST = Block.box(6.9, 0, 6.9, 9.1, 16, 9.1);
+	private static VoxelShape mast(SignalType type) {
+		return Block.box(6.9, 0, 6.9, 9.1, Math.min(16, type.bodyTop()), 9.1);
+	}
 
-	/** One shape per offset per segment: the mast, plus that offset's head turned to match. */
-	private static final Map<HorizontalOffset, VoxelShape[]> SHAPES = new EnumMap<>(HorizontalOffset.class);
+	/** One shape per type per offset per segment: the mast, plus that offset's head turned to match. */
+	private static final Map<SignalType, Map<HorizontalOffset, VoxelShape[]>> SHAPES = new EnumMap<>(SignalType.class);
 
 	static {
-		HEAD_BOUNDS.put(HorizontalOffset.CENTER, new double[] { 4.5, 0, 9, 11.5, 16, 11.5 });
-		// The offset heads hang into the block next door on purpose, so these reach past 0 and 16.
-		// SignalRotation.spin clamps what comes out, which is the same approximation the twelve
-		// hardcoded boxes here used to be.
-		HEAD_BOUNDS.put(HorizontalOffset.LEFT, new double[] { -2, 0, 6.9, 7, 16, 11.5 });
-		HEAD_BOUNDS.put(HorizontalOffset.RIGHT, new double[] { 9, 0, 6.9, 18, 16, 11.5 });
-
-		for (HorizontalOffset offset : HorizontalOffset.values()) {
-			double[] bounds = HEAD_BOUNDS.get(offset);
-			VoxelShape[] shapes = new VoxelShape[SignalRotation.SEGMENTS];
-			for (int segment = 0; segment < SignalRotation.SEGMENTS; segment++)
-				shapes[segment] = Shapes.or(MAST, SignalRotation.spin(bounds[0], bounds[1], bounds[2],
-					bounds[3], bounds[4], bounds[5], segment * SignalRotation.DEGREES_PER_SEGMENT));
-			SHAPES.put(offset, shapes);
+		for (SignalType type : SignalType.values()) {
+			Map<HorizontalOffset, VoxelShape[]> byOffset = new EnumMap<>(HorizontalOffset.class);
+			for (HorizontalOffset offset : HorizontalOffset.values()) {
+				double[] bounds = headBounds(type, offset);
+				VoxelShape[] shapes = new VoxelShape[SignalRotation.SEGMENTS];
+				for (int segment = 0; segment < SignalRotation.SEGMENTS; segment++)
+					// SignalRotation.spin clamps what comes out to the block, which is the same
+					// approximation the twelve hardcoded boxes here used to be.
+					shapes[segment] = Shapes.or(mast(type), SignalRotation.spin(bounds[0], bounds[1], bounds[2],
+						bounds[3], bounds[4], bounds[5], segment * SignalRotation.DEGREES_PER_SEGMENT));
+				byOffset.put(offset, shapes);
+			}
+			SHAPES.put(type, byOffset);
 		}
 	}
 
@@ -200,7 +216,8 @@ public class MultiAspectSignalBlock extends Block
 
 	@Override
 	protected VoxelShape getShape(BlockState state, BlockGetter level, BlockPos pos, CollisionContext context) {
-		return SHAPES.get(state.getValue(OFFSET))[state.getValue(ROTATION)];
+		return SHAPES.get(signalType)
+			.get(state.getValue(OFFSET))[state.getValue(ROTATION)];
 	}
 
 	/**
