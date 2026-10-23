@@ -335,12 +335,18 @@ public class SignalTypeTests {
 				String post = head.replace("_head", "_post");
 				helper.assertTrue(offset.headModelName().equals(head) && offset.postModelName().equals(post),
 					"the models for " + offset + " should be " + head + " and " + post);
-				String model = variants.getAsJsonObject("offset=" + offset.getSerializedName())
-					.get("model")
-					.getAsString();
-				helper.assertTrue(model.equals(CreateTrainNext.ID + ":block/" + type.modelDir() + "/" + offset.postModelName()),
-					name + "'s blockstate should use the mast in its own folder for " + offset + ", but uses " + model);
-				model(helper, model);
+				for (boolean up : new boolean[] { false, true }) {
+					String model = variants.getAsJsonObject("offset=" + offset.getSerializedName() + ",up=" + up)
+						.get("model")
+						.getAsString();
+					// The five-aspect's pole already reaches the top of the block, so it has no mast of its
+					// own for when something stands above.
+					String expected = up && type != SignalType.FIVE ? offset.reachingPostModelName() : offset.postModelName();
+					helper.assertTrue(model.equals(CreateTrainNext.ID + ":block/" + type.modelDir() + "/" + expected),
+						name + "'s blockstate should use " + expected + " in its own folder for " + offset + (up ? " with something above" : "")
+							+ ", but uses " + model);
+					model(helper, model);
+				}
 				model(helper, CreateTrainNext.ID + ":block/" + type.modelDir() + "/" + offset.headModelName());
 			}
 

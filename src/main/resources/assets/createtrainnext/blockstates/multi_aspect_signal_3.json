@@ -1,14 +1,23 @@
 {
-	"__comment": "The mast only, keyed on offset alone, as for the five-aspect signal; the head is drawn by MultiAspectSignalRenderer. The models are the type's own folder, which holds placeholders that borrow the five-aspect signal's until they are drawn.",
+	"__comment": "The mast only, keyed on offset and on whether something stands above: the mast is the same box whichever of the sixteen angles the head is turned to, so each entry matches all sixteen rotations. With up set the pole runs to the top of the block to meet what is above it. The head is drawn by MultiAspectSignalRenderer, because a blockstate y only turns in quarters and this block turns in 22.5 degree steps - see SignalRotation.",
 	"variants": {
-		"offset=center": {
+		"offset=center,up=false": {
 			"model": "createtrainnext:block/multi_aspect_signal_3/housing_post"
 		},
-		"offset=left": {
+		"offset=center,up=true": {
+			"model": "createtrainnext:block/multi_aspect_signal_3/housing_post_up"
+		},
+		"offset=left,up=false": {
 			"model": "createtrainnext:block/multi_aspect_signal_3/housing_left_post"
 		},
-		"offset=right": {
+		"offset=left,up=true": {
+			"model": "createtrainnext:block/multi_aspect_signal_3/housing_left_post_up"
+		},
+		"offset=right,up=false": {
 			"model": "createtrainnext:block/multi_aspect_signal_3/housing_right_post"
+		},
+		"offset=right,up=true": {
+			"model": "createtrainnext:block/multi_aspect_signal_3/housing_right_post_up"
 		}
 	}
 }

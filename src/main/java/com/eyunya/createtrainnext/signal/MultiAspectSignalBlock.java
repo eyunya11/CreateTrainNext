@@ -6,6 +6,7 @@ import java.util.Map;
 
 import com.eyunya.createtrainnext.CTNRegistry;
 import com.eyunya.createtrainnext.pole.PoleConnectable;
+import com.eyunya.createtrainnext.pole.SignalPoleBlock;
 import com.simibubi.create.content.equipment.wrench.IWrenchable;
 import com.simibubi.create.foundation.block.IBE;
 
@@ -14,12 +15,15 @@ import net.minecraft.core.Direction;
 import net.minecraft.world.item.context.BlockPlaceContext;
 import net.minecraft.world.level.BlockGetter;
 import net.minecraft.world.level.Level;
+import net.minecraft.world.level.LevelAccessor;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.Mirror;
 import net.minecraft.world.level.block.Rotation;
 import net.minecraft.world.level.block.entity.BlockEntityType;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.block.state.StateDefinition;
+import net.minecraft.world.level.block.state.properties.BlockStateProperties;
+import net.minecraft.world.level.block.state.properties.BooleanProperty;
 import net.minecraft.world.level.block.state.properties.EnumProperty;
 import net.minecraft.world.level.block.state.properties.IntegerProperty;
 import net.minecraft.util.StringRepresentable;
@@ -109,10 +113,25 @@ public class MultiAspectSignalBlock extends Block
 				case RIGHT -> "housing_right_post";
 			};
 		}
+
+		/** The mast for this offset with its pole run to the top of the block, for when {@link #UP} is set. */
+		public String reachingPostModelName() {
+			return postModelName() + "_up";
+		}
 	}
 
 	public static final EnumProperty<HorizontalOffset> OFFSET =
 		EnumProperty.create("offset", HorizontalOffset.class);
+
+	/**
+	 * Whether a pole or another signal stands directly above, so that the mast runs up to the top of the
+	 * block to meet it. Only the mast's model and the shape follow it. Kept up to date as the block above
+	 * changes, by {@link #updateShape}.
+	 *
+	 * <p>It is a property of the state, and not worked out when the block is drawn, because the mast is a
+	 * blockstate model and a blockstate model cannot look at its neighbours.
+	 */
+	public static final BooleanProperty UP = BlockStateProperties.UP;
 
 	/**
 	 * Degrees the head is turned by, in the sense a blockstate variant's {@code y} means. Zero for
@@ -151,26 +170,30 @@ public class MultiAspectSignalBlock extends Block
 	/**
 	 * The mast: the central pole, and the collars the offset housings wrap around it, which is what
 	 * makes this a hair wider than the two pixel post on its own. As tall as the type's pole, up to
-	 * the top of the block.
+	 * the top of the block, or all the way to it when something stands above and the mast runs up to it.
 	 */
-	private static VoxelShape mast(SignalType type) {
-		return Block.box(6.9, 0, 6.9, 9.1, Math.min(16, type.bodyTop()), 9.1);
+	private static VoxelShape mast(SignalType type, boolean up) {
+		return Block.box(6.9, 0, 6.9, 9.1, up ? 16 : Math.min(16, type.bodyTop()), 9.1);
 	}
 
-	/** One shape per type per offset per segment: the mast, plus that offset's head turned to match. */
-	private static final Map<SignalType, Map<HorizontalOffset, VoxelShape[]>> SHAPES = new EnumMap<>(SignalType.class);
+	/**
+	 * One shape per type per offset per {@link #UP} per segment: the mast, plus that offset's head turned
+	 * to match.
+	 */
+	private static final Map<SignalType, Map<HorizontalOffset, VoxelShape[][]>> SHAPES = new EnumMap<>(SignalType.class);
 
 	static {
 		for (SignalType type : SignalType.values()) {
-			Map<HorizontalOffset, VoxelShape[]> byOffset = new EnumMap<>(HorizontalOffset.class);
+			Map<HorizontalOffset, VoxelShape[][]> byOffset = new EnumMap<>(HorizontalOffset.class);
 			for (HorizontalOffset offset : HorizontalOffset.values()) {
 				double[] bounds = headBounds(type, offset);
-				VoxelShape[] shapes = new VoxelShape[SignalRotation.SEGMENTS];
-				for (int segment = 0; segment < SignalRotation.SEGMENTS; segment++)
-					// SignalRotation.spin clamps what comes out to the block, which is the same
-					// approximation the twelve hardcoded boxes here used to be.
-					shapes[segment] = Shapes.or(mast(type), SignalRotation.spin(bounds[0], bounds[1], bounds[2],
-						bounds[3], bounds[4], bounds[5], segment * SignalRotation.DEGREES_PER_SEGMENT));
+				VoxelShape[][] shapes = new VoxelShape[2][SignalRotation.SEGMENTS];
+				for (int up = 0; up < 2; up++)
+					for (int segment = 0; segment < SignalRotation.SEGMENTS; segment++)
+						// SignalRotation.spin clamps what comes out to the block, which is the same
+						// approximation the twelve hardcoded boxes here used to be.
+						shapes[up][segment] = Shapes.or(mast(type, up == 1), SignalRotation.spin(bounds[0], bounds[1],
+							bounds[2], bounds[3], bounds[4], bounds[5], segment * SignalRotation.DEGREES_PER_SEGMENT));
 				byOffset.put(offset, shapes);
 			}
 			SHAPES.put(type, byOffset);
@@ -183,7 +206,8 @@ public class MultiAspectSignalBlock extends Block
 		super(properties);
 		this.signalType = signalType;
 		registerDefaultState(defaultBlockState().setValue(ROTATION, 0)
-			.setValue(OFFSET, HorizontalOffset.CENTER));
+			.setValue(OFFSET, HorizontalOffset.CENTER)
+			.setValue(UP, false));
 	}
 
 	/** Which head this is: how many lamps it has and what they say. */
@@ -193,12 +217,15 @@ public class MultiAspectSignalBlock extends Block
 
 	@Override
 	protected void createBlockStateDefinition(StateDefinition.Builder<Block, BlockState> builder) {
-		super.createBlockStateDefinition(builder.add(ROTATION, OFFSET));
+		super.createBlockStateDefinition(builder.add(ROTATION, OFFSET, UP));
 	}
 
 	@Override
 	public BlockState getStateForPlacement(BlockPlaceContext context) {
-		return defaultBlockState().setValue(ROTATION, SignalRotation.segmentForPlacement(context));
+		return defaultBlockState().setValue(ROTATION, SignalRotation.segmentForPlacement(context))
+			.setValue(UP, joinsAbove(context.getLevel()
+				.getBlockState(context.getClickedPos()
+					.above())));
 		// OFFSET keeps its default of CENTER: placement has no face to read a side from, and this
 		// mod's TrackTargetingBlockItem places on a right click chosen for the target track, not for
 		// where across the block the housing should sit. See the value box for how OFFSET changes.
@@ -214,15 +241,38 @@ public class MultiAspectSignalBlock extends Block
 		return state.setValue(ROTATION, SignalRotation.mirror(state.getValue(ROTATION), mirror));
 	}
 
+	/**
+	 * Whether the block above is one the mast should run up to meet: a pole, or something that a pole
+	 * would join from below, which is another signal of this mod.
+	 */
+	public static boolean joinsAbove(BlockState above) {
+		if (above.getBlock() instanceof SignalPoleBlock)
+			return true;
+		return above.getBlock() instanceof PoleConnectable connectable
+			&& connectable.connectsToPole(above, Direction.DOWN);
+	}
+
+	@Override
+	protected BlockState updateShape(BlockState state, Direction direction, BlockState neighbourState,
+		LevelAccessor level, BlockPos pos, BlockPos neighbourPos) {
+		if (direction == Direction.UP)
+			return state.setValue(UP, joinsAbove(neighbourState));
+		return super.updateShape(state, direction, neighbourState, level, pos, neighbourPos);
+	}
+
 	@Override
 	protected VoxelShape getShape(BlockState state, BlockGetter level, BlockPos pos, CollisionContext context) {
 		return SHAPES.get(signalType)
-			.get(state.getValue(OFFSET))[state.getValue(ROTATION)];
+			.get(state.getValue(OFFSET))[state.getValue(UP) ? 1 : 0][state.getValue(ROTATION)];
 	}
 
 	/**
-	 * Poles join this from behind, from below, or from either side — never from the front, which is
-	 * the side that has to stay clear to be read.
+	 * Poles join this from behind, from below, from above, or from either side — never from the front,
+	 * which is the side that has to stay clear to be read.
+	 *
+	 * <p>Above matters because the mast stands in the middle of the block whichever way the head is turned
+	 * and whatever its offset, so a pole over it is joined to it as one under it is. {@link #UP} is how the
+	 * mast, which is shorter than the block for the smaller heads, then runs up to reach it.
 	 *
 	 * <p>The sides matter once {@link #OFFSET} is anything but {@link HorizontalOffset#CENTER}: a
 	 * head pushed to one edge of its block is meant to be reached by a horizontal arm running in
@@ -232,7 +282,7 @@ public class MultiAspectSignalBlock extends Block
 	 */
 	@Override
 	public boolean connectsToPole(BlockState state, Direction towardsPole) {
-		if (towardsPole == Direction.DOWN)
+		if (towardsPole == Direction.DOWN || towardsPole == Direction.UP)
 			return true;
 		// Rounded to the nearest quarter, because a pole can only arrive from one of four sides
 		// however finely the head itself is turned.

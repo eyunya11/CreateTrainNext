@@ -258,7 +258,7 @@ A train that passes a sign going the way it faces is held to its number from the
 
 A thin pole that carries signals. One block serves as a mast and as a crossbeam between masts. The direction it runs is set by the face you place it on, and it joins neighbouring poles and signals by itself. It joins the Railway Signals and the Relay Signal, and does not join the Track Speed Limit.
 
-It joins a Railway Signal from behind, below and either side, and not from the front. A right click with a wrench changes the direction. To run a long length, hold a pole and right click a pole already placed, and Create's placement assist suggests the position at the far end.
+It joins a Railway Signal from behind, below, above and either side, and not from the front. When a pole or another signal stands directly above a signal, the signal's own pole runs up to the top of its block to meet it. A right click with a wrench changes the direction. To run a long length, hold a pole and right click a pole already placed, and Create's placement assist suggests the position at the far end.
 
 ### Curve floor
 

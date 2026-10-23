@@ -8,6 +8,7 @@ import com.eyunya.createtrainnext.CTNRegistry;
 import com.eyunya.createtrainnext.CreateTrainNext;
 import static com.eyunya.createtrainnext.gametest.SignalTypeTests.json;
 
+import com.eyunya.createtrainnext.pole.SignalPoleBlock;
 import com.eyunya.createtrainnext.signal.MultiAspectSignalBlock;
 import com.eyunya.createtrainnext.signal.MultiAspectSignalBlock.HorizontalOffset;
 import com.eyunya.createtrainnext.signal.MultiAspectSignalBlockEntity;
@@ -25,6 +26,7 @@ import net.minecraft.world.InteractionResult;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
+import net.minecraft.world.item.context.BlockPlaceContext;
 import net.minecraft.world.item.context.UseOnContext;
 import net.minecraft.world.level.GameType;
 import net.minecraft.world.level.block.Blocks;
@@ -178,28 +180,141 @@ public class SignalModelTests {
 
 	/**
 	 * A shape cannot leave its block, so what is drawn above 16 pixels is not part of it, and what is in it
-	 * reaches as high as the type does, up to the top of the block.
+	 * reaches as high as the type does, up to the top of the block. With something standing above, the mast
+	 * runs the whole way up, so the shape does too.
 	 */
 	@GameTest(template = EMPTY)
 	public static void aShapeStaysInsideItsBlockAndReachesAsHighAsItsType(GameTestHelper helper) {
 		BlockPos pos = helper.absolutePos(new BlockPos(2, 2, 2));
 		for (SignalType type : SignalType.values()) {
 			MultiAspectSignalBlock block = block(type);
-			double top = Math.min(16, type.bodyTop()) / 16;
-			for (HorizontalOffset offset : HorizontalOffset.values())
-				for (int rotation = 0; rotation < 16; rotation++) {
-					BlockState state = block.defaultBlockState()
-						.setValue(MultiAspectSignalBlock.ROTATION, rotation)
-						.setValue(MultiAspectSignalBlock.OFFSET, offset);
-					VoxelShape shape = state.getShape(helper.getLevel(), pos);
-					helper.assertTrue(shape.min(Direction.Axis.Y) >= 0 && Math.abs(shape.max(Direction.Axis.Y) - top) < 1.0E-6,
-						type + " at " + offset + " turned " + rotation + " should have a shape up to " + top + ", but it spans "
-							+ shape.min(Direction.Axis.Y) + " to " + shape.max(Direction.Axis.Y));
-					helper.assertTrue(shape.min(Direction.Axis.X) >= 0 && shape.max(Direction.Axis.X) <= 1 && shape.min(Direction.Axis.Z) >= 0
-						&& shape.max(Direction.Axis.Z) <= 1, type + " at " + offset + " turned " + rotation + " should have a shape inside its block");
-				}
+			for (boolean up : new boolean[] { false, true }) {
+				double top = up ? 1 : Math.min(16, type.bodyTop()) / 16;
+				for (HorizontalOffset offset : HorizontalOffset.values())
+					for (int rotation = 0; rotation < 16; rotation++) {
+						BlockState state = block.defaultBlockState()
+							.setValue(MultiAspectSignalBlock.ROTATION, rotation)
+							.setValue(MultiAspectSignalBlock.OFFSET, offset)
+							.setValue(MultiAspectSignalBlock.UP, up);
+						VoxelShape shape = state.getShape(helper.getLevel(), pos);
+						String what = type + " at " + offset + " turned " + rotation + (up ? " with something above" : "");
+						helper.assertTrue(shape.min(Direction.Axis.Y) >= 0 && Math.abs(shape.max(Direction.Axis.Y) - top) < 1.0E-6,
+							what + " should have a shape up to " + top + ", but it spans " + shape.min(Direction.Axis.Y) + " to "
+								+ shape.max(Direction.Axis.Y));
+						helper.assertTrue(shape.min(Direction.Axis.X) >= 0 && shape.max(Direction.Axis.X) <= 1
+							&& shape.min(Direction.Axis.Z) >= 0 && shape.max(Direction.Axis.Z) <= 1, what + " should have a shape inside its block");
+					}
+			}
 		}
 		helper.succeed();
+	}
+
+	/**
+	 * The mast that runs up to what is above it has its pole exactly to the top of the block, whatever the
+	 * pole is in the mast without it: short for the small heads, and past the top for the six-aspect.
+	 */
+	@GameTest(template = EMPTY)
+	public static void theMastThatReachesUpHasItsPoleToTheTopOfTheBlock(GameTestHelper helper) {
+		for (SignalType type : SignalType.values()) {
+			if (type == SignalType.FIVE)
+				continue;
+			for (HorizontalOffset offset : HorizontalOffset.values()) {
+				JsonArray elements = json(helper, "assets", "models/block/" + type.modelDir(), offset.reachingPostModelName() + ".json")
+					.getAsJsonArray("elements");
+				JsonArray without = json(helper, "assets", "models/block/" + type.modelDir(), offset.postModelName() + ".json")
+					.getAsJsonArray("elements");
+				helper.assertTrue(elements.size() == without.size(), type + " at " + offset + ": the mast that reaches up should have the same pieces as the one that does not");
+				helper.assertTrue(Math.abs(poleTop(elements) - 16) <= 1.0E-6,
+					type + " at " + offset + ": the mast that reaches up should have its pole to 16, but it is to " + poleTop(elements));
+				helper.assertTrue(Math.abs(poleTop(without) - 16) > 1.0E-6,
+					type + " at " + offset + ": the mast without something above it should not already reach 16 (setup)");
+			}
+		}
+		helper.succeed();
+	}
+
+	/**
+	 * A pole or another signal directly above a signal sets {@link MultiAspectSignalBlock#UP}, and anything
+	 * else, or nothing, or a pole beside it, does not; and the pole above grows an arm down to the signal.
+	 */
+	@GameTest(template = EMPTY)
+	public static void aMastRunsUpToAPoleOrASignalAboveIt(GameTestHelper helper) {
+		BlockPos pos = new BlockPos(4, 2, 4);
+		for (SignalType type : SignalType.values()) {
+			String what = type.toString();
+			helper.setBlock(pos, block(type).defaultBlockState());
+			helper.assertTrue(!up(helper, pos), what + ": a signal with nothing above it should not reach up");
+
+			helper.setBlock(pos.above(), CTNRegistry.SIGNAL_POLE.get()
+				.defaultBlockState());
+			helper.assertTrue(up(helper, pos), what + ": a pole above should make the mast reach up");
+
+			helper.setBlock(pos.above(), Blocks.AIR.defaultBlockState());
+			helper.assertTrue(!up(helper, pos), what + ": taking the pole away should let the mast stop again");
+
+			helper.setBlock(pos.above(), Blocks.STONE.defaultBlockState());
+			helper.assertTrue(!up(helper, pos), what + ": stone above is not something to join");
+
+			for (SignalType other : SignalType.values()) {
+				helper.setBlock(pos.above(), block(other).defaultBlockState());
+				helper.assertTrue(up(helper, pos), what + ": a " + other + " signal above should make the mast reach up");
+			}
+			helper.setBlock(pos.above(), CTNRegistry.RELAY_SIGNAL.get()
+				.defaultBlockState());
+			helper.assertTrue(up(helper, pos), what + ": a relay signal above should make the mast reach up");
+
+			helper.setBlock(pos.above(), Blocks.AIR.defaultBlockState());
+			helper.setBlock(pos.north(), CTNRegistry.SIGNAL_POLE.get()
+				.defaultBlockState());
+			helper.assertTrue(!up(helper, pos), what + ": a pole beside the signal should not make the mast reach up");
+			helper.setBlock(pos.north(), Blocks.AIR.defaultBlockState());
+
+			// The pole above joins the signal from its side of it, and not only the other way round.
+			helper.setBlock(pos, Blocks.AIR.defaultBlockState());
+			helper.setBlock(pos.above(), CTNRegistry.SIGNAL_POLE.get()
+				.defaultBlockState());
+			helper.setBlock(pos, block(type).defaultBlockState());
+			helper.assertTrue(helper.getBlockState(pos.above())
+				.getValue(SignalPoleBlock.CONNECTIONS.get(Direction.DOWN)), what + ": a pole above the signal should reach an arm down to it");
+			helper.setBlock(pos.above(), Blocks.AIR.defaultBlockState());
+			helper.setBlock(pos, Blocks.AIR.defaultBlockState());
+		}
+		helper.succeed();
+	}
+
+	/** Placed under a pole, a signal starts with its mast already reaching up, without waiting for a neighbour to change. */
+	@GameTest(template = EMPTY)
+	public static void aSignalPlacedUnderAPoleStartsWithItsMastUp(GameTestHelper helper) {
+		BlockPos ground = new BlockPos(4, 1, 4);
+		BlockPos pos = ground.above();
+		helper.setBlock(ground, Blocks.STONE.defaultBlockState());
+		helper.setBlock(pos.above(), CTNRegistry.SIGNAL_POLE.get()
+			.defaultBlockState());
+
+		Player player = helper.makeMockPlayer(GameType.CREATIVE);
+		BlockPos stone = helper.absolutePos(ground);
+		BlockHitResult hit = new BlockHitResult(Vec3.atCenterOf(stone)
+			.add(0, 0.5, 0), Direction.UP, stone, false);
+		for (SignalType type : SignalType.values()) {
+			BlockPlaceContext context = new BlockPlaceContext(helper.getLevel(), player, InteractionHand.MAIN_HAND,
+				new ItemStack(Items.STONE), hit);
+			BlockState placed = block(type).getStateForPlacement(context);
+			helper.assertTrue(placed != null && placed.getValue(MultiAspectSignalBlock.UP), type + " placed under a pole should have its mast up");
+		}
+
+		helper.setBlock(pos.above(), Blocks.AIR.defaultBlockState());
+		for (SignalType type : SignalType.values()) {
+			BlockPlaceContext context = new BlockPlaceContext(helper.getLevel(), player, InteractionHand.MAIN_HAND,
+				new ItemStack(Items.STONE), hit);
+			BlockState placed = block(type).getStateForPlacement(context);
+			helper.assertTrue(placed != null && !placed.getValue(MultiAspectSignalBlock.UP), type + " placed with nothing above should not have its mast up");
+		}
+		helper.succeed();
+	}
+
+	private static boolean up(GameTestHelper helper, BlockPos pos) {
+		return helper.getBlockState(pos)
+			.getValue(MultiAspectSignalBlock.UP);
 	}
 
 	/**
@@ -240,6 +355,23 @@ public class SignalModelTests {
 	}
 
 	// --------------------------------------------------------------- reading models
+
+	/** How high the pole of a mast model goes: the top of the element called pole, or centre pole. */
+	private static double poleTop(JsonArray elements) {
+		for (JsonElement element : elements) {
+			JsonObject e = element.getAsJsonObject();
+			if (e.has("name") && (e.get("name")
+				.getAsString()
+				.equals("pole")
+				|| e.get("name")
+					.getAsString()
+					.equals("center_pole")))
+				return e.getAsJsonArray("to")
+					.get(1)
+					.getAsDouble();
+		}
+		throw new IllegalStateException("a mast model with no pole");
+	}
 
 	/** The group with this name, looked for through the groups and the groups in them. */
 	private static JsonObject group(JsonArray groups, String name) {
