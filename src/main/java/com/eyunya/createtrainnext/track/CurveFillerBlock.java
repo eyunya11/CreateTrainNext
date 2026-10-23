@@ -37,9 +37,10 @@ import net.minecraft.world.phys.shapes.VoxelShape;
  * sound right, and to put the line on the train map. Walking onto one of Create's own curves drops
  * you through it.
  *
- * <p>This is that missing slab, one block at a time. {@link #HEIGHT} says where in the block the
- * rail passes, in pixels, so a curve that climbs is held up at the height it is actually drawn at
- * rather than at the floor.
+ * <p>This is that missing slab, one block at a time. The block entity holds the height the rails pass at
+ * over each quarter-block column of it, so a curve that climbs is held up at the height it is actually
+ * drawn at rather than at the floor, even at 45 degrees: see {@link CurveFillerBlockEntity}. {@link #HEIGHT}
+ * is the lowest of them, and what the whole block holds up at when there are no columns to go by.
  *
  * <p>Invisible and untargetable on purpose. It has no outline shape, so it cannot be looked at or
  * broken, and it is {@code replaceable}, so building over it simply takes it out — the way to
@@ -49,7 +50,7 @@ import net.minecraft.world.phys.shapes.VoxelShape;
  */
 public class CurveFillerBlock extends Block implements EntityBlock {
 
-	/** Where in the block the rail runs, in pixels from the bottom. */
+	/** Where in the block the rail runs at its lowest, in pixels from the bottom. */
 	public static final IntegerProperty HEIGHT = IntegerProperty.create("height", 0, 15);
 
 	/** Matched to Create's own {@code AllShapes.TRACK_COLLISION}, which is a two pixel slab. */
@@ -76,6 +77,11 @@ public class CurveFillerBlock extends Block implements EntityBlock {
 	@Override
 	protected VoxelShape getCollisionShape(BlockState state, BlockGetter level, BlockPos pos,
 		CollisionContext context) {
+		if (level.getBlockEntity(pos) instanceof CurveFillerBlockEntity filler) {
+			VoxelShape columns = filler.collisionShape();
+			if (columns != null)
+				return columns;
+		}
 		return SHAPES[state.getValue(HEIGHT)];
 	}
 
@@ -156,14 +162,21 @@ public class CurveFillerBlock extends Block implements EntityBlock {
 		return state;
 	}
 
-	/** Puts a filler at {@code pos}, or renews the one already there. */
-	public static void placeOrRenew(Level level, BlockPos pos, int height) {
+	/**
+	 * Puts a filler at {@code pos} with its columns at these heights, or renews the one already there.
+	 *
+	 * @param floor the heights {@link CurveOccupancy#rasterise} gives the block.
+	 */
+	public static void placeOrRenew(Level level, BlockPos pos, byte[] floor) {
+		int height = CurveOccupancy.lowest(floor);
 		BlockState existing = level.getBlockState(pos);
 		if (existing.is(CTNRegistry.CURVE_FILLER.get())) {
 			if (existing.getValue(HEIGHT) != height)
 				level.setBlock(pos, existing.setValue(HEIGHT, height), Block.UPDATE_CLIENTS);
-			if (level.getBlockEntity(pos) instanceof CurveFillerBlockEntity filler)
+			if (level.getBlockEntity(pos) instanceof CurveFillerBlockEntity filler) {
+				filler.setFloor(floor);
 				filler.keepAlive();
+			}
 			return;
 		}
 
@@ -174,6 +187,8 @@ public class CurveFillerBlock extends Block implements EntityBlock {
 		level.setBlock(pos, CTNRegistry.CURVE_FILLER.get()
 			.defaultBlockState()
 			.setValue(HEIGHT, height), Block.UPDATE_CLIENTS);
+		if (level.getBlockEntity(pos) instanceof CurveFillerBlockEntity filler)
+			filler.setFloor(floor);
 	}
 
 	/** Takes a filler away, if that is what is there. Anything else is left alone. */

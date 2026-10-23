@@ -235,7 +235,7 @@ It joins a 5-Aspect Railway Signal from behind, below and either side, and not f
 
 ### Curve floor
 
-Create's curves have no collision, so stepping onto one drops you through it. For curves laid by this mod, an invisible floor is laid at rail height, so you can walk on them. The floor is made of small blocks that the anchors refresh every few seconds. They cannot be seen or broken, and building over one removes it.
+Create's curves have no collision, so stepping onto one drops you through it. For curves laid by this mod, an invisible floor is laid at rail height, so you can walk on them. The floor is made of small blocks that the anchors refresh every few seconds. They cannot be seen or broken, and building over one removes it. The floor follows the rails in steps of a quarter of a block, so even a curve at 45 degrees can be walked up and down, and it is as wide as the track. Create's own sloped track has no collision, so the slope itself cannot be walked on.
 
 To turn it off, set the server config `curves.collision` to false. New floor is no longer placed, and the floor already there disappears within a few minutes.
 

@@ -16,6 +16,7 @@ import com.simibubi.create.Create;
 import com.simibubi.create.content.trains.graph.TrackGraph;
 import com.simibubi.create.content.trains.graph.TrackNode;
 import com.simibubi.create.content.trains.graph.TrackNodeLocation;
+import com.simibubi.create.AllShapes;
 import com.simibubi.create.content.trains.track.ITrackBlock;
 import com.simibubi.create.content.trains.track.BezierConnection;
 import com.simibubi.create.content.trains.track.TrackBlockEntity;
@@ -31,6 +32,8 @@ import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
+import net.minecraft.world.phys.shapes.Shapes;
+import net.minecraft.world.phys.shapes.VoxelShape;
 
 /**
  * One anchor in a chain of free-angle track.
@@ -163,6 +166,16 @@ public class AngledTrackAnchorBlockEntity extends TrackBlockEntity {
 	@Nullable
 	private BezierConnection cachedCurve = null;
 	private long cachedKey = Long.MIN_VALUE;
+
+	/** What {@link #collisionShape} last worked out, and the curves it worked it out from. */
+	@Nullable
+	private VoxelShape climbingFloor = null;
+
+	@Nullable
+	private BezierConnection floorFromPrev = null;
+
+	@Nullable
+	private BezierConnection floorFromNext = null;
 
 	/** The curve this anchor last laid a floor along, so a floor that moves can be taken up. */
 	@Nullable
@@ -1493,6 +1506,51 @@ public class AngledTrackAnchorBlockEntity extends TrackBlockEntity {
 	}
 
 	// ----------------------------------------------------------- occupancy
+
+	/**
+	 * What holds someone up in this anchor's own block.
+	 *
+	 * <p>Create's two pixel slab across the whole block, as its own track has. Where the route climbs at the
+	 * anchor that is wrong: at 45 degrees the rails cross the block a whole block higher at one side than the
+	 * other, and may not cross it at all, but run under its floor, as they do into the foot of a slope, where
+	 * a slab would be a ceiling over them. So a climbing anchor holds up only the floor of the curves through
+	 * its block, the same quarter-block columns {@link CurveOccupancy} would lay if the block were empty, and
+	 * the floor on either side, {@link CurveFillerBlock}'s, carries on from it. Both sides work it out alike,
+	 * the client for where someone stands and the server for where they are, and work it out again only when
+	 * one of the curves is not the one it was worked out from, which an anchor's cached curve makes a cheap
+	 * thing to ask. With a curve that cannot be built, its far anchor not loaded, it is the slab.
+	 */
+	public VoxelShape collisionShape() {
+		if (slope == 0)
+			return AllShapes.TRACK_COLLISION;
+
+		AngledTrackAnchorBlockEntity before = anchorAt(prev);
+		BezierConnection in = before == null ? null : before.buildCurveToNext();
+		BezierConnection out = next == null ? null : buildCurveToNext();
+		if (climbingFloor != null && in == floorFromPrev && out == floorFromNext)
+			return climbingFloor;
+
+		byte[] floor = null;
+		for (BezierConnection curve : new BezierConnection[] { in, out }) {
+			if (curve == null)
+				continue;
+			byte[] here = CurveOccupancy.rasterise(curve)
+				.get(worldPosition);
+			if (here == null)
+				continue;
+			if (floor == null)
+				floor = here;
+			else
+				for (int i = 0; i < floor.length; i++)
+					if (here[i] != CurveOccupancy.EMPTY && (floor[i] == CurveOccupancy.EMPTY || here[i] < floor[i]))
+						floor[i] = here[i];
+		}
+		boolean known = (prev == null || in != null) && (next == null || out != null);
+		climbingFloor = floor != null ? CurveOccupancy.shapeOf(floor) : known ? Shapes.empty() : AllShapes.TRACK_COLLISION;
+		floorFromPrev = in;
+		floorFromNext = out;
+		return climbingFloor;
+	}
 
 	/**
 	 * Counts down to the next renewal of this anchor's floor.
