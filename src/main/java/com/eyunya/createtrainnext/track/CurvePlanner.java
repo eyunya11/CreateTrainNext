@@ -466,7 +466,12 @@ public final class CurvePlanner {
 		boolean blocked = false;
 		if (start.onSlope() && end.mustPlace() && end.fixedHeading() == null) {
 			BlockPos onLine = ontoLine(start, end.anchorPos());
-			if (level.getBlockEntity(onLine) instanceof AngledTrackAnchorBlockEntity there) {
+			// Half of it comes from the dock and half from the aimed block, so it can be in a chunk
+			// nobody is looking at; reading it there would load it, on every click. Not loaded is no room.
+			if (level.isOutsideBuildHeight(onLine) || !level.isLoaded(onLine)) {
+				end = end.movedTo(onLine);
+				blocked = true;
+			} else if (level.getBlockEntity(onLine) instanceof AngledTrackAnchorBlockEntity there) {
 				end = fromExisting(there, Role.END);
 				if (end.error() != null)
 					return Plan.failed(end.error());
@@ -985,9 +990,12 @@ public final class CurvePlanner {
 		Plan plan = new Plan(null, start, end, startHeading, endHeading, curve, layout.adjustable(), layout.turn(),
 			forward, reverseEnd, null, null, slopes[0], slopes[1], 0, laid);
 
+		// Sampled once, for the ghost every tick: how steep the curve gets, and whether it ever goes back on
+		// the way a docked end climbs.
+		Climb climb = climb(curve);
 		String error = validateSpan(startPoint, endPoint, startHeading, endHeading, layout.turn());
 		if (error == null && (start.onSlope() || end.onSlope()))
-			error = slopeError(curve, startPoint, endPoint, startHeading, endHeading, start, end);
+			error = slopeError(climb, startPoint, endPoint, startHeading, endHeading, start, end);
 		if (error != null)
 			return plan.withError(error);
 
@@ -998,7 +1006,7 @@ public final class CurvePlanner {
 		if (orientationDeviation(curve) > MAX_ORIENTATION_DEVIATION)
 			return splitPlan(level, plan, startPoint, endPoint);
 
-		error = validateCurve(level, curve, startPoint, endPoint, startHeading, endHeading, start, end);
+		error = validateCurve(level, curve, climb.steepest(), startPoint, endPoint, startHeading, endHeading, start, end);
 		return error == null ? plan : plan.withError(error);
 	}
 
@@ -1117,27 +1125,21 @@ public final class CurvePlanner {
 	 * <p>And its height has to go the way the slope does at a docked end, up from the top and down from the
 	 * foot, all along it and never back ({@code slope_way}): one that climbed out of the top of a slope and
 	 * came down again would have a crest just past it. Create's wand refuses the same, as leaving a slope
-	 * ascending or descending. Sampling the height is all it takes. A curve that ends no further on than it
-	 * started has to come back, and so does one between two docked ends that disagree about the way, since
-	 * it leaves the one going up and arrives at the other going down, both at 45 degrees.
+	 * ascending or descending. Sampling the height is all it takes, and {@link #climb} has done it. A curve
+	 * that ends no further on than it started has to come back, and so does one between two docked ends that
+	 * disagree about the way, since it leaves the one going up and arrives at the other going down, both at
+	 * 45 degrees.
 	 */
 	@Nullable
-	private static String slopeError(BezierConnection curve, Vec3 startPoint, Vec3 endPoint, Vec3 startHeading,
+	private static String slopeError(Climb climb, Vec3 startPoint, Vec3 endPoint, Vec3 startHeading,
 		Vec3 endHeading, Endpoint start, Endpoint end) {
 		Vec3 chord = flat(endPoint.subtract(startPoint));
 		double sideways = Math.abs(chord.x * startHeading.z - chord.z * startHeading.x);
 		if (startHeading.dot(endHeading) < 1 - 1.0E-9 || sideways > 1.0E-6)
 			return "slope_turn";
 
-		double way = Math.signum(start.onSlope() ? start.fixedSlope() : end.fixedSlope());
-		double previous = curve.getPosition(0).y;
-		for (int i = 1; i <= GRADE_SAMPLES; i++) {
-			double height = curve.getPosition(i / (double) GRADE_SAMPLES).y;
-			if ((height - previous) * way < -1.0E-6)
-				return "slope_way";
-			previous = height;
-		}
-		return null;
+		boolean up = (start.onSlope() ? start.fixedSlope() : end.fixedSlope()) > 0;
+		return (up ? climb.falls() : climb.rises()) ? "slope_way" : null;
 	}
 
 	/** How many times the height of a graded end is looked for again, once its nodes have moved. */
@@ -1378,10 +1380,19 @@ public final class CurvePlanner {
 	@Nullable
 	private static String validateCurve(Level level, BezierConnection curve, Vec3 startPoint, Vec3 endPoint,
 		Vec3 startHeading, Vec3 endHeading, @Nullable Endpoint startNeighbour, @Nullable Endpoint endNeighbour) {
+		return validateCurve(level, curve, maxLocalGrade(curve), startPoint, endPoint, startHeading, endHeading,
+			startNeighbour, endNeighbour);
+	}
+
+	/** The same, with the curve's steepest grade, {@link #maxLocalGrade}, already measured. */
+	@Nullable
+	private static String validateCurve(Level level, BezierConnection curve, double steepest, Vec3 startPoint,
+		Vec3 endPoint, Vec3 startHeading, Vec3 endHeading, @Nullable Endpoint startNeighbour,
+		@Nullable Endpoint endNeighbour) {
 		Vec3 arriving =
 			startNeighbour == null ? null : adjoiningDirection(level, startNeighbour, startHeading, Role.START);
 		Vec3 leaving = endNeighbour == null ? null : adjoiningDirection(level, endNeighbour, endHeading, Role.END);
-		return validateCurve(curve, startPoint, endPoint, startHeading, endHeading, arriving, leaving);
+		return validateCurve(curve, steepest, startPoint, endPoint, startHeading, endHeading, arriving, leaving);
 	}
 
 	/**
@@ -1395,9 +1406,16 @@ public final class CurvePlanner {
 	@Nullable
 	static String validateCurve(BezierConnection curve, Vec3 startPoint, Vec3 endPoint, Vec3 startHeading,
 		Vec3 endHeading, @Nullable Vec3 arriving, @Nullable Vec3 leaving) {
+		return validateCurve(curve, maxLocalGrade(curve), startPoint, endPoint, startHeading, endHeading, arriving,
+			leaving);
+	}
+
+	@Nullable
+	private static String validateCurve(BezierConnection curve, double steepest, Vec3 startPoint, Vec3 endPoint,
+		Vec3 startHeading, Vec3 endHeading, @Nullable Vec3 arriving, @Nullable Vec3 leaving) {
 		int maxLength = AllConfigs.server().trains.maxTrackPlacementLength.get();
 
-		if (steeperThanAllowed(maxLocalGrade(curve)))
+		if (steeperThanAllowed(steepest))
 			return "too_steep";
 
 		double length = curve.getLength();
@@ -2149,20 +2167,35 @@ public final class CurvePlanner {
 	 * climb or out of one is steeper in the middle than its ends are apart.
 	 */
 	static double maxLocalGrade(BezierConnection curve) {
+		return climb(curve).steepest();
+	}
+
+	/**
+	 * What a curve's height does along it: the steepest it gets, as {@link #maxLocalGrade} gives it, and
+	 * whether it ever goes up or ever goes down between two of the points it is sampled at.
+	 */
+	record Climb(double steepest, boolean rises, boolean falls) {}
+
+	/** The curve's {@link Climb}, from one pass over the same points every grade check here uses. */
+	static Climb climb(BezierConnection curve) {
 		Vec3 previous = curve.getPosition(0);
 		double worst = 0;
+		boolean rises = false;
+		boolean falls = false;
 		for (int i = 1; i <= GRADE_SAMPLES; i++) {
 			Vec3 point = curve.getPosition(i / (double) GRADE_SAMPLES);
 			double run = Math.sqrt((point.x - previous.x) * (point.x - previous.x)
 				+ (point.z - previous.z) * (point.z - previous.z));
-			double rise = Math.abs(point.y - previous.y);
+			double rise = point.y - previous.y;
 			if (run > 1.0E-6)
-				worst = Math.max(worst, rise / run);
-			else if (rise > 1.0E-6)
-				return Double.MAX_VALUE;
+				worst = Math.max(worst, Math.abs(rise) / run);
+			else if (Math.abs(rise) > 1.0E-6)
+				worst = Double.MAX_VALUE;
+			rises |= rise > 1.0E-6;
+			falls |= rise < -1.0E-6;
 			previous = point;
 		}
-		return worst;
+		return new Climb(worst, rises, falls);
 	}
 
 	/**
