@@ -615,6 +615,18 @@ public class SlopeDockTests {
 		helper.succeed();
 	}
 
+	/** And from the foot, nothing that goes down out of the slope and climbs back up: level with the foot or above it is refused. */
+	@GameTest(template = EMPTY)
+	public static void nothingClimbsBackUpOffTheFootOfASlope(GameTestHelper helper) {
+		helper.setBlock(HIGH_SLOPE, CreateSlopeTests.slope(TrackShape.AN));
+		for (int y : new int[] { 5, 6, 7 }) {
+			CurvePlanner.Plan plan = plan(helper, HIGH_SLOPE, new BlockPos(32, y, 30));
+			helper.assertTrue("slope_way".equals(plan.error()),
+				"a curve from the foot of the slope to a block at height " + y + " should be refused, but: " + plan.error());
+		}
+		helper.succeed();
+	}
+
 	/** The grade screen's level-off works from a slope: the curve eases from 45 degrees to level. */
 	@GameTest(template = EMPTY)
 	public static void aGradeOfNothingLevelsACurveOffASlope(GameTestHelper helper) {
@@ -763,16 +775,21 @@ public class SlopeDockTests {
 		helper.setBlock(SLOPE, CreateSlopeTests.slope(TrackShape.AN));
 		ServerLevel level = helper.getLevel();
 		BlockPos slope = helper.absolutePos(SLOPE);
-		// Far from every test's box, where nothing has had a reason to load a chunk.
-		BlockPos aimed = slope.offset(3000, 6, -3000);
-		BlockPos onLine = new BlockPos(slope.getX(), aimed.getY(), aimed.getZ());
+		// Far from every test's box, where nothing has had a reason to load a chunk. Given relative to the test,
+		// as the planner is given it, since a test's box can be turned.
+		BlockPos far = SLOPE.offset(3000, 6, -3000);
+		BlockPos aimed = helper.absolutePos(far);
 		level.getChunk(aimed.getX() >> 4, aimed.getZ() >> 4);
-		helper.assertTrue(level.isLoaded(aimed) && !level.isLoaded(onLine),
-			"setup: the block aimed at should be loaded and the one on the slope's line not");
 
-		CurvePlanner.Plan plan = plan(helper, SLOPE, helper.relativePos(aimed));
-		helper.assertTrue(!plan.valid(), "a curve that far should not be possible");
-		helper.assertTrue(!level.isLoaded(onLine), "planning it should not have loaded the chunk on the slope's line");
+		CurvePlanner.Plan plan = plan(helper, SLOPE, far);
+		helper.assertTrue(plan.end() != null && !plan.valid(), "a curve that far should not be possible, but should get as far as its far end");
+		BlockPos onLine = plan.end()
+			.anchorPos();
+		helper.assertTrue(onLine.getX() == slope.getX() || onLine.getZ() == slope.getZ(),
+			"setup: the far end should have been moved onto the slope's line, to " + onLine);
+		helper.assertTrue(level.isLoaded(aimed) && (onLine.getX() >> 4 != aimed.getX() >> 4 || onLine.getZ() >> 4 != aimed.getZ() >> 4),
+			"setup: the block aimed at should be loaded, and the one on the slope's line in another chunk");
+		helper.assertTrue(!level.isLoaded(onLine), "planning it should not have loaded the chunk on the slope's line, at " + onLine);
 		helper.succeed();
 	}
 
