@@ -229,6 +229,48 @@ public class SlopeDockTests {
 	}
 
 	/**
+	 * A slope mined from under a dock, or swapped for level track, takes the dock with it: the anchor is an
+	 * ordinary end again, with a side free to carry the route on from, and nothing is left in the graph that
+	 * no block reports. The top of a slope is not beside the anchor docked onto it, so no block update tells
+	 * the anchor; it has to look.
+	 */
+	@GameTest(template = EMPTY, timeoutTicks = 80)
+	public static void aDockWhoseSlopeHasGoneIsDockedNoLonger(GameTestHelper helper) {
+		AngledTrackAnchorBlockEntity top = dockedOnTop(helper);
+		helper.setBlock(HIGH_SLOPE, CreateSlopeTests.slope(TrackShape.AN));
+		AngledTrackAnchorBlockEntity below = anchor(helper, LEVEL_BELOW);
+		AngledTrackAnchorBlockEntity foot = anchor(helper, FOOT_DOCK);
+		below.linkTo(foot, AngledTrackAnchorBlockEntity.tangentOf(NORTH, 0), AngledTrackAnchorBlockEntity.tangentOf(NORTH, 1),
+			false, true);
+		HolderLookup.Provider registries = helper.getLevel()
+			.registryAccess();
+
+		helper.runAfterDelay(GRAPH_TICKS, () -> {
+			helper.assertTrue(top.isSlopeDocked() && foot.isSlopeDocked(), "setup: both ends should be docked while their slopes stand");
+			Vec3 topAxis = top.targetingAxis();
+			Vec3 footAxis = foot.targetingAxis();
+			helper.setBlock(SLOPE, Blocks.AIR);
+			helper.setBlock(HIGH_SLOPE, CreateSlopeTests.slope(TrackShape.ZO));
+
+			helper.runAfterDelay(SETTLE_TICKS, () -> {
+				helper.assertTrue(!top.isSlopeDocked() && top.hasFreeSide() && !top.saveWithFullMetadata(registries)
+					.contains("SlopeDock"), "an end whose slope was mined should not be docked any more");
+				helper.assertTrue(!foot.isSlopeDocked() && foot.hasFreeSide(),
+					"nor one whose slope was swapped for level track, which would meet it at 45 degrees");
+				// A node at the centre of each anchor that was docked, since each climbs, both ends of each level
+				// anchor, and the level track's two.
+				helper.assertTrue(top.targetingAxis()
+					.dot(topAxis) > 0 && foot.targetingAxis()
+						.dot(footAxis) > 0, "what each reports should point the way it did, for the signals standing on it");
+				assertClean(helper, "after both slopes went", 8);
+				assertConsistent(helper, top);
+				assertConsistent(helper, below);
+				helper.succeed();
+			});
+		});
+	}
+
+	/**
 	 * Taking the curve away takes the dock with it, whichever end of the curve the anchor broken was at
 	 * and whichever anchor was unlinked. Nothing is left in the graph that no block reports.
 	 */

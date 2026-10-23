@@ -16,6 +16,7 @@ import com.simibubi.create.Create;
 import com.simibubi.create.content.trains.graph.TrackGraph;
 import com.simibubi.create.content.trains.graph.TrackNode;
 import com.simibubi.create.content.trains.graph.TrackNodeLocation;
+import com.simibubi.create.content.trains.track.ITrackBlock;
 import com.simibubi.create.content.trains.track.BezierConnection;
 import com.simibubi.create.content.trains.track.TrackBlockEntity;
 import com.simibubi.create.content.trains.track.TrackMaterial;
@@ -154,7 +155,8 @@ public class AngledTrackAnchorBlockEntity extends TrackBlockEntity {
 	 * boolean, boolean)}), and it stays through whatever leaves the anchor an end — the route turned round,
 	 * a point put on the curve, the curve mended — since all of those keep the free side free. It is
 	 * dropped once the anchor has a curve on both sides or none, either of which leaves it no free side
-	 * that faces the slope. False for every anchor saved before there was any.
+	 * that faces the slope, and once the slope is no longer there to share the node: see
+	 * {@link #undockIfSlopeGone}. False for every anchor saved before there was any.
 	 */
 	private boolean slopeDock = false;
 
@@ -232,6 +234,59 @@ public class AngledTrackAnchorBlockEntity extends TrackBlockEntity {
 	 */
 	public boolean isSlopeDocked() {
 		return slopeDock && (prev == null) != (next == null);
+	}
+
+	/**
+	 * Whether the slope this end is docked onto is still there to share its node: a block beside the node
+	 * that reports it, as Create's walk would find it, with a sloped axis. Mined, or replaced by anything
+	 * else, it is not, and that includes level track, whose node at the same place would meet the docked
+	 * curve at 45 degrees.
+	 *
+	 * <p>True when it cannot be told: a block beside the node in a chunk that is not loaded leaves the dock as
+	 * it is, since the slope may be in it.
+	 */
+	private boolean slopeStillThere() {
+		Vec3 node = dockNode();
+		if (node == null || level == null)
+			return true;
+		TrackNodeLocation location = new TrackNodeLocation(node).in(level);
+		for (BlockPos pos : location.allAdjacent()) {
+			if (!level.isLoaded(pos))
+				return true;
+			BlockState state = level.getBlockState(pos);
+			if (!(state.getBlock() instanceof ITrackBlock track) || state.getBlock() instanceof AngledTrackAnchorBlock)
+				continue;
+			boolean sloped = track.getTrackAxes(level, pos, state)
+				.stream()
+				.anyMatch(axis -> Math.abs(axis.y) > 1.0E-4);
+			if (sloped && track.getConnected(level, pos, state, false, null)
+				.contains(location))
+				return true;
+		}
+		return false;
+	}
+
+	/**
+	 * Takes this end off a slope that has gone, so that it is an ordinary end again, with a side free to
+	 * carry the route on from.
+	 *
+	 * <p>Nothing tells an anchor that a block next to it has gone: the slope under the top of a dock is not
+	 * even beside it, but one down and one along. So the anchor looks, on its tick. In the tick between,
+	 * the graph has the node the slope took with it put back by the anchor, which still reports it, as
+	 * Create rebuilds what was beside the slope; this takes it out again the way {@link #linkTo} does any
+	 * node that stops being reported.
+	 */
+	private void undockIfSlopeGone() {
+		if (!isSlopeDocked() || slopeStillThere())
+			return;
+
+		Map<AngledTrackAnchorBlockEntity, Vec3> reported = reportedBy(this, anchorAt(prev), anchorAt(next));
+		Set<TrackNodeLocation> stale = detachNeighbourhood();
+		slopeDock = false;
+		invalidateNeighbourhood();
+		keepAxisSigns(reported);
+		pruneGraph(stale);
+		attachNeighbourhood();
 	}
 
 	/** Drops {@link #slopeDock} from an anchor that is no longer an end, once its links have settled. */
@@ -1442,9 +1497,11 @@ public class AngledTrackAnchorBlockEntity extends TrackBlockEntity {
 	/**
 	 * Counts down to the next renewal of this anchor's floor.
 	 *
-	 * <p>The only reason an anchor ticks at all. See {@link OCCUPANCY_REFRESH_TICKS}.
+	 * <p>The reason an anchor ticks, with looking for a slope it is docked onto having gone. See
+	 * {@link OCCUPANCY_REFRESH_TICKS}.
 	 */
 	public void serverTick() {
+		undockIfSlopeGone();
 		if (--occupancyTimer > 0)
 			return;
 		occupancyTimer = OCCUPANCY_REFRESH_TICKS;
