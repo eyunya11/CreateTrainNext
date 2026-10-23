@@ -9,6 +9,7 @@ import static com.eyunya.createtrainnext.gametest.GraphCleanlinessTests.assertCl
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.UUID;
 
 import org.jetbrains.annotations.Nullable;
 
@@ -20,6 +21,7 @@ import com.eyunya.createtrainnext.track.CurvePlanner;
 import com.eyunya.createtrainnext.track.CurveWandItem;
 import com.eyunya.createtrainnext.track.CurveWandSelection;
 import com.eyunya.createtrainnext.track.GradeSpec;
+import com.mojang.authlib.GameProfile;
 import com.simibubi.create.Create;
 import com.simibubi.create.content.trains.graph.TrackEdge;
 import com.simibubi.create.content.trains.graph.TrackGraph;
@@ -37,6 +39,8 @@ import net.minecraft.core.HolderLookup;
 import net.minecraft.gametest.framework.GameTest;
 import net.minecraft.gametest.framework.GameTestHelper;
 import net.minecraft.nbt.CompoundTag;
+import net.minecraft.network.chat.Component;
+import net.minecraft.network.chat.contents.TranslatableContents;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.InteractionResult;
 import net.minecraft.world.entity.player.Player;
@@ -690,13 +694,14 @@ public class SlopeDockTests {
 					.lengthSqr() < 1.0E-6,
 				"and the anchor that was there docked, aimed up the slope's line, but it points along " + docked.tangent());
 
-			helper.assertTrue("start_taken".equals(plan(helper, TOP_DOCK, new BlockPos(16, 7, 4)).error()),
+			helper.assertTrue("dock_taken".equals(plan(helper, TOP_DOCK, new BlockPos(16, 7, 4)).error()),
 				"a docked anchor should not be somewhere to start a curve");
-			helper.assertTrue("start_taken".equals(plan(helper, SLOPE, new BlockPos(16, 7, 4)).error()),
+			helper.assertTrue("dock_taken".equals(plan(helper, SLOPE, new BlockPos(16, 7, 4)).error()),
 				"nor the slope it is docked onto, at that end");
 			BlockPos other = new BlockPos(16, 6, 2);
 			anchor(helper, other);
-			helper.assertTrue("end_taken".equals(plan(helper, other, TOP_DOCK).error()), "nor somewhere to finish one");
+			helper.assertTrue("dock_taken".equals(plan(helper, other, TOP_DOCK).error()), "nor somewhere to finish one");
+			helper.assertTrue("dock_taken".equals(plan(helper, other, SLOPE).error()), "nor is the slope, at that end");
 
 			helper.setBlock(HIGH_SLOPE, CreateSlopeTests.slope(TrackShape.AN));
 			CurveConsistencyTests.route(helper, 0.0F, new BlockPos(32, 6, 10), new BlockPos(32, 6, 19));
@@ -822,8 +827,14 @@ public class SlopeDockTests {
 			helper.assertTrue(anchorAt(helper, TOP_DOCK).isSlopeDocked(), "the anchor at the slope should be docked");
 
 			ItemStack fresh = new ItemStack(CTNRegistry.CURVE_WAND.get());
-			helper.assertTrue(click(helper, player, fresh, TOP_DOCK) == InteractionResult.FAIL,
+			List<Component> said = new ArrayList<>();
+			Player listening = listeningPlayer(helper, said);
+			helper.assertTrue(click(helper, listening, fresh, TOP_DOCK) == InteractionResult.FAIL,
 				"a click on the docked anchor should start nothing");
+			helper.assertTrue(said.size() == 1 && said.get(0)
+				.getContents() instanceof TranslatableContents words && words.getKey()
+					.equals("message.createtrainnext.wand.dock_taken"),
+				"and say that the slope's end is taken, not that the anchor has two curves, but said " + said);
 
 			ItemStack up = new ItemStack(CTNRegistry.CURVE_WAND.get());
 			helper.assertTrue(click(helper, player, up, LEVEL_BELOW).consumesAction(), "the click on the anchor should pick it");
@@ -847,6 +858,26 @@ public class SlopeDockTests {
 				helper.succeed();
 			});
 		});
+	}
+
+	/** A creative player who is not in the world, as {@code makeMockPlayer} makes, and who keeps what it is told. */
+	private static Player listeningPlayer(GameTestHelper helper, List<Component> said) {
+		return new Player(helper.getLevel(), BlockPos.ZERO, 0, new GameProfile(UUID.randomUUID(), "test-mock-player")) {
+			@Override
+			public void displayClientMessage(Component message, boolean actionBar) {
+				said.add(message);
+			}
+
+			@Override
+			public boolean isSpectator() {
+				return false;
+			}
+
+			@Override
+			public boolean isCreative() {
+				return true;
+			}
+		};
 	}
 
 	/**

@@ -885,7 +885,7 @@ public final class CurvePlanner {
 
 		if (level.getBlockEntity(anchorPos) instanceof AngledTrackAnchorBlockEntity existing) {
 			if (existing.isSlopeDocked())
-				return Endpoint.failed(role == Role.START ? "start_taken" : "end_taken");
+				return Endpoint.failed("dock_taken");
 			if (existing.isLinked())
 				return Endpoint.failed("no_room");
 			return new Endpoint(null, anchorPos, false, heading, false, true, Side.EITHER, slope, dockNode);
@@ -907,9 +907,12 @@ public final class CurvePlanner {
 		boolean nextFree = anchor.getNext() == null;
 		boolean prevFree = anchor.getPrev() == null;
 
-		// One docked onto a slope has the slope on the side without a curve, so neither is free.
-		if ((!nextFree && !prevFree) || anchor.isSlopeDocked())
+		if (!nextFree && !prevFree)
 			return Endpoint.failed(role == Role.START ? "start_taken" : "end_taken");
+		// One docked onto a slope has the slope on the side without a curve, so neither is free; but it has
+		// one curve, not two, and saying it had two would point the player at the wrong thing.
+		if (anchor.isSlopeDocked())
+			return Endpoint.failed("dock_taken");
 
 		Side side = nextFree && prevFree ? Side.EITHER : nextFree ? Side.NEXT : Side.PREV;
 
