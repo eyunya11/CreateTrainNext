@@ -4,6 +4,7 @@ import com.eyunya.createtrainnext.CTNConfig;
 import com.eyunya.createtrainnext.signal.MultiAspectSignalBlock;
 import com.eyunya.createtrainnext.signal.MultiAspectSignalBlockEntity;
 import com.eyunya.createtrainnext.signal.SignalAspect;
+import com.eyunya.createtrainnext.signal.SignalType;
 import com.mojang.blaze3d.vertex.PoseStack;
 import com.simibubi.create.content.trains.track.ITrackBlock;
 import com.simibubi.create.content.trains.track.TrackTargetingBehaviour;
@@ -23,7 +24,7 @@ import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.state.BlockState;
 
 /**
- * Draws the five lamps, and the marker on the track the signal governs.
+ * Draws the lamps, however many the signal has, and the marker on the track the signal governs.
  *
  * <p>Only the lamps. The housing is a blockstate model, so it is part of the chunk mesh and lit
  * properly; there is no reason to draw something that never changes here. What does change is
@@ -46,22 +47,17 @@ import net.minecraft.world.level.block.state.BlockState;
  */
 public class MultiAspectSignalRenderer extends SmartBlockEntityRenderer<MultiAspectSignalBlockEntity> {
 
-	/**
-	 * Vertical gap between neighbouring lamps, in blocks, measured off the model: its five sockets
-	 * sit at y 3.25, 5.5, 7.75, 10 and 12.25.
-	 */
-	private static final float LAMP_SPACING = 2.25F / 16F;
-
-	/**
-	 * The socket the lamp models are drawn at, counted from 1 at the top. Every lamp model is the
-	 * middle one, so the others are this many steps away from where the model already is.
-	 */
-	private static final int REFERENCE_POSITION = 3;
-
 	/** Centre of the socket the lamp models are authored at, the point everything here scales about. */
 	private static final float LAMP_CENTRE_X = 8F / 16F;
 
 	private static final float LAMP_CENTRE_Y = 7.75F / 16F;
+
+	/**
+	 * Where the lamp models are drawn, as the height of the middle of the socket they sit in, in pixels.
+	 * Every lamp model is the five-aspect's middle one, so a lamp elsewhere is moved by the difference
+	 * between its type's {@link SignalType#socketY} and this.
+	 */
+	private static final float LAMP_MODEL_Y = 7.75F;
 
 	private static final float LAMP_CENTRE_Z = 10.0125F / 16F;
 
@@ -145,7 +141,8 @@ public class MultiAspectSignalRenderer extends SmartBlockEntityRenderer<MultiAsp
 		if (!(state.getBlock() instanceof MultiAspectSignalBlock))
 			return;
 
-		CachedBuffers.partial(CreateTrainNextClient.signalHead(state.getValue(MultiAspectSignalBlock.OFFSET)), state)
+		SignalType type = ((MultiAspectSignalBlock) state.getBlock()).signalType();
+		CachedBuffers.partial(CreateTrainNextClient.signalHead(type, state.getValue(MultiAspectSignalBlock.OFFSET)), state)
 			.rotateCenteredDegrees(-MultiAspectSignalBlock.modelYaw(state), Direction.Axis.Y)
 			.light(light)
 			.renderInto(ms, buffer.getBuffer(RenderType.cutoutMipped()));
@@ -157,6 +154,7 @@ public class MultiAspectSignalRenderer extends SmartBlockEntityRenderer<MultiAsp
 			return;
 
 		SignalAspect aspect = be.getAspect();
+		SignalType type = be.signalType();
 		float yaw = MultiAspectSignalBlock.modelYaw(state);
 		float localX = state.getValue(MultiAspectSignalBlock.OFFSET)
 			.localX();
@@ -165,14 +163,14 @@ public class MultiAspectSignalRenderer extends SmartBlockEntityRenderer<MultiAsp
 			.floatValue();
 		boolean glow = CTNConfig.CLIENT.signalGlow.get();
 
-		for (int position = 1; position <= SignalAspect.LAMP_COUNT; position++) {
-			boolean lit = aspect.isLit(position);
-			PartialModel model = lit ? CreateTrainNextClient.litLamp(SignalAspect.colourAt(position))
+		for (int position = 1; position <= type.lampCount(); position++) {
+			boolean lit = type.isLit(aspect, position);
+			PartialModel model = lit ? CreateTrainNextClient.litLamp(type.colourAt(position))
 				: CreateTrainNextClient.SIGNAL_LAMP_OFF;
 
-			// Position 1 is the top, so a lower number sits higher: the step is away from the
-			// reference socket, not towards it.
-			float verticalOffset = (REFERENCE_POSITION - position) * LAMP_SPACING;
+			// Position 1 is the top, and the type says how high each socket is, so the step is whatever
+			// takes the lamp from where the model is drawn to there.
+			float verticalOffset = (type.socketY(position) - LAMP_MODEL_Y) / 16F;
 
 			// Only an enlarged lamp comes forward. At a scale of exactly 1 the lamp is left inside
 			// its bezel where the model puts it, so the config's lower bound is a true "unchanged"
@@ -202,7 +200,7 @@ public class MultiAspectSignalRenderer extends SmartBlockEntityRenderer<MultiAsp
 				.renderInto(ms, buffer.getBuffer(RenderType.cutoutMipped()));
 
 			if (lit && glow)
-				renderGlow(state, position, yaw, localX, verticalOffset, ms, buffer);
+				renderGlow(state, type.colourAt(position), yaw, localX, verticalOffset, ms, buffer);
 		}
 	}
 
@@ -214,10 +212,9 @@ public class MultiAspectSignalRenderer extends SmartBlockEntityRenderer<MultiAsp
 	 * off the lamp rather than as a disc stuck to the front of the signal. It is white in the
 	 * texture and tinted here, and drawn at full brightness for the same reason the lit lamp is.
 	 */
-	private void renderGlow(BlockState state, int position, float yaw, float localX, float verticalOffset,
-		PoseStack ms, MultiBufferSource buffer) {
-		int tint = SignalAspect.colourAt(position)
-			.glowTint();
+	private void renderGlow(BlockState state, SignalAspect.LampColour colour, float yaw, float localX,
+		float verticalOffset, PoseStack ms, MultiBufferSource buffer) {
+		int tint = colour.glowTint();
 		float brightness = CTNConfig.CLIENT.signalGlowBrightness.get()
 			.floatValue();
 		float size = CTNConfig.CLIENT.signalGlowSize.get()

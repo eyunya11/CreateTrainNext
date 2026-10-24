@@ -7,6 +7,7 @@ import com.eyunya.createtrainnext.signal.MultiAspectSignalBlock;
 import com.eyunya.createtrainnext.signal.MultiAspectSignalBlockEntity;
 import com.eyunya.createtrainnext.signal.RelaySignalBlock;
 import com.eyunya.createtrainnext.signal.RelaySignalBlockEntity;
+import com.eyunya.createtrainnext.signal.SignalType;
 import com.eyunya.createtrainnext.speed.CTNEdgePointTypes;
 import com.eyunya.createtrainnext.speed.SpeedLimitBlock;
 import com.eyunya.createtrainnext.speed.SpeedLimitBlockEntity;
@@ -173,27 +174,59 @@ public class CTNRegistry {
 	public static final DeferredItem<BlockItem> SIGNAL_POLE_ITEM =
 		ITEMS.registerSimpleBlockItem("signal_pole", SIGNAL_POLE);
 
-	public static final DeferredBlock<MultiAspectSignalBlock> MULTI_ASPECT_SIGNAL = BLOCKS.registerBlock(
-		"multi_aspect_signal",
-		MultiAspectSignalBlock::new,
-		BlockBehaviour.Properties.of()
-			.mapColor(MapColor.PODZOL)
-			.strength(0.8F)
-			.sound(SoundType.NETHERITE_BLOCK)
-			.noOcclusion());
+	/**
+	 * The signal heads, one block and one item for each type of {@link SignalType}. The five-aspect
+	 * is the first and keeps the name it had when it was the only one.
+	 *
+	 * <p>The names are written out rather than taken from {@link SignalType#blockName()} in a loop,
+	 * because {@code check_readmes.py} finds the items by their literal names here. A test holds the
+	 * two together.
+	 */
+	public static final DeferredBlock<MultiAspectSignalBlock> MULTI_ASPECT_SIGNAL_2 =
+		signalBlock("multi_aspect_signal_2", SignalType.TWO);
+
+	public static final DeferredBlock<MultiAspectSignalBlock> MULTI_ASPECT_SIGNAL_3 =
+		signalBlock("multi_aspect_signal_3", SignalType.THREE);
+
+	public static final DeferredBlock<MultiAspectSignalBlock> MULTI_ASPECT_SIGNAL_4 =
+		signalBlock("multi_aspect_signal_4", SignalType.FOUR);
+
+	public static final DeferredBlock<MultiAspectSignalBlock> MULTI_ASPECT_SIGNAL =
+		signalBlock("multi_aspect_signal", SignalType.FIVE);
+
+	public static final DeferredBlock<MultiAspectSignalBlock> MULTI_ASPECT_SIGNAL_6 =
+		signalBlock("multi_aspect_signal_6", SignalType.SIX);
 
 	/**
 	 * Built on Create's own SIGNAL point type rather than one of this mod's. That is what makes
 	 * trains obey it: Create's navigation looks for {@code SignalBoundary} by its concrete class,
 	 * so a signal of any other type would be invisible to braking and block reservation alike.
 	 */
+	public static final DeferredItem<TrackTargetingBlockItem> MULTI_ASPECT_SIGNAL_2_ITEM =
+		ITEMS.registerItem("multi_aspect_signal_2", properties -> new TrackTargetingBlockItem(
+			MULTI_ASPECT_SIGNAL_2.get(), properties, EdgePointType.SIGNAL));
+
+	public static final DeferredItem<TrackTargetingBlockItem> MULTI_ASPECT_SIGNAL_3_ITEM =
+		ITEMS.registerItem("multi_aspect_signal_3", properties -> new TrackTargetingBlockItem(
+			MULTI_ASPECT_SIGNAL_3.get(), properties, EdgePointType.SIGNAL));
+
+	public static final DeferredItem<TrackTargetingBlockItem> MULTI_ASPECT_SIGNAL_4_ITEM =
+		ITEMS.registerItem("multi_aspect_signal_4", properties -> new TrackTargetingBlockItem(
+			MULTI_ASPECT_SIGNAL_4.get(), properties, EdgePointType.SIGNAL));
+
 	public static final DeferredItem<TrackTargetingBlockItem> MULTI_ASPECT_SIGNAL_ITEM =
 		ITEMS.registerItem("multi_aspect_signal", properties -> new TrackTargetingBlockItem(
 			MULTI_ASPECT_SIGNAL.get(), properties, EdgePointType.SIGNAL));
 
+	public static final DeferredItem<TrackTargetingBlockItem> MULTI_ASPECT_SIGNAL_6_ITEM =
+		ITEMS.registerItem("multi_aspect_signal_6", properties -> new TrackTargetingBlockItem(
+			MULTI_ASPECT_SIGNAL_6.get(), properties, EdgePointType.SIGNAL));
+
+	/** One block entity type for every head: they differ in their block, and the block entity asks it. */
 	public static final Supplier<BlockEntityType<MultiAspectSignalBlockEntity>> MULTI_ASPECT_SIGNAL_ENTITY =
 		BLOCK_ENTITIES.register("multi_aspect_signal", () -> BlockEntityType.Builder
-			.of(MultiAspectSignalBlockEntity::new, MULTI_ASPECT_SIGNAL.get())
+			.of(MultiAspectSignalBlockEntity::new, MULTI_ASPECT_SIGNAL_2.get(), MULTI_ASPECT_SIGNAL_3.get(),
+				MULTI_ASPECT_SIGNAL_4.get(), MULTI_ASPECT_SIGNAL.get(), MULTI_ASPECT_SIGNAL_6.get())
 			.build(null));
 
 	public static final DeferredBlock<RelaySignalBlock> RELAY_SIGNAL = BLOCKS.registerBlock(
@@ -236,10 +269,23 @@ public class CTNRegistry {
 				output.accept(TRACK_SPEED_LIMIT_ITEM.get());
 				output.accept(TRACK_SPEED_RELEASE_ITEM.get());
 				output.accept(SIGNAL_POLE_ITEM.get());
+				output.accept(MULTI_ASPECT_SIGNAL_2_ITEM.get());
+				output.accept(MULTI_ASPECT_SIGNAL_3_ITEM.get());
+				output.accept(MULTI_ASPECT_SIGNAL_4_ITEM.get());
 				output.accept(MULTI_ASPECT_SIGNAL_ITEM.get());
+				output.accept(MULTI_ASPECT_SIGNAL_6_ITEM.get());
 				output.accept(RELAY_SIGNAL_ITEM.get());
 			})
 			.build());
+
+	private static DeferredBlock<MultiAspectSignalBlock> signalBlock(String name, SignalType type) {
+		return BLOCKS.registerBlock(name, properties -> new MultiAspectSignalBlock(properties, type),
+			BlockBehaviour.Properties.of()
+				.mapColor(MapColor.PODZOL)
+				.strength(0.8F)
+				.sound(SoundType.NETHERITE_BLOCK)
+				.noOcclusion());
+	}
 
 	public static void register(IEventBus modEventBus) {
 		BLOCKS.register(modEventBus);

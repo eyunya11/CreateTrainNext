@@ -116,13 +116,13 @@ public class RelaySignalBlockEntity extends SmartBlockEntity implements Transfor
 	 *
 	 * <p>Asked of the head itself where there is one, rather than worked out again from the track.
 	 * A relay that recomputed would be a second opinion, and could disagree with the signal it is
-	 * supposed to be repeating — most easily over 警戒, which is a setting on the head and not
-	 * something any amount of looking at the track could reveal.
+	 * supposed to be repeating — most easily over which ladder the head steps up, which is a fact about
+	 * the type of head and not something any amount of looking at the track could reveal.
 	 *
 	 * <p>Falls back to resolving it only when the head cannot be read: an ordinary Create signal
-	 * with no aspect of its own, or one whose chunk is not loaded. The fallback assumes the shorter
-	 * ladder, which is the assumption that can only ever make the relay more restrictive than the
-	 * signal, never less.
+	 * with no aspect of its own, or one whose chunk is not loaded. The fallback assumes a short
+	 * ladder, one that can only ever make the relay more restrictive than a signal of this mod's,
+	 * never less.
 	 */
 	@Nullable
 	private SignalAspect aspectOf(TrackGraph graph, Ahead ahead) {
@@ -134,7 +134,7 @@ public class RelaySignalBlockEntity extends SmartBlockEntity implements Transfor
 					return head.getAspect();
 
 		return AspectResolver.resolve(graph, ahead.boundary(), ahead.side(),
-			SignalAspect.Ladder.WITHOUT_RESTRICTED);
+			SignalAspect.Ladder.FOUR);
 	}
 
 	@Override

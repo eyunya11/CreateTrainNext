@@ -45,6 +45,8 @@ public class CTNConfig {
 
 		public final ModConfigSpec.IntValue reducedSpeed;
 
+		public final ModConfigSpec.IntValue sixAspectProceedSpeed;
+
 		private Server(ModConfigSpec.Builder builder) {
 			builder.comment("Free angle curves")
 				.push("curves");
@@ -84,23 +86,30 @@ public class CTNConfig {
 
 			builder.pop();
 
-			builder.comment("How fast a five-aspect signal lets a train go, in km/h",
+			builder.comment("How fast a multi-aspect signal lets a train go, in km/h",
 					"A train is held to the speed of the last signal it passed until it passes the next, and",
-					"a green signal holds it to nothing. A train passing a signal at red is held to the",
-					"restricted speed. The speed limit signs hold a train separately, and the slower wins.")
+					"a green signal holds it to nothing, except on the six-aspect signal, whose 進行 has a",
+					"speed of its own. A train passing a signal at red is held to the restricted speed.",
+					"The speed limit signs hold a train separately, and the slower wins.")
 				.push("signals");
 
 			restrictedSpeed = builder
-				.comment("The speed at 警戒, the two outer yellow lamps.")
+				.comment("The speed at 警戒, the two outer yellow lamps of the five-aspect signal.")
 				.defineInRange("restrictedSpeed", 25, 1, 1000);
 
 			approachSpeed = builder
-				.comment("The speed at 注意, the lower yellow lamp.")
+				.comment("The speed at 注意, a yellow lamp alone.")
 				.defineInRange("approachSpeed", 45, 1, 1000);
 
 			reducedSpeed = builder
-				.comment("The speed at 減速, the upper yellow lamp and the green.")
+				.comment("The speed at 減速, a yellow lamp and the green together.")
 				.defineInRange("reducedSpeed", 75, 1, 1000);
+
+			sixAspectProceedSpeed = builder
+				.comment("The speed at 進行 on the six-aspect signal, its single green lamp.",
+					"Its pair of greens, 高速進行, holds a train to nothing and so lifts this.",
+					"On the other signals 進行 holds a train to nothing.")
+				.defineInRange("sixAspectProceedSpeed", 130, 1, 1000);
 
 			builder.pop();
 		}
