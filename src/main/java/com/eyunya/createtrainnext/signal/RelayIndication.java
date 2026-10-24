@@ -11,9 +11,10 @@ import org.jetbrains.annotations.Nullable;
  * survives being seen badly: an angle is still an angle through rain, at night, or at the far end
  * of a straight.
  *
- * <p>Only three indications for five aspects, because that is all a relay is asked for. 警戒, 注意
+ * <p>Only three indications for the six aspects, because that is all a relay is asked for. 警戒, 注意
  * and 減速 all say the same thing to a driver who cannot see the signal yet — expect a restriction
- * — and are not worth distinguishing at relay range. What matters is stop, restricted, or clear.
+ * — and are not worth distinguishing at relay range, and 進行 and 高速進行 both say the line is clear.
+ * What matters is stop, restricted, or clear.
  *
  * <p>This relays; it does not decide. Nothing here is consulted by anything that moves a train.
  */

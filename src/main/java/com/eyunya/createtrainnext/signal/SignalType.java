@@ -1,7 +1,5 @@
 package com.eyunya.createtrainnext.signal;
 
-import java.util.EnumMap;
-import java.util.Map;
 import java.util.function.IntSupplier;
 
 import com.eyunya.createtrainnext.CTNConfig;
@@ -89,7 +87,12 @@ public enum SignalType {
 	private final Ladder ladder;
 	private final IntSupplier proceedSpeed;
 	private final LampColour[] colours;
-	private final Map<SignalAspect, Integer> masks = new EnumMap<>(SignalAspect.class);
+	/**
+	 * Which lamps each aspect lights, as a bitmask over positions from 1, indexed by the aspect's ordinal;
+	 * 0 for an aspect this type does not show. An array rather than a map, since the renderer asks it once
+	 * per lamp per head per frame.
+	 */
+	private final int[] masks = new int[SignalAspect.values().length];
 	private final Housing housing;
 
 	SignalType(String blockName, String modelDir, Ladder ladder, Housing housing, LampColour[] colours,
@@ -116,13 +119,16 @@ public enum SignalType {
 					throw new IllegalArgumentException(blockName + " has no lamp at position " + position);
 				mask |= 1 << position;
 			}
-			if (masks.put(pattern.aspect, mask) != null)
+			if (masks[pattern.aspect.ordinal()] != 0)
 				throw new IllegalArgumentException(blockName + " gives " + pattern.aspect + " two patterns");
+			if (mask == 0)
+				throw new IllegalArgumentException(blockName + " lights no lamp for " + pattern.aspect);
+			masks[pattern.aspect.ordinal()] = mask;
 		}
 		// A head that is asked for an aspect it cannot show would go dark, which reads as a failed
 		// signal and not as the aspect it was meant to say.
 		for (SignalAspect aspect : ladder.aspects())
-			if (!masks.containsKey(aspect))
+			if (masks[aspect.ordinal()] == 0)
 				throw new IllegalArgumentException(blockName + " has no lamps for " + aspect);
 	}
 
@@ -155,13 +161,12 @@ public enum SignalType {
 
 	/** Whether the lamp at {@code position}, counted from 1 at the top, is lit when this type shows {@code aspect}. */
 	public boolean isLit(SignalAspect aspect, int position) {
-		Integer mask = masks.get(aspect);
-		return mask != null && (mask & (1 << position)) != 0;
+		return (masks[aspect.ordinal()] & (1 << position)) != 0;
 	}
 
 	/** Whether this type has a way to show {@code aspect}. */
 	public boolean shows(SignalAspect aspect) {
-		return masks.containsKey(aspect);
+		return masks[aspect.ordinal()] != 0;
 	}
 
 	/**
