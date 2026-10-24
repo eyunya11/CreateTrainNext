@@ -167,6 +167,9 @@ public class AngledTrackAnchorBlockEntity extends TrackBlockEntity {
 	private BezierConnection cachedCurve = null;
 	private long cachedKey = Long.MIN_VALUE;
 
+	/** How often a docked end looks for its slope, in ticks: see {@link #undockIfSlopeGone}. */
+	private static final int DOCK_CHECK_TICKS = 5;
+
 	/** What {@link #collisionShape} last worked out, and the curves it worked it out from. */
 	@Nullable
 	private VoxelShape climbingFloor = null;
@@ -255,17 +258,20 @@ public class AngledTrackAnchorBlockEntity extends TrackBlockEntity {
 	 * else, it is not, and that includes level track, whose node at the same place would meet the docked
 	 * curve at 45 degrees.
 	 *
-	 * <p>True when it cannot be told: a block beside the node in a chunk that is not loaded leaves the dock as
-	 * it is, since the slope may be in it.
+	 * <p>True when it cannot be told: with no block that is loaded reporting it, one beside the node in a chunk
+	 * that is not loaded leaves the dock as it is, since the slope may be in it.
 	 */
 	private boolean slopeStillThere() {
 		Vec3 node = dockNode();
 		if (node == null || level == null)
 			return true;
 		TrackNodeLocation location = new TrackNodeLocation(node).in(level);
+		boolean unknown = false;
 		for (BlockPos pos : location.allAdjacent()) {
-			if (!level.isLoaded(pos))
-				return true;
+			if (!level.isLoaded(pos)) {
+				unknown = true;
+				continue;
+			}
 			BlockState state = level.getBlockState(pos);
 			if (!(state.getBlock() instanceof ITrackBlock track) || state.getBlock() instanceof AngledTrackAnchorBlock)
 				continue;
@@ -276,7 +282,7 @@ public class AngledTrackAnchorBlockEntity extends TrackBlockEntity {
 				.contains(location))
 				return true;
 		}
-		return false;
+		return unknown;
 	}
 
 	/**
@@ -284,7 +290,8 @@ public class AngledTrackAnchorBlockEntity extends TrackBlockEntity {
 	 * carry the route on from.
 	 *
 	 * <p>Nothing tells an anchor that a block next to it has gone: the slope under the top of a dock is not
-	 * even beside it, but one down and one along. So the anchor looks, on its tick. In the tick between,
+	 * even beside it, but one down and one along. So the anchor looks, every {@link #DOCK_CHECK_TICKS} ticks.
+	 * In the ticks between,
 	 * the graph has the node the slope took with it put back by the anchor, which still reports it, as
 	 * Create rebuilds what was beside the slope; this takes it out again the way {@link #linkTo} does any
 	 * node that stops being reported.
@@ -1517,17 +1524,18 @@ public class AngledTrackAnchorBlockEntity extends TrackBlockEntity {
 	 * its block, the same quarter-block columns {@link CurveOccupancy} would lay if the block were empty, and
 	 * the floor on either side, {@link CurveFillerBlock}'s, carries on from it. Both sides work it out alike,
 	 * the client for where someone stands and the server for where they are, and work it out again only when
-	 * one of the curves is not the one it was worked out from, which an anchor's cached curve makes a cheap
-	 * thing to ask. With a curve that cannot be built, its far anchor not loaded, it is the slab.
+	 * one of the curves is not the shape it was worked out from. Building a curve is cheap and rasterising one
+	 * is not, so it is the shapes that are compared: {@code buildCurveToNext} makes a new one on every call.
+	 * With no curve at all, or one that cannot be built, its far anchor not loaded, it is the slab.
 	 */
 	public VoxelShape collisionShape() {
-		if (slope == 0)
+		if (slope == 0 || !isLinked())
 			return AllShapes.TRACK_COLLISION;
 
 		AngledTrackAnchorBlockEntity before = anchorAt(prev);
 		BezierConnection in = before == null ? null : before.buildCurveToNext();
 		BezierConnection out = next == null ? null : buildCurveToNext();
-		if (climbingFloor != null && in == floorFromPrev && out == floorFromNext)
+		if (climbingFloor != null && sameShape(in, floorFromPrev) && sameShape(out, floorFromNext))
 			return climbingFloor;
 
 		byte[] floor = null;
@@ -1552,6 +1560,10 @@ public class AngledTrackAnchorBlockEntity extends TrackBlockEntity {
 		return climbingFloor;
 	}
 
+	private static boolean sameShape(@Nullable BezierConnection a, @Nullable BezierConnection b) {
+		return a == null ? b == null : b != null && a.equalsSansMaterial(b);
+	}
+
 	/**
 	 * Counts down to the next renewal of this anchor's floor.
 	 *
@@ -1559,7 +1571,9 @@ public class AngledTrackAnchorBlockEntity extends TrackBlockEntity {
 	 * {@link OCCUPANCY_REFRESH_TICKS}.
 	 */
 	public void serverTick() {
-		undockIfSlopeGone();
+		// A few times a second is soon enough, and spread out by position like the floor's refresh.
+		if (level != null && Math.floorMod(level.getGameTime() + worldPosition.hashCode(), DOCK_CHECK_TICKS) == 0)
+			undockIfSlopeGone();
 		if (--occupancyTimer > 0)
 			return;
 		occupancyTimer = OCCUPANCY_REFRESH_TICKS;

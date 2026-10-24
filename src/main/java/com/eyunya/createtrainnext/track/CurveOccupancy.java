@@ -1,6 +1,7 @@
 package com.eyunya.createtrainnext.track;
 
 import java.util.Arrays;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -106,22 +107,27 @@ public final class CurveOccupancy {
 
 		// A climb crosses the top of a block part way over a column, and leaves a piece of floor at the
 		// bottom of the block above in the same column. The lowest wins there as well: taken from above, the
-		// floor would step up by a slab more than the column rises, at every block the climb crosses.
-		Map<BlockPos, byte[]> under = new HashMap<>();
-		heights.forEach((pos, floor) -> under.put(pos, floor.clone()));
-		heights.forEach((pos, floor) -> {
-			byte[] below = under.get(pos.below());
-			if (below != null)
-				for (int i = 0; i < floor.length; i++)
-					if (below[i] != EMPTY)
-						floor[i] = EMPTY;
-		});
-		heights.values()
-			.removeIf(CurveOccupancy::isEmpty);
+		// floor would step up by a slab more than the column rises, at every block the climb crosses. From the
+		// top down, so that the block below is read before anything clears it.
+		heights.keySet()
+			.stream()
+			.sorted(Comparator.comparingInt((BlockPos pos) -> pos.getY())
+				.reversed())
+			.forEach(pos -> {
+				byte[] floor = heights.get(pos);
+				byte[] below = heights.get(pos.below());
+				if (below != null)
+					for (int i = 0; i < floor.length; i++)
+						if (below[i] != EMPTY)
+							floor[i] = EMPTY;
+			});
+		// A block left with no floor stays in the map, so that clear() takes up what is there: a filler laid
+		// before there were columns, or before the curve moved.
 		return heights;
 	}
 
-	private static boolean isEmpty(byte[] floor) {
+	/** Whether a floor has no column to hold anything up. */
+	public static boolean isEmpty(byte[] floor) {
 		for (byte height : floor)
 			if (height != EMPTY)
 				return false;
@@ -186,7 +192,7 @@ public final class CurveOccupancy {
 		if (level.isClientSide || !CTNConfig.SERVER.curveCollision.get())
 			return;
 		rasterise(curve).forEach((pos, floor) -> {
-			if (level.isLoaded(pos))
+			if (!isEmpty(floor) && level.isLoaded(pos))
 				CurveFillerBlock.placeOrRenew(level, pos, floor);
 		});
 	}

@@ -5,15 +5,21 @@ import static com.eyunya.createtrainnext.gametest.CurveConsistencyTests.anchor;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Map;
 
+import com.eyunya.createtrainnext.CTNConfig;
+import com.eyunya.createtrainnext.CTNRegistry;
 import com.eyunya.createtrainnext.CreateTrainNext;
 import com.eyunya.createtrainnext.track.AngledTrackAnchorBlockEntity;
 import com.eyunya.createtrainnext.track.CurveFillerBlock;
 import com.eyunya.createtrainnext.track.CurveFillerBlockEntity;
 import com.eyunya.createtrainnext.track.CurveOccupancy;
+import com.simibubi.create.AllShapes;
 import com.simibubi.create.content.trains.track.BezierConnection;
+import com.simibubi.create.content.trains.track.TrackMaterial;
 import com.simibubi.create.content.trains.track.TrackShape;
 
+import net.createmod.catnip.data.Couple;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.core.HolderLookup;
@@ -102,6 +108,75 @@ public class CurveFloorTests {
 		AngledTrackAnchorBlockEntity to = anchor(helper, new BlockPos(20, 1, 10));
 		from.linkTo(to, AngledTrackAnchorBlockEntity.tangentOf(EAST, 0), AngledTrackAnchorBlockEntity.tangentOf(NORTH, 0));
 		afterTheFloorIsLaid(helper, from, "a level quarter turn");
+	}
+
+	/**
+	 * Under a 45 degree climb some blocks end up with no floor of their own, the column below taking it. They
+	 * are still listed, so taking the curve's floor up clears a filler left in one, by a curve that has moved
+	 * or by the floor before it had columns.
+	 */
+	@GameTest(template = EMPTY)
+	public static void takingAFloorUpClearsTheBlocksItLeftEmpty(GameTestHelper helper) {
+		Level level = helper.getLevel();
+		// A straight climb at 45 degrees going north that crosses each whole height an eighth of a block
+		// before it leaves a block, so the block above holds floor only over the column the block below has.
+		Vec3 start = Vec3.atLowerCornerOf(helper.absolutePos(new BlockPos(16, 2, 24)))
+			.add(0.5, 0.125, 0);
+		Vec3 end = start.add(0, 4, -4);
+		Vec3 axis = new Vec3(0, 1, -1);
+		BezierConnection curve = new BezierConnection(Couple.create(BlockPos.containing(start), BlockPos.containing(end)),
+			Couple.create(start, end), Couple.create(axis, axis.scale(-1)), Couple.create(new Vec3(0, 1, 0), new Vec3(0, 1, 0)), true,
+			false, TrackMaterial.ANDESITE);
+		BlockPos left = CurveOccupancy.rasterise(curve)
+			.entrySet()
+			.stream()
+			.filter(entry -> CurveOccupancy.isEmpty(entry.getValue()))
+			.map(Map.Entry::getKey)
+			.findFirst()
+			.orElse(null);
+		helper.assertTrue(left != null, "setup: this climb should leave a block with no floor of its own");
+
+		boolean collision = CTNConfig.SERVER.curveCollision.get();
+		try {
+			CTNConfig.SERVER.curveCollision.set(true);
+			CurveOccupancy.place(level, curve);
+		} finally {
+			CTNConfig.SERVER.curveCollision.set(collision);
+		}
+		helper.assertTrue(level.getBlockState(left)
+			.isAir(), "laying the floor should put nothing in a block that has none of its own");
+
+		CurveFillerBlock.placeOrRenew(level, left, new byte[CurveOccupancy.CELLS * CurveOccupancy.CELLS]);
+		helper.assertTrue(level.getBlockState(left)
+			.is(CTNRegistry.CURVE_FILLER.get()), "setup: a filler should stand there");
+		CurveOccupancy.clear(level, curve);
+		helper.assertTrue(!level.getBlockState(left)
+			.is(CTNRegistry.CURVE_FILLER.get()), "taking the floor up should clear it");
+		helper.succeed();
+	}
+
+	/**
+	 * A climbing anchor works out its floor once for the curves it has, not on every collision check, and an
+	 * anchor left with no curve keeps Create's slab, whatever climb it was left with.
+	 */
+	@GameTest(template = EMPTY, timeoutTicks = 80)
+	public static void aClimbingAnchorsFloorIsWorkedOutOnceAndALoneOneKeepsTheSlab(GameTestHelper helper) {
+		AngledTrackAnchorBlockEntity low = anchor(helper, new BlockPos(4, 1, 16));
+		AngledTrackAnchorBlockEntity high = anchor(helper, new BlockPos(28, 5, 16));
+		Vec3 climbing = AngledTrackAnchorBlockEntity.tangentOf(EAST, 4.0 / 24.0);
+		low.linkTo(high, climbing, climbing);
+		helper.runAfterDelay(FLOOR_TICKS, () -> {
+			VoxelShape first = low.collisionShape();
+			helper.assertTrue(first == low.collisionShape(), "asked twice for the same curves, it should not be worked out again");
+
+			low.unlink();
+			helper.assertTrue(low.getSlope() != 0, "setup: an unlinked anchor should keep the climb it had");
+			helper.assertTrue(!low.collisionShape()
+				.isEmpty() && low.collisionShape()
+					.bounds()
+					.equals(AllShapes.TRACK_COLLISION.bounds()), "with no curve it should be held up by the slab, not by nothing");
+			helper.succeed();
+		});
 	}
 
 	/** The gentle curves this has always laid keep the floor they had. */
