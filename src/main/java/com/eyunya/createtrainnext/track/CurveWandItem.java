@@ -144,7 +144,7 @@ public class CurveWandItem extends Item {
 		// from, and which way the curve leaves by is the planner's to work out from what is free.
 		if (level.getBlockEntity(pos) instanceof AngledTrackAnchorBlockEntity anchor && !anchor.hasFreeSide()) {
 			if (!level.isClientSide)
-				message(player, "start_taken");
+				message(player, anchor.isSlopeDocked() ? "dock_taken" : "start_taken");
 			AllSoundEvents.DENY.playFrom(player, 1, 1);
 			return InteractionResult.FAIL;
 		}

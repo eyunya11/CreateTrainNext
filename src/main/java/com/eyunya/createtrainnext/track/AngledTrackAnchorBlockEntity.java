@@ -16,6 +16,8 @@ import com.simibubi.create.Create;
 import com.simibubi.create.content.trains.graph.TrackGraph;
 import com.simibubi.create.content.trains.graph.TrackNode;
 import com.simibubi.create.content.trains.graph.TrackNodeLocation;
+import com.simibubi.create.AllShapes;
+import com.simibubi.create.content.trains.track.ITrackBlock;
 import com.simibubi.create.content.trains.track.BezierConnection;
 import com.simibubi.create.content.trains.track.TrackBlockEntity;
 import com.simibubi.create.content.trains.track.TrackMaterial;
@@ -30,6 +32,8 @@ import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
+import net.minecraft.world.phys.shapes.Shapes;
+import net.minecraft.world.phys.shapes.VoxelShape;
 
 /**
  * One anchor in a chain of free-angle track.
@@ -154,13 +158,27 @@ public class AngledTrackAnchorBlockEntity extends TrackBlockEntity {
 	 * boolean, boolean)}), and it stays through whatever leaves the anchor an end — the route turned round,
 	 * a point put on the curve, the curve mended — since all of those keep the free side free. It is
 	 * dropped once the anchor has a curve on both sides or none, either of which leaves it no free side
-	 * that faces the slope. False for every anchor saved before there was any.
+	 * that faces the slope, and once the slope is no longer there to share the node: see
+	 * {@link #undockIfSlopeGone}. False for every anchor saved before there was any.
 	 */
 	private boolean slopeDock = false;
 
 	@Nullable
 	private BezierConnection cachedCurve = null;
 	private long cachedKey = Long.MIN_VALUE;
+
+	/** How often a docked end looks for its slope, in ticks: see {@link #undockIfSlopeGone}. */
+	private static final int DOCK_CHECK_TICKS = 5;
+
+	/** What {@link #collisionShape} last worked out, and the curves it worked it out from. */
+	@Nullable
+	private VoxelShape climbingFloor = null;
+
+	@Nullable
+	private BezierConnection floorFromPrev = null;
+
+	@Nullable
+	private BezierConnection floorFromNext = null;
 
 	/** The curve this anchor last laid a floor along, so a floor that moves can be taken up. */
 	@Nullable
@@ -232,6 +250,63 @@ public class AngledTrackAnchorBlockEntity extends TrackBlockEntity {
 	 */
 	public boolean isSlopeDocked() {
 		return slopeDock && (prev == null) != (next == null);
+	}
+
+	/**
+	 * Whether the slope this end is docked onto is still there to share its node: a block beside the node
+	 * that reports it, as Create's walk would find it, with a sloped axis. Mined, or replaced by anything
+	 * else, it is not, and that includes level track, whose node at the same place would meet the docked
+	 * curve at 45 degrees.
+	 *
+	 * <p>True when it cannot be told: with no block that is loaded reporting it, one beside the node in a chunk
+	 * that is not loaded leaves the dock as it is, since the slope may be in it.
+	 */
+	private boolean slopeStillThere() {
+		Vec3 node = dockNode();
+		if (node == null || level == null)
+			return true;
+		TrackNodeLocation location = new TrackNodeLocation(node).in(level);
+		boolean unknown = false;
+		for (BlockPos pos : location.allAdjacent()) {
+			if (!level.isLoaded(pos)) {
+				unknown = true;
+				continue;
+			}
+			BlockState state = level.getBlockState(pos);
+			if (!(state.getBlock() instanceof ITrackBlock track) || state.getBlock() instanceof AngledTrackAnchorBlock)
+				continue;
+			boolean sloped = track.getTrackAxes(level, pos, state)
+				.stream()
+				.anyMatch(axis -> Math.abs(axis.y) > 1.0E-4);
+			if (sloped && track.getConnected(level, pos, state, false, null)
+				.contains(location))
+				return true;
+		}
+		return unknown;
+	}
+
+	/**
+	 * Takes this end off a slope that has gone, so that it is an ordinary end again, with a side free to
+	 * carry the route on from.
+	 *
+	 * <p>Nothing tells an anchor that a block next to it has gone: the slope under the top of a dock is not
+	 * even beside it, but one down and one along. So the anchor looks, every {@link #DOCK_CHECK_TICKS} ticks.
+	 * In the ticks between,
+	 * the graph has the node the slope took with it put back by the anchor, which still reports it, as
+	 * Create rebuilds what was beside the slope; this takes it out again the way {@link #linkTo} does any
+	 * node that stops being reported.
+	 */
+	private void undockIfSlopeGone() {
+		if (!isSlopeDocked() || slopeStillThere())
+			return;
+
+		Map<AngledTrackAnchorBlockEntity, Vec3> reported = reportedBy(this, anchorAt(prev), anchorAt(next));
+		Set<TrackNodeLocation> stale = detachNeighbourhood();
+		slopeDock = false;
+		invalidateNeighbourhood();
+		keepAxisSigns(reported);
+		pruneGraph(stale);
+		attachNeighbourhood();
 	}
 
 	/** Drops {@link #slopeDock} from an anchor that is no longer an end, once its links have settled. */
@@ -1440,11 +1515,65 @@ public class AngledTrackAnchorBlockEntity extends TrackBlockEntity {
 	// ----------------------------------------------------------- occupancy
 
 	/**
+	 * What holds someone up in this anchor's own block.
+	 *
+	 * <p>Create's two pixel slab across the whole block, as its own track has. Where the route climbs at the
+	 * anchor that is wrong: at 45 degrees the rails cross the block a whole block higher at one side than the
+	 * other, and may not cross it at all, but run under its floor, as they do into the foot of a slope, where
+	 * a slab would be a ceiling over them. So a climbing anchor holds up only the floor of the curves through
+	 * its block, the same quarter-block columns {@link CurveOccupancy} would lay if the block were empty, and
+	 * the floor on either side, {@link CurveFillerBlock}'s, carries on from it. Both sides work it out alike,
+	 * the client for where someone stands and the server for where they are, and work it out again only when
+	 * one of the curves is not the shape it was worked out from. Building a curve is cheap and rasterising one
+	 * is not, so it is the shapes that are compared: {@code buildCurveToNext} makes a new one on every call.
+	 * With no curve at all, or one that cannot be built, its far anchor not loaded, it is the slab.
+	 */
+	public VoxelShape collisionShape() {
+		if (slope == 0 || !isLinked())
+			return AllShapes.TRACK_COLLISION;
+
+		AngledTrackAnchorBlockEntity before = anchorAt(prev);
+		BezierConnection in = before == null ? null : before.buildCurveToNext();
+		BezierConnection out = next == null ? null : buildCurveToNext();
+		if (climbingFloor != null && sameShape(in, floorFromPrev) && sameShape(out, floorFromNext))
+			return climbingFloor;
+
+		byte[] floor = null;
+		for (BezierConnection curve : new BezierConnection[] { in, out }) {
+			if (curve == null)
+				continue;
+			byte[] here = CurveOccupancy.rasterise(curve)
+				.get(worldPosition);
+			if (here == null)
+				continue;
+			if (floor == null)
+				floor = here;
+			else
+				for (int i = 0; i < floor.length; i++)
+					if (here[i] != CurveOccupancy.EMPTY && (floor[i] == CurveOccupancy.EMPTY || here[i] < floor[i]))
+						floor[i] = here[i];
+		}
+		boolean known = (prev == null || in != null) && (next == null || out != null);
+		climbingFloor = floor != null ? CurveOccupancy.shapeOf(floor) : known ? Shapes.empty() : AllShapes.TRACK_COLLISION;
+		floorFromPrev = in;
+		floorFromNext = out;
+		return climbingFloor;
+	}
+
+	private static boolean sameShape(@Nullable BezierConnection a, @Nullable BezierConnection b) {
+		return a == null ? b == null : b != null && a.equalsSansMaterial(b);
+	}
+
+	/**
 	 * Counts down to the next renewal of this anchor's floor.
 	 *
-	 * <p>The only reason an anchor ticks at all. See {@link OCCUPANCY_REFRESH_TICKS}.
+	 * <p>The reason an anchor ticks, with looking for a slope it is docked onto having gone. See
+	 * {@link OCCUPANCY_REFRESH_TICKS}.
 	 */
 	public void serverTick() {
+		// A few times a second is soon enough, and spread out by position like the floor's refresh.
+		if (level != null && Math.floorMod(level.getGameTime() + worldPosition.hashCode(), DOCK_CHECK_TICKS) == 0)
+			undockIfSlopeGone();
 		if (--occupancyTimer > 0)
 			return;
 		occupancyTimer = OCCUPANCY_REFRESH_TICKS;

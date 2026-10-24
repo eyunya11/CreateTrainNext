@@ -144,20 +144,21 @@ public class AngledTrackAnchorBlock extends Block implements EntityBlock, ITrack
 	}
 
 	/**
-	 * A flat slab across the whole block, whatever way the anchor points.
+	 * A flat slab across the whole block, whatever way the anchor points, and for an anchor whose route
+	 * climbs, the floor of its curves over it: see {@link AngledTrackAnchorBlockEntity#collisionShape}.
 	 *
 	 * <p>Deliberately not swept along the heading like the outline above. Create's own track
 	 * answers the same way for every shape it has, diagonals included, and the reason holds here
 	 * too: a band narrow enough to show the angle is a band you can walk off the side of. An anchor
-	 * sits between two stretches of {@link CurveFillerBlock}, which hold up the whole block they
-	 * are in, so an angled slab here would be a notch in an otherwise continuous floor — felt
-	 * underfoot at every joint of a route, and gaining nothing, since the outline is what shows the
-	 * angle and this cannot be seen at all.
+	 * sits between two stretches of {@link CurveFillerBlock}, so an angled slab here would be a notch
+	 * in an otherwise continuous floor — felt underfoot at every joint of a route, and gaining
+	 * nothing, since the outline is what shows the angle and this cannot be seen at all.
 	 */
 	@Override
 	protected VoxelShape getCollisionShape(BlockState state, BlockGetter level, BlockPos pos,
 		CollisionContext context) {
-		return AllShapes.TRACK_COLLISION;
+		return level.getBlockEntity(pos) instanceof AngledTrackAnchorBlockEntity anchor ? anchor.collisionShape()
+			: AllShapes.TRACK_COLLISION;
 	}
 
 	// -------------------------------------------------------------- lifecycle
