@@ -3,6 +3,8 @@ package com.eyunya.createtrainnext;
 import java.util.function.Supplier;
 
 import com.eyunya.createtrainnext.pole.SignalPoleBlock;
+import com.eyunya.createtrainnext.signal.DepartureRepeaterBlock;
+import com.eyunya.createtrainnext.signal.DepartureRepeaterBlockEntity;
 import com.eyunya.createtrainnext.signal.MultiAspectSignalBlock;
 import com.eyunya.createtrainnext.signal.MultiAspectSignalBlockEntity;
 import com.eyunya.createtrainnext.signal.RelaySignalBlock;
@@ -260,6 +262,28 @@ public class CTNRegistry {
 			.of(RelaySignalBlockEntity::new, RELAY_SIGNAL.get())
 			.build(null));
 
+	public static final DeferredBlock<DepartureRepeaterBlock> DEPARTURE_REPEATER = BLOCKS.registerBlock(
+		"departure_repeater",
+		DepartureRepeaterBlock::new,
+		BlockBehaviour.Properties.of()
+			.mapColor(MapColor.PODZOL)
+			.strength(0.8F)
+			.sound(SoundType.NETHERITE_BLOCK)
+			.noOcclusion());
+
+	/**
+	 * Placed like the relay, for the same reason and with the same point type: it reads the signal ahead of
+	 * the track it is pointed at, and makes no point of its own. See {@link #RELAY_SIGNAL_ITEM}.
+	 */
+	public static final DeferredItem<TrackTargetingBlockItem> DEPARTURE_REPEATER_ITEM =
+		ITEMS.registerItem("departure_repeater", properties -> new TrackTargetingBlockItem(DEPARTURE_REPEATER.get(),
+			properties, EdgePointType.SIGNAL));
+
+	public static final Supplier<BlockEntityType<DepartureRepeaterBlockEntity>> DEPARTURE_REPEATER_ENTITY =
+		BLOCK_ENTITIES.register("departure_repeater", () -> BlockEntityType.Builder
+			.of(DepartureRepeaterBlockEntity::new, DEPARTURE_REPEATER.get())
+			.build(null));
+
 	/**
 	 * The plates on a signal's pole, one block and item per {@link PlateKind}, with their names written out
 	 * for {@code check_readmes.py} as the signals' are. Plain block items: a plate is put on a pole, not
@@ -300,6 +324,7 @@ public class CTNRegistry {
 				output.accept(MULTI_ASPECT_SIGNAL_ITEM.get());
 				output.accept(MULTI_ASPECT_SIGNAL_6_ITEM.get());
 				output.accept(RELAY_SIGNAL_ITEM.get());
+				output.accept(DEPARTURE_REPEATER_ITEM.get());
 				output.accept(SIGNAL_NUMBER_PLATE_ITEM.get());
 				output.accept(SIGNAL_CROWN_PLATE_ITEM.get());
 			})

@@ -1,0 +1,80 @@
+{
+	"credit": "A placeholder, to be redrawn: a black lamp with a pale end, facing south (+z) unturned. DepartureRepeaterBlock.HEAD_BOUNDS is where it is, and SignalPlateTests holds the two together, so move both if it moves.",
+	"parent": "block/block",
+	"textures": {
+		"body": "minecraft:block/black_concrete",
+		"face": "minecraft:block/light_gray_concrete",
+		"particle": "minecraft:block/black_concrete"
+	},
+	"elements": [
+		{
+			"name": "lamp",
+			"from": [
+				5.5,
+				5.5,
+				9
+			],
+			"to": [
+				10.5,
+				10.5,
+				14
+			],
+			"faces": {
+				"south": {
+					"uv": [
+						5.5,
+						5.5,
+						10.5,
+						10.5
+					],
+					"texture": "#face"
+				},
+				"north": {
+					"uv": [
+						5.5,
+						5.5,
+						10.5,
+						10.5
+					],
+					"texture": "#body"
+				},
+				"east": {
+					"uv": [
+						2,
+						5.5,
+						7,
+						10.5
+					],
+					"texture": "#body"
+				},
+				"west": {
+					"uv": [
+						9,
+						5.5,
+						14,
+						10.5
+					],
+					"texture": "#body"
+				},
+				"up": {
+					"uv": [
+						5.5,
+						9,
+						10.5,
+						14
+					],
+					"texture": "#body"
+				},
+				"down": {
+					"uv": [
+						5.5,
+						2,
+						10.5,
+						7
+					],
+					"texture": "#body"
+				}
+			}
+		}
+	]
+}

@@ -1,0 +1,150 @@
+{
+	"credit": "A placeholder, to be redrawn. The pole and the lamp together, for the item.",
+	"parent": "block/block",
+	"textures": {
+		"pole": "createtrainnext:block/pole",
+		"body": "minecraft:block/black_concrete",
+		"face": "minecraft:block/light_gray_concrete",
+		"particle": "minecraft:block/black_concrete"
+	},
+	"elements": [
+		{
+			"name": "pole",
+			"from": [
+				7,
+				0,
+				7
+			],
+			"to": [
+				9,
+				16,
+				9
+			],
+			"faces": {
+				"north": {
+					"uv": [
+						0,
+						0,
+						2,
+						16
+					],
+					"texture": "#pole"
+				},
+				"east": {
+					"uv": [
+						0,
+						0,
+						2,
+						16
+					],
+					"texture": "#pole"
+				},
+				"south": {
+					"uv": [
+						0,
+						0,
+						2,
+						16
+					],
+					"texture": "#pole"
+				},
+				"west": {
+					"uv": [
+						0,
+						0,
+						2,
+						16
+					],
+					"texture": "#pole"
+				},
+				"up": {
+					"uv": [
+						8,
+						0,
+						10,
+						2
+					],
+					"texture": "#pole"
+				},
+				"down": {
+					"uv": [
+						8,
+						2,
+						10,
+						4
+					],
+					"texture": "#pole"
+				}
+			}
+		},
+		{
+			"name": "lamp",
+			"from": [
+				5.5,
+				5.5,
+				9
+			],
+			"to": [
+				10.5,
+				10.5,
+				14
+			],
+			"faces": {
+				"south": {
+					"uv": [
+						5.5,
+						5.5,
+						10.5,
+						10.5
+					],
+					"texture": "#face"
+				},
+				"north": {
+					"uv": [
+						5.5,
+						5.5,
+						10.5,
+						10.5
+					],
+					"texture": "#body"
+				},
+				"east": {
+					"uv": [
+						2,
+						5.5,
+						7,
+						10.5
+					],
+					"texture": "#body"
+				},
+				"west": {
+					"uv": [
+						9,
+						5.5,
+						14,
+						10.5
+					],
+					"texture": "#body"
+				},
+				"up": {
+					"uv": [
+						5.5,
+						9,
+						10.5,
+						14
+					],
+					"texture": "#body"
+				},
+				"down": {
+					"uv": [
+						5.5,
+						2,
+						10.5,
+						7
+					],
+					"texture": "#body"
+				}
+			}
+		}
+	]
+}

@@ -15,6 +15,7 @@
   "block.createtrainnext.multi_aspect_signal_6": "6-Aspect Railway Signal",
 
   "block.createtrainnext.relay_signal": "Relay Signal",
+  "block.createtrainnext.departure_repeater": "Departure Repeater",
   "block.createtrainnext.signal_number_plate": "Signal Number Plate",
   "block.createtrainnext.signal_crown_plate": "Signal Crown Plate",
 

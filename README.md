@@ -17,7 +17,7 @@ An addon for [Create](https://github.com/Creators-of-Create/Create) that lets tr
 - Two ends at different heights are joined at one steady grade, which the anchors remember, so a climb is a slope and not a staircase. Hold the sprint key and scroll to set a grade, and the wand lays the whole route at it.
 - A Survey Marker lays a dead straight line at a bearing, length and grade you set.
 - An invisible floor is laid along each curve at rail height, so you can walk on curves.
-- Adds Japanese-style signals with two, three, four, five and six lamps, a relay signal and a speed limit sign, a pole that carries the signals, and plates for the pole that tell the signals apart.
+- Adds Japanese-style signals with two, three, four, five and six lamps, a relay signal, a departure repeater for platforms and a speed limit sign, a pole that carries the signals, and plates for the pole that tell the signals apart.
 - Signals and stations, Create's and this mod's, can be put directly on a curve, with no point added first.
 - Commands inspect and repair the track.
 
@@ -27,7 +27,7 @@ You need Minecraft 1.21.1, NeoForge and Create itself. Ponder and Flywheel ship 
 
 There is no download page yet. Build the jar from source and put it in the `mods` folder. The steps are in the Development section.
 
-There are no crafting recipes yet either. Take the items from the "Create Train Next" creative tab, or use `/give`, for example `/give @s createtrainnext:curve_wand`. There are fourteen items.
+There are no crafting recipes yet either. Take the items from the "Create Train Next" creative tab, or use `/give`, for example `/give @s createtrainnext:curve_wand`. There are fifteen items.
 
 | Name | Japanese name | ID | Purpose |
 |---|---|---|---|
@@ -43,6 +43,7 @@ There are no crafting recipes yet either. Take the items from the "Create Train 
 | 5-Aspect Railway Signal | 5灯式信号機 | `createtrainnext:multi_aspect_signal` | A Japanese-style five-aspect signal |
 | 6-Aspect Railway Signal | 6灯式信号機 | `createtrainnext:multi_aspect_signal_6` | A Japanese-style six-aspect signal |
 | Relay Signal | 中継信号機 | `createtrainnext:relay_signal` | Repeats the next signal's aspect in advance |
+| Departure Repeater | 出発反応標識 | `createtrainnext:departure_repeater` | A lamp on a platform that lights when the starting signal has cleared |
 | Signal Number Plate | 信号機の番号板 | `createtrainnext:signal_number_plate` | A plate under a block signal that shows its number |
 | Signal Crown Plate | 信号機の冠 | `createtrainnext:signal_crown_plate` | A plate over a signal that shows which track it is for |
 
@@ -249,6 +250,12 @@ All lamps are the same white, and three of the seven light up. The meaning is re
 
 Where the line divides ahead, it shows the strictest aspect among the signals on each branch.
 
+### Departure Repeater
+
+A departure repeater (出発反応標識) is a lamp on a platform that lights while the starting signal ahead shows anything but Stop. It is for stations where the guard cannot see the starting signal, and is placed like a signal, against the track a departing train runs along. Like the relay signal, it does not stop trains and is not in the track graph.
+
+It goes dark at Stop, and when there is no signal ahead. Where the line divides before the next signal, it lights only when the signals on every branch have cleared. A pole joins it from above, below or behind. The lamp is a placeholder.
+
 ### Track Speed Limit
 
 A sign stood beside the track that shows a speed limit. It is placed like a signal: right click the track, then where it should stand. Hold right click on the sign to open the slider and set the limit in km/h, from 1 up to the fastest a train can go under Create's config. That is the larger of `trainTopSpeed` and `poweredTrainTopSpeed` in the `trains` settings, with one block per second counted as 3.6 km/h, so 144 with Create's default speeds. The limit is 40 by default. The direction is set by which way you face when you place it, in 22.5 degree steps.
@@ -259,7 +266,7 @@ A train that passes a sign going the way it faces is held to its number from the
 
 ### Signal Pole
 
-A thin pole that carries signals. One block serves as a mast and as a crossbeam between masts. The direction it runs is set by the face you place it on, and it joins neighbouring poles and signals by itself. It joins the Railway Signals, the Relay Signal and the signal plates, and does not join the Track Speed Limit.
+A thin pole that carries signals. One block serves as a mast and as a crossbeam between masts. The direction it runs is set by the face you place it on, and it joins neighbouring poles and signals by itself. It joins the Railway Signals, the Relay Signal, the Departure Repeater and the signal plates, and does not join the Track Speed Limit.
 
 It joins a Railway Signal from behind, below, above and either side, and not from the front. When a pole or another signal stands directly above a signal, the signal's own pole runs up to the top of its block to meet it. A right click with a wrench changes the direction. To run a long length, hold a pole and right click a pole already placed, and Create's placement assist suggests the position at the far end.
 

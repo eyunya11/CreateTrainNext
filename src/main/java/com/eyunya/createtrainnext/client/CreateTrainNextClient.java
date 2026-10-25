@@ -112,6 +112,13 @@ public class CreateTrainNextClient {
 	public static final PartialModel RELAY_HEAD =
 		PartialModel.of(CreateTrainNext.asResource("block/relay_signal/housing_head"));
 
+	/** The departure repeater's lamp, turned by its renderer, and the end it lights, drawn over it when lit. */
+	public static final PartialModel DEPARTURE_REPEATER_HEAD =
+		PartialModel.of(CreateTrainNext.asResource("block/departure_repeater/head"));
+
+	public static final PartialModel DEPARTURE_REPEATER_LIT =
+		PartialModel.of(CreateTrainNext.asResource("block/departure_repeater/lit"));
+
 	/**
 	 * The plates a signal's pole carries, without the pole, which is the blockstate's. One model for each
 	 * kind, {@code plate.json} in the folder the kind names.
@@ -265,5 +272,6 @@ public class CreateTrainNextClient {
 			MultiAspectSignalRenderer::new);
 		event.registerBlockEntityRenderer(CTNRegistry.RELAY_SIGNAL_ENTITY.get(), RelaySignalRenderer::new);
 		event.registerBlockEntityRenderer(CTNRegistry.SIGNAL_PLATE_ENTITY.get(), SignalPlateRenderer::new);
+		event.registerBlockEntityRenderer(CTNRegistry.DEPARTURE_REPEATER_ENTITY.get(), DepartureRepeaterRenderer::new);
 	}
 }

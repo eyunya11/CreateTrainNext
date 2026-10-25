@@ -1,0 +1,34 @@
+{
+	"credit": "A placeholder, to be redrawn: the end of the lamp as it looks lit, drawn over head.json at full brightness.",
+	"parent": "block/block",
+	"textures": {
+		"lit": "minecraft:block/white_concrete",
+		"particle": "minecraft:block/white_concrete"
+	},
+	"elements": [
+		{
+			"name": "lit",
+			"from": [
+				5.5,
+				5.5,
+				14
+			],
+			"to": [
+				10.5,
+				10.5,
+				14.05
+			],
+			"faces": {
+				"south": {
+					"uv": [
+						5.5,
+						5.5,
+						10.5,
+						10.5
+					],
+					"texture": "#lit"
+				}
+			}
+		}
+	]
+}

@@ -1,0 +1,8 @@
+{
+	"__comment": "The pole only, the same whichever of the sixteen ways the lamp is turned. The lamp is drawn by DepartureRepeaterRenderer, for the reason given in SignalRotation.",
+	"variants": {
+		"": {
+			"model": "createtrainnext:block/departure_repeater/post"
+		}
+	}
+}
