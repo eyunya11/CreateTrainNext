@@ -198,7 +198,7 @@ There are five Japanese-style signals, with two, three, four, five and six lamps
 | 5-Aspect | yellow, yellow, red, yellow, green |
 | 6-Aspect | yellow, green, red, green, yellow, green |
 
-The order follows the figures in Japan's national standard for railway signals, where the 2-Aspect and 3-Aspect signals have their red at the bottom. Earlier versions put it at the top of the 2-Aspect and in the middle of the 3-Aspect. Signals placed before show the new order.
+The order follows the figures in Japan's national technical standard for railways (解釈基準 Ⅶ－2 1(1)), where the 2-Aspect and 3-Aspect signals have their red at the bottom. Earlier versions put it at the top of the 2-Aspect and in the middle of the 3-Aspect. Signals placed before show the new order.
 
 The numbers of the lamps that are lit are below. A dash means the signal has no such aspect.
 
