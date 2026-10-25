@@ -17,7 +17,7 @@ An addon for [Create](https://github.com/Creators-of-Create/Create) that lets tr
 - Two ends at different heights are joined at one steady grade, which the anchors remember, so a climb is a slope and not a staircase. Hold the sprint key and scroll to set a grade, and the wand lays the whole route at it.
 - A Survey Marker lays a dead straight line at a bearing, length and grade you set.
 - An invisible floor is laid along each curve at rail height, so you can walk on curves.
-- Adds Japanese-style signals with two, three, four, five and six lamps, a relay signal, a departure repeater for platforms and a speed limit sign, a pole that carries the signals, and plates for the pole that tell the signals apart.
+- Adds Japanese-style signals with two, three, four, five and six lamps, a relay signal, a departure repeater for platforms and a speed limit sign, a pole that carries the signals, plates for the pole that tell the signals apart, and the plain trackside signs of a Japanese line.
 - Signals and stations, Create's and this mod's, can be put directly on a curve, with no point added first.
 - Commands inspect and repair the track.
 
@@ -27,7 +27,7 @@ You need Minecraft 1.21.1, NeoForge and Create itself. Ponder and Flywheel ship 
 
 There is no download page yet. Build the jar from source and put it in the `mods` folder. The steps are in the Development section.
 
-There are no crafting recipes yet either. Take the items from the "Create Train Next" creative tab, or use `/give`, for example `/give @s createtrainnext:curve_wand`. There are fifteen items.
+There are no crafting recipes yet either. Take the items from the "Create Train Next" creative tab, or use `/give`, for example `/give @s createtrainnext:curve_wand`. There are twenty-six items.
 
 | Name | Japanese name | ID | Purpose |
 |---|---|---|---|
@@ -46,6 +46,17 @@ There are no crafting recipes yet either. Take the items from the "Create Train 
 | Departure Repeater | 出発反応標識 | `createtrainnext:departure_repeater` | A lamp on a platform that lights when the starting signal has cleared |
 | Signal Number Plate | 信号機の番号板 | `createtrainnext:signal_number_plate` | A plate under a block signal that shows its number |
 | Signal Crown Plate | 信号機の冠 | `createtrainnext:signal_crown_plate` | A plate over a signal that shows which track it is for |
+| Stop Position Marker | 停止位置目標 | `createtrainnext:stop_position_marker` | Where a train of that many cars stops |
+| Train Stop Sign | 列車停止標識 | `createtrainnext:train_stop_sign` | No train goes past here |
+| Car Stop Sign | 車両停止標識 | `createtrainnext:car_stop_sign` | The end of where shunting may go |
+| Buffer Stop Sign | 車止標識 | `createtrainnext:buffer_stop_sign` | The line ends ahead |
+| Signal Call Marker | 信号喚呼位置標 | `createtrainnext:signal_call_marker` | Where the driver calls out the next signal |
+| Kilometre Post | 距離標 | `createtrainnext:kilometre_post` | The distance from the start of the line |
+| Clearance Post | 車両接触限界標 | `createtrainnext:clearance_post` | Past here a train would foul the next track |
+| Signal Warning Sign | 信号警標 | `createtrainnext:signal_warning_sign` | A home or starting signal stands here |
+| Whistle Sign | 気笛吹鳴標識 | `createtrainnext:whistle_sign` | Sound the whistle |
+| Brake Marker | 制動標 | `createtrainnext:brake_marker` | Where to begin braking |
+| Station Approach Sign | 停車場接近標 | `createtrainnext:station_approach_sign` | A station without a home signal is near |
 
 Create 6.0.10 is the version this has been verified on. The declared range is 6.0 and later, but other versions have not been tried.
 
@@ -277,6 +288,12 @@ Plates for a signal's pole, which tell apart signals that look the same. The Sig
 A plate placed directly above or below a signal, a Relay Signal or another plate turns the way that block does. Placed anywhere else, it faces you, in 22.5 degree steps. Poles join it from above and below, and a signal under a Crown Plate runs its pole up to meet it.
 
 Right click a plate with an empty hand to write on it. The Number Plate holds up to four characters and the Crown Plate up to six. Kanji and kana work too, so a plate can say 下1, or 場内 and 出発 as some railways put on their signals. For now the Number Plate is white with black writing and the Crown Plate black with white writing. The shapes and colours of both are placeholders.
+
+### Trackside Signs
+
+The signs beside a Japanese line that are only a plate on a post: they mean what their picture says, and no train takes any notice of them. Each is the same kind of block as the signal plates. It turns the way a signal, relay or plate directly above or below it does, otherwise faces you in 22.5 degree steps, and joins poles above and below.
+
+Three can be written on: right click with an empty hand. The Stop Position Marker holds up to three characters (a number of cars, or ◇, ×, 併), the Signal Call Marker up to three (the signal's number), and the Kilometre Post up to four, written down the post. The others are their picture alone. Their shapes and pictures are placeholders.
 
 ### Curve floor
 

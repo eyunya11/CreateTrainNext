@@ -1,0 +1,80 @@
+{
+	"credit": "A placeholder, to be redrawn. 信号警標: yellow with two black diagonals. The plate alone, facing south (+z) unturned; SignalPlateRenderer turns it. PlateKind holds where the plate is, and SignalPlateTests holds the two together, so move both if the plate moves.",
+	"parent": "block/block",
+	"textures": {
+		"front": "minecraft:block/yellow_concrete",
+		"edge": "minecraft:block/gray_concrete",
+		"particle": "minecraft:block/yellow_concrete"
+	},
+	"elements": [
+		{
+			"name": "plate",
+			"from": [
+				5,
+				2,
+				9
+			],
+			"to": [
+				11,
+				14,
+				10
+			],
+			"faces": {
+				"south": {
+					"uv": [
+						5,
+						2,
+						11,
+						14
+					],
+					"texture": "#front"
+				},
+				"north": {
+					"uv": [
+						5,
+						2,
+						11,
+						14
+					],
+					"texture": "#edge"
+				},
+				"east": {
+					"uv": [
+						6,
+						2,
+						7,
+						14
+					],
+					"texture": "#edge"
+				},
+				"west": {
+					"uv": [
+						9,
+						2,
+						10,
+						14
+					],
+					"texture": "#edge"
+				},
+				"up": {
+					"uv": [
+						5,
+						9,
+						11,
+						10
+					],
+					"texture": "#edge"
+				},
+				"down": {
+					"uv": [
+						5,
+						6,
+						11,
+						7
+					],
+					"texture": "#edge"
+				}
+			}
+		}
+	]
+}

@@ -301,9 +301,57 @@ public class CTNRegistry {
 	public static final DeferredItem<BlockItem> SIGNAL_CROWN_PLATE_ITEM =
 		ITEMS.registerSimpleBlockItem("signal_crown_plate", SIGNAL_CROWN_PLATE);
 
+	/**
+	 * The trackside signs that are a plate on a post, kinds of the same block as the signal plates; see
+	 * {@link PlateKind}. Written out one by one for {@code check_readmes.py}, as the others are.
+	 */
+	public static final DeferredBlock<SignalPlateBlock> STOP_POSITION_MARKER = plateBlock("stop_position_marker", PlateKind.STOP_POSITION);
+
+	public static final DeferredItem<BlockItem> STOP_POSITION_MARKER_ITEM = ITEMS.registerSimpleBlockItem("stop_position_marker", STOP_POSITION_MARKER);
+
+	public static final DeferredBlock<SignalPlateBlock> TRAIN_STOP_SIGN = plateBlock("train_stop_sign", PlateKind.TRAIN_STOP);
+
+	public static final DeferredItem<BlockItem> TRAIN_STOP_SIGN_ITEM = ITEMS.registerSimpleBlockItem("train_stop_sign", TRAIN_STOP_SIGN);
+
+	public static final DeferredBlock<SignalPlateBlock> CAR_STOP_SIGN = plateBlock("car_stop_sign", PlateKind.CAR_STOP);
+
+	public static final DeferredItem<BlockItem> CAR_STOP_SIGN_ITEM = ITEMS.registerSimpleBlockItem("car_stop_sign", CAR_STOP_SIGN);
+
+	public static final DeferredBlock<SignalPlateBlock> BUFFER_STOP_SIGN = plateBlock("buffer_stop_sign", PlateKind.BUFFER_STOP);
+
+	public static final DeferredItem<BlockItem> BUFFER_STOP_SIGN_ITEM = ITEMS.registerSimpleBlockItem("buffer_stop_sign", BUFFER_STOP_SIGN);
+
+	public static final DeferredBlock<SignalPlateBlock> SIGNAL_CALL_MARKER = plateBlock("signal_call_marker", PlateKind.SIGNAL_CALL);
+
+	public static final DeferredItem<BlockItem> SIGNAL_CALL_MARKER_ITEM = ITEMS.registerSimpleBlockItem("signal_call_marker", SIGNAL_CALL_MARKER);
+
+	public static final DeferredBlock<SignalPlateBlock> KILOMETRE_POST = plateBlock("kilometre_post", PlateKind.KILOMETRE_POST);
+
+	public static final DeferredItem<BlockItem> KILOMETRE_POST_ITEM = ITEMS.registerSimpleBlockItem("kilometre_post", KILOMETRE_POST);
+
+	public static final DeferredBlock<SignalPlateBlock> CLEARANCE_POST = plateBlock("clearance_post", PlateKind.CLEARANCE_POST);
+
+	public static final DeferredItem<BlockItem> CLEARANCE_POST_ITEM = ITEMS.registerSimpleBlockItem("clearance_post", CLEARANCE_POST);
+
+	public static final DeferredBlock<SignalPlateBlock> SIGNAL_WARNING_SIGN = plateBlock("signal_warning_sign", PlateKind.SIGNAL_WARNING);
+
+	public static final DeferredItem<BlockItem> SIGNAL_WARNING_SIGN_ITEM = ITEMS.registerSimpleBlockItem("signal_warning_sign", SIGNAL_WARNING_SIGN);
+
+	public static final DeferredBlock<SignalPlateBlock> WHISTLE_SIGN = plateBlock("whistle_sign", PlateKind.WHISTLE);
+
+	public static final DeferredItem<BlockItem> WHISTLE_SIGN_ITEM = ITEMS.registerSimpleBlockItem("whistle_sign", WHISTLE_SIGN);
+
+	public static final DeferredBlock<SignalPlateBlock> BRAKE_MARKER = plateBlock("brake_marker", PlateKind.BRAKE);
+
+	public static final DeferredItem<BlockItem> BRAKE_MARKER_ITEM = ITEMS.registerSimpleBlockItem("brake_marker", BRAKE_MARKER);
+
+	public static final DeferredBlock<SignalPlateBlock> STATION_APPROACH_SIGN = plateBlock("station_approach_sign", PlateKind.STATION_APPROACH);
+
+	public static final DeferredItem<BlockItem> STATION_APPROACH_SIGN_ITEM = ITEMS.registerSimpleBlockItem("station_approach_sign", STATION_APPROACH_SIGN);
+
 	public static final Supplier<BlockEntityType<SignalPlateBlockEntity>> SIGNAL_PLATE_ENTITY =
 		BLOCK_ENTITIES.register("signal_plate", () -> BlockEntityType.Builder
-			.of(SignalPlateBlockEntity::new, SIGNAL_NUMBER_PLATE.get(), SIGNAL_CROWN_PLATE.get())
+			.of(SignalPlateBlockEntity::new, SIGNAL_NUMBER_PLATE.get(), SIGNAL_CROWN_PLATE.get(), STOP_POSITION_MARKER.get(), TRAIN_STOP_SIGN.get(), CAR_STOP_SIGN.get(), BUFFER_STOP_SIGN.get(), SIGNAL_CALL_MARKER.get(), KILOMETRE_POST.get(), CLEARANCE_POST.get(), SIGNAL_WARNING_SIGN.get(), WHISTLE_SIGN.get(), BRAKE_MARKER.get(), STATION_APPROACH_SIGN.get())
 			.build(null));
 
 	public static final DeferredHolder<CreativeModeTab, CreativeModeTab> TAB =
@@ -327,6 +375,17 @@ public class CTNRegistry {
 				output.accept(DEPARTURE_REPEATER_ITEM.get());
 				output.accept(SIGNAL_NUMBER_PLATE_ITEM.get());
 				output.accept(SIGNAL_CROWN_PLATE_ITEM.get());
+				output.accept(STOP_POSITION_MARKER_ITEM.get());
+				output.accept(TRAIN_STOP_SIGN_ITEM.get());
+				output.accept(CAR_STOP_SIGN_ITEM.get());
+				output.accept(BUFFER_STOP_SIGN_ITEM.get());
+				output.accept(SIGNAL_CALL_MARKER_ITEM.get());
+				output.accept(KILOMETRE_POST_ITEM.get());
+				output.accept(CLEARANCE_POST_ITEM.get());
+				output.accept(SIGNAL_WARNING_SIGN_ITEM.get());
+				output.accept(WHISTLE_SIGN_ITEM.get());
+				output.accept(BRAKE_MARKER_ITEM.get());
+				output.accept(STATION_APPROACH_SIGN_ITEM.get());
 			})
 			.build());
 

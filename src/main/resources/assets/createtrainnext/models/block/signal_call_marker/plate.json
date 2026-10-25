@@ -1,0 +1,80 @@
+{
+	"credit": "A placeholder, to be redrawn. 信号喚呼位置標: a yellow triangle. The plate alone, facing south (+z) unturned; SignalPlateRenderer turns it and writes on its south face. PlateKind holds where the plate is, and SignalPlateTests holds the two together, so move both if the plate moves.",
+	"parent": "block/block",
+	"textures": {
+		"front": "minecraft:block/yellow_concrete",
+		"edge": "minecraft:block/gray_concrete",
+		"particle": "minecraft:block/yellow_concrete"
+	},
+	"elements": [
+		{
+			"name": "plate",
+			"from": [
+				4,
+				4,
+				9
+			],
+			"to": [
+				12,
+				11,
+				10
+			],
+			"faces": {
+				"south": {
+					"uv": [
+						4,
+						5,
+						12,
+						12
+					],
+					"texture": "#front"
+				},
+				"north": {
+					"uv": [
+						4,
+						5,
+						12,
+						12
+					],
+					"texture": "#edge"
+				},
+				"east": {
+					"uv": [
+						6,
+						5,
+						7,
+						12
+					],
+					"texture": "#edge"
+				},
+				"west": {
+					"uv": [
+						9,
+						5,
+						10,
+						12
+					],
+					"texture": "#edge"
+				},
+				"up": {
+					"uv": [
+						4,
+						9,
+						12,
+						10
+					],
+					"texture": "#edge"
+				},
+				"down": {
+					"uv": [
+						4,
+						6,
+						12,
+						7
+					],
+					"texture": "#edge"
+				}
+			}
+		}
+	]
+}

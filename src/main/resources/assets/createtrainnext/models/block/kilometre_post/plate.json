@@ -1,0 +1,80 @@
+{
+	"credit": "A placeholder, to be redrawn. 距離標: a white post with the distance written down it. The plate alone, facing south (+z) unturned; SignalPlateRenderer turns it and writes on its south face. PlateKind holds where the plate is, and SignalPlateTests holds the two together, so move both if the plate moves.",
+	"parent": "block/block",
+	"textures": {
+		"front": "minecraft:block/white_concrete",
+		"edge": "minecraft:block/gray_concrete",
+		"particle": "minecraft:block/white_concrete"
+	},
+	"elements": [
+		{
+			"name": "plate",
+			"from": [
+				6,
+				2,
+				9
+			],
+			"to": [
+				10,
+				14,
+				10
+			],
+			"faces": {
+				"south": {
+					"uv": [
+						6,
+						2,
+						10,
+						14
+					],
+					"texture": "#front"
+				},
+				"north": {
+					"uv": [
+						6,
+						2,
+						10,
+						14
+					],
+					"texture": "#edge"
+				},
+				"east": {
+					"uv": [
+						6,
+						2,
+						7,
+						14
+					],
+					"texture": "#edge"
+				},
+				"west": {
+					"uv": [
+						9,
+						2,
+						10,
+						14
+					],
+					"texture": "#edge"
+				},
+				"up": {
+					"uv": [
+						6,
+						9,
+						10,
+						10
+					],
+					"texture": "#edge"
+				},
+				"down": {
+					"uv": [
+						6,
+						6,
+						10,
+						7
+					],
+					"texture": "#edge"
+				}
+			}
+		}
+	]
+}

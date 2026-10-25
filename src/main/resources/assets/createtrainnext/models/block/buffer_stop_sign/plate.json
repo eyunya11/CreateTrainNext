@@ -1,0 +1,80 @@
+{
+	"credit": "A placeholder, to be redrawn. 車止標識: a black square with a white cross of four lozenges. The plate alone, facing south (+z) unturned; SignalPlateRenderer turns it. PlateKind holds where the plate is, and SignalPlateTests holds the two together, so move both if the plate moves.",
+	"parent": "block/block",
+	"textures": {
+		"front": "minecraft:block/black_concrete",
+		"edge": "minecraft:block/gray_concrete",
+		"particle": "minecraft:block/black_concrete"
+	},
+	"elements": [
+		{
+			"name": "plate",
+			"from": [
+				3,
+				3,
+				9
+			],
+			"to": [
+				13,
+				13,
+				10
+			],
+			"faces": {
+				"south": {
+					"uv": [
+						3,
+						3,
+						13,
+						13
+					],
+					"texture": "#front"
+				},
+				"north": {
+					"uv": [
+						3,
+						3,
+						13,
+						13
+					],
+					"texture": "#edge"
+				},
+				"east": {
+					"uv": [
+						6,
+						3,
+						7,
+						13
+					],
+					"texture": "#edge"
+				},
+				"west": {
+					"uv": [
+						9,
+						3,
+						10,
+						13
+					],
+					"texture": "#edge"
+				},
+				"up": {
+					"uv": [
+						3,
+						9,
+						13,
+						10
+					],
+					"texture": "#edge"
+				},
+				"down": {
+					"uv": [
+						3,
+						6,
+						13,
+						7
+					],
+					"texture": "#edge"
+				}
+			}
+		}
+	]
+}

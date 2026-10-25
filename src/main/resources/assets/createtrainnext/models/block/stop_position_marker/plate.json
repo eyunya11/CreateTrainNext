@@ -1,0 +1,80 @@
+{
+	"credit": "A placeholder, to be redrawn. 停止位置目標: white, with a black back board. The plate alone, facing south (+z) unturned; SignalPlateRenderer turns it and writes on its south face. PlateKind holds where the plate is, and SignalPlateTests holds the two together, so move both if the plate moves.",
+	"parent": "block/block",
+	"textures": {
+		"front": "minecraft:block/white_concrete",
+		"edge": "minecraft:block/black_concrete",
+		"particle": "minecraft:block/white_concrete"
+	},
+	"elements": [
+		{
+			"name": "plate",
+			"from": [
+				4,
+				4,
+				9
+			],
+			"to": [
+				12,
+				12,
+				10
+			],
+			"faces": {
+				"south": {
+					"uv": [
+						4,
+						4,
+						12,
+						12
+					],
+					"texture": "#front"
+				},
+				"north": {
+					"uv": [
+						4,
+						4,
+						12,
+						12
+					],
+					"texture": "#edge"
+				},
+				"east": {
+					"uv": [
+						6,
+						4,
+						7,
+						12
+					],
+					"texture": "#edge"
+				},
+				"west": {
+					"uv": [
+						9,
+						4,
+						10,
+						12
+					],
+					"texture": "#edge"
+				},
+				"up": {
+					"uv": [
+						4,
+						9,
+						12,
+						10
+					],
+					"texture": "#edge"
+				},
+				"down": {
+					"uv": [
+						4,
+						6,
+						12,
+						7
+					],
+					"texture": "#edge"
+				}
+			}
+		}
+	]
+}

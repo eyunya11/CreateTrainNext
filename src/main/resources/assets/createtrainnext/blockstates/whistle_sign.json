@@ -1,0 +1,8 @@
+{
+	"__comment": "The post only, the same whichever of the sixteen ways the plate is turned. The plate is drawn by SignalPlateRenderer, for the reason given in SignalRotation.",
+	"variants": {
+		"": {
+			"model": "createtrainnext:block/whistle_sign/post"
+		}
+	}
+}

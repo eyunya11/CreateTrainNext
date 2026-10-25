@@ -255,7 +255,8 @@ public class CreateTrainNextClient {
 			Minecraft.getInstance()
 				.setScreen(new SurveyMarkerScreen(event.getPos(), marker.getBearing(), marker.getLength(),
 					marker.getGrade()));
-		else if (clicked instanceof SignalPlateBlockEntity plate)
+		else if (clicked instanceof SignalPlateBlockEntity plate && plate.kind()
+			.takesText())
 			Minecraft.getInstance()
 				.setScreen(new SignalPlateScreen(event.getPos(), plate.getText(), plate.kind()
 					.maxLength()));

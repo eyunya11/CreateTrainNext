@@ -58,7 +58,8 @@ public record SetSignalPlatePacket(BlockPos pos, String text) implements CustomP
 			return false;
 
 		if (!(player.level()
-			.getBlockEntity(packet.pos()) instanceof SignalPlateBlockEntity plate))
+			.getBlockEntity(packet.pos()) instanceof SignalPlateBlockEntity plate) || !plate.kind()
+				.takesText())
 			return false;
 
 		plate.setText(packet.text());

@@ -52,9 +52,24 @@ public class SignalPlateTests {
 	private static final String EMPTY = "empty";
 
 	/** Where each plate is in its model, written out a second time as {@code SignalModelTests} does. */
-	private static final Map<PlateKind, double[]> PLATES = Map.of(
-		PlateKind.NUMBER, new double[] { 5, 5, 9, 11, 11, 10 },
-		PlateKind.CROWN, new double[] { 4, 3, 9, 12, 8, 10 });
+	private static final Map<PlateKind, double[]> PLATES = Map.ofEntries(
+		Map.entry(PlateKind.NUMBER, new double[] { 5, 5, 9, 11, 11, 10 }),
+		Map.entry(PlateKind.CROWN, new double[] { 4, 3, 9, 12, 8, 10 }),
+		Map.entry(PlateKind.STOP_POSITION, new double[] { 4, 4, 9, 12, 12, 10 }),
+		Map.entry(PlateKind.TRAIN_STOP, new double[] { 4, 4, 9, 12, 12, 10 }),
+		Map.entry(PlateKind.CAR_STOP, new double[] { 4, 4, 9, 12, 12, 10 }),
+		Map.entry(PlateKind.BUFFER_STOP, new double[] { 3, 3, 9, 13, 13, 10 }),
+		Map.entry(PlateKind.SIGNAL_CALL, new double[] { 4, 4, 9, 12, 11, 10 }),
+		Map.entry(PlateKind.KILOMETRE_POST, new double[] { 6, 2, 9, 10, 14, 10 }),
+		Map.entry(PlateKind.CLEARANCE_POST, new double[] { 6, 0, 9, 10, 4, 10 }),
+		Map.entry(PlateKind.SIGNAL_WARNING, new double[] { 5, 2, 9, 11, 14, 10 }),
+		Map.entry(PlateKind.WHISTLE, new double[] { 4, 4, 9, 12, 12, 10 }),
+		Map.entry(PlateKind.BRAKE, new double[] { 5, 5, 9, 11, 11, 10 }),
+		Map.entry(PlateKind.STATION_APPROACH, new double[] { 5, 2, 9, 11, 14, 10 }));
+
+	/** The kinds that are written on, and how many characters each holds; the rest are their picture alone. */
+	private static final Map<PlateKind, Integer> TEXT = Map.of(PlateKind.NUMBER, 4, PlateKind.CROWN, 6,
+		PlateKind.STOP_POSITION, 3, PlateKind.SIGNAL_CALL, 3, PlateKind.KILOMETRE_POST, 4);
 
 	/** A crown over a signal is turned as the signal is, and the signal's mast runs up to it. */
 	@GameTest(template = EMPTY)
@@ -191,11 +206,9 @@ public class SignalPlateTests {
 	 */
 	@GameTest(template = EMPTY)
 	public static void eachPlateHasItsFilesAndItsPlateIsWhereTheCodeSays(GameTestHelper helper) {
-		Map<PlateKind, Block> blocks = Map.of(PlateKind.NUMBER, CTNRegistry.SIGNAL_NUMBER_PLATE.get(), PlateKind.CROWN,
-			CTNRegistry.SIGNAL_CROWN_PLATE.get());
 		for (PlateKind kind : PlateKind.values()) {
 			String name = kind.blockName();
-			Block block = blocks.get(kind);
+			Block block = BuiltInRegistries.BLOCK.get(CreateTrainNext.asResource(name));
 			helper.assertTrue(block instanceof SignalPlateBlock plate && plate.kind() == kind,
 				"the block for " + kind + " should be a plate of that kind");
 			helper.assertTrue(BuiltInRegistries.BLOCK.getKey(block)
@@ -253,6 +266,34 @@ public class SignalPlateTests {
 			for (String language : new String[] { "en_us.json", "ja_jp.json" })
 				helper.assertTrue(SignalTypeTests.json(helper, "assets", "lang", language)
 					.has("block." + CreateTrainNext.ID + "." + name), language + " should name " + name);
+		}
+		helper.succeed();
+	}
+
+	/**
+	 * The signs with a picture and nothing to write take no text, from the screen or from anything else; the
+	 * kilometre post alone is written down its plate.
+	 */
+	@GameTest(template = EMPTY)
+	public static void onlyThePlatesWithWritingTakeText(GameTestHelper helper) {
+		Player player = helper.makeMockPlayer(GameType.CREATIVE);
+		int slot = 0;
+		for (PlateKind kind : PlateKind.values()) {
+			int holds = TEXT.getOrDefault(kind, 0);
+			helper.assertTrue(kind.maxLength() == holds && kind.takesText() == (holds > 0),
+				kind + " should hold " + holds + " characters, but holds " + kind.maxLength());
+			helper.assertTrue(kind.vertical() == (kind == PlateKind.KILOMETRE_POST),
+				kind + (kind == PlateKind.KILOMETRE_POST ? " should" : " should not") + " be written downwards");
+
+			BlockPos pos = new BlockPos(2 + 3 * (slot % 13), 2, 20 + 3 * (slot / 13));
+			slot++;
+			helper.setBlock(pos, BuiltInRegistries.BLOCK.get(CreateTrainNext.asResource(kind.blockName()))
+				.defaultBlockState());
+			BlockPos absolute = helper.absolutePos(pos);
+			player.setPos(Vec3.atCenterOf(absolute)
+				.add(0, -1, 2));
+			boolean written = SetSignalPlatePacket.apply(player, new SetSignalPlatePacket(absolute, "7"));
+			helper.assertTrue(written == (holds > 0), kind + (holds > 0 ? " should" : " should not") + " take writing");
 		}
 		helper.succeed();
 	}
