@@ -1,0 +1,4 @@
+{
+	"credit": "A placeholder, to be redrawn. The pole through the block, which never turns and so is the blockstate's model; the plate is plate.json, drawn by SignalPlateRenderer.",
+	"parent": "createtrainnext:block/traffic_pole"
+}

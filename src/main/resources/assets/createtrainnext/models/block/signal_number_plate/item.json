@@ -1,0 +1,150 @@
+{
+	"credit": "A placeholder, to be redrawn. The pole and the plate together, for the item.",
+	"parent": "block/block",
+	"textures": {
+		"pole": "createtrainnext:block/pole",
+		"front": "minecraft:block/white_concrete",
+		"edge": "minecraft:block/gray_concrete",
+		"particle": "minecraft:block/white_concrete"
+	},
+	"elements": [
+		{
+			"name": "pole",
+			"from": [
+				7,
+				0,
+				7
+			],
+			"to": [
+				9,
+				16,
+				9
+			],
+			"faces": {
+				"north": {
+					"uv": [
+						0,
+						0,
+						2,
+						16
+					],
+					"texture": "#pole"
+				},
+				"east": {
+					"uv": [
+						0,
+						0,
+						2,
+						16
+					],
+					"texture": "#pole"
+				},
+				"south": {
+					"uv": [
+						0,
+						0,
+						2,
+						16
+					],
+					"texture": "#pole"
+				},
+				"west": {
+					"uv": [
+						0,
+						0,
+						2,
+						16
+					],
+					"texture": "#pole"
+				},
+				"up": {
+					"uv": [
+						8,
+						0,
+						10,
+						2
+					],
+					"texture": "#pole"
+				},
+				"down": {
+					"uv": [
+						8,
+						2,
+						10,
+						4
+					],
+					"texture": "#pole"
+				}
+			}
+		},
+		{
+			"name": "plate",
+			"from": [
+				5,
+				5,
+				9
+			],
+			"to": [
+				11,
+				11,
+				10
+			],
+			"faces": {
+				"south": {
+					"uv": [
+						5,
+						5,
+						11,
+						11
+					],
+					"texture": "#front"
+				},
+				"north": {
+					"uv": [
+						5,
+						5,
+						11,
+						11
+					],
+					"texture": "#edge"
+				},
+				"east": {
+					"uv": [
+						6,
+						5,
+						7,
+						11
+					],
+					"texture": "#edge"
+				},
+				"west": {
+					"uv": [
+						9,
+						5,
+						10,
+						11
+					],
+					"texture": "#edge"
+				},
+				"up": {
+					"uv": [
+						5,
+						9,
+						11,
+						10
+					],
+					"texture": "#edge"
+				},
+				"down": {
+					"uv": [
+						5,
+						6,
+						11,
+						7
+					],
+					"texture": "#edge"
+				}
+			}
+		}
+	]
+}

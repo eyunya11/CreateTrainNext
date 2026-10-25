@@ -1,0 +1,8 @@
+{
+	"__comment": "The pole only, the same whichever of the sixteen ways the plate is turned. The plate is drawn by SignalPlateRenderer, for the reason given in SignalRotation.",
+	"variants": {
+		"": {
+			"model": "createtrainnext:block/signal_number_plate/post"
+		}
+	}
+}

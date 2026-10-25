@@ -17,7 +17,7 @@ An addon for [Create](https://github.com/Creators-of-Create/Create) that lets tr
 - Two ends at different heights are joined at one steady grade, which the anchors remember, so a climb is a slope and not a staircase. Hold the sprint key and scroll to set a grade, and the wand lays the whole route at it.
 - A Survey Marker lays a dead straight line at a bearing, length and grade you set.
 - An invisible floor is laid along each curve at rail height, so you can walk on curves.
-- Adds Japanese-style signals with two, three, four, five and six lamps, a relay signal and a speed limit sign, and a pole that carries the signals.
+- Adds Japanese-style signals with two, three, four, five and six lamps, a relay signal and a speed limit sign, a pole that carries the signals, and plates for the pole that tell the signals apart.
 - Signals and stations, Create's and this mod's, can be put directly on a curve, with no point added first.
 - Commands inspect and repair the track.
 
@@ -27,7 +27,7 @@ You need Minecraft 1.21.1, NeoForge and Create itself. Ponder and Flywheel ship 
 
 There is no download page yet. Build the jar from source and put it in the `mods` folder. The steps are in the Development section.
 
-There are no crafting recipes yet either. Take the items from the "Create Train Next" creative tab, or use `/give`, for example `/give @s createtrainnext:curve_wand`. There are twelve items.
+There are no crafting recipes yet either. Take the items from the "Create Train Next" creative tab, or use `/give`, for example `/give @s createtrainnext:curve_wand`. There are fourteen items.
 
 | Name | Japanese name | ID | Purpose |
 |---|---|---|---|
@@ -43,6 +43,8 @@ There are no crafting recipes yet either. Take the items from the "Create Train 
 | 5-Aspect Railway Signal | 5灯式信号機 | `createtrainnext:multi_aspect_signal` | A Japanese-style five-aspect signal |
 | 6-Aspect Railway Signal | 6灯式信号機 | `createtrainnext:multi_aspect_signal_6` | A Japanese-style six-aspect signal |
 | Relay Signal | 中継信号機 | `createtrainnext:relay_signal` | Repeats the next signal's aspect in advance |
+| Signal Number Plate | 信号機の番号板 | `createtrainnext:signal_number_plate` | A plate under a block signal that shows its number |
+| Signal Crown Plate | 信号機の冠 | `createtrainnext:signal_crown_plate` | A plate over a signal that shows which track it is for |
 
 Create 6.0.10 is the version this has been verified on. The declared range is 6.0 and later, but other versions have not been tried.
 
@@ -257,9 +259,17 @@ A train that passes a sign going the way it faces is held to its number from the
 
 ### Signal Pole
 
-A thin pole that carries signals. One block serves as a mast and as a crossbeam between masts. The direction it runs is set by the face you place it on, and it joins neighbouring poles and signals by itself. It joins the Railway Signals and the Relay Signal, and does not join the Track Speed Limit.
+A thin pole that carries signals. One block serves as a mast and as a crossbeam between masts. The direction it runs is set by the face you place it on, and it joins neighbouring poles and signals by itself. It joins the Railway Signals, the Relay Signal and the signal plates, and does not join the Track Speed Limit.
 
 It joins a Railway Signal from behind, below, above and either side, and not from the front. When a pole or another signal stands directly above a signal, the signal's own pole runs up to the top of its block to meet it. A right click with a wrench changes the direction. To run a long length, hold a pole and right click a pole already placed, and Create's placement assist suggests the position at the far end.
+
+### Signal Plates
+
+Plates for a signal's pole, which tell apart signals that look the same. The Signal Number Plate goes under the head of a block signal (閉そく信号機) and shows its number. The Signal Crown Plate (冠) goes over the head of a home or starting signal and shows which track it is for. Each is a length of pole with a plate on it, and takes the place of a Signal Pole above or below the signal.
+
+A plate placed directly above or below a signal, a Relay Signal or another plate turns the way that block does. Placed anywhere else, it faces you, in 22.5 degree steps. Poles join it from above and below, and a signal under a Crown Plate runs its pole up to meet it.
+
+Right click a plate with an empty hand to write on it. The Number Plate holds up to four characters and the Crown Plate up to six. Kanji and kana work too, so a plate can say 下1, or 場内 and 出発 as some railways put on their signals. For now the Number Plate is white with black writing and the Crown Plate black with white writing. The shapes and colours of both are placeholders.
 
 ### Curve floor
 

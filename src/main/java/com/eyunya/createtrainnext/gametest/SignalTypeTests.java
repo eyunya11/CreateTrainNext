@@ -387,7 +387,7 @@ public class SignalTypeTests {
 	}
 
 	/** Reads a model by its id, and the models it names as its parent, until one has no parent of this mod's. */
-	private static void model(GameTestHelper helper, String id) {
+	static void model(GameTestHelper helper, String id) {
 		String path = id.substring(id.indexOf(':') + 1);
 		JsonObject model = json(helper, "assets", "models", path + ".json");
 		JsonElement parent = model.get("parent");

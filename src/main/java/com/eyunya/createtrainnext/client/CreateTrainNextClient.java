@@ -7,6 +7,8 @@ import com.eyunya.createtrainnext.CTNConfig;
 import com.eyunya.createtrainnext.CTNRegistry;
 import com.eyunya.createtrainnext.CreateTrainNext;
 import com.eyunya.createtrainnext.signal.MultiAspectSignalBlock.HorizontalOffset;
+import com.eyunya.createtrainnext.signal.PlateKind;
+import com.eyunya.createtrainnext.signal.SignalPlateBlockEntity;
 import com.eyunya.createtrainnext.signal.SignalAspect.LampColour;
 import com.eyunya.createtrainnext.signal.SignalType;
 import com.eyunya.createtrainnext.track.SurveyMarkerBlockEntity;
@@ -110,6 +112,24 @@ public class CreateTrainNextClient {
 	public static final PartialModel RELAY_HEAD =
 		PartialModel.of(CreateTrainNext.asResource("block/relay_signal/housing_head"));
 
+	/**
+	 * The plates a signal's pole carries, without the pole, which is the blockstate's. One model for each
+	 * kind, {@code plate.json} in the folder the kind names.
+	 */
+	private static final Map<PlateKind, PartialModel> SIGNAL_PLATES = signalPlates();
+
+	/** The plate of a kind, turned by {@code SignalPlateRenderer}. */
+	public static PartialModel signalPlate(PlateKind kind) {
+		return SIGNAL_PLATES.get(kind);
+	}
+
+	private static Map<PlateKind, PartialModel> signalPlates() {
+		Map<PlateKind, PartialModel> plates = new EnumMap<>(PlateKind.class);
+		for (PlateKind kind : PlateKind.values())
+			plates.put(kind, PartialModel.of(CreateTrainNext.asResource("block/" + kind.blockName() + "/plate")));
+		return plates;
+	}
+
 	/** The turning half of a signal's housing, for its type and offset. Kept beside the fields above. */
 	public static PartialModel signalHead(SignalType type, HorizontalOffset offset) {
 		return SIGNAL_HEADS.get(type)
@@ -209,7 +229,7 @@ public class CreateTrainNextClient {
 	}
 
 	/**
-	 * Opens a survey marker's screen when it is right clicked with nothing in hand.
+	 * Opens a survey marker's or a signal plate's screen when it is right clicked with nothing in hand.
 	 *
 	 * <p>Handled here rather than from the block so that no client class is named anywhere the
 	 * server can reach. Empty hand only: a wrench belongs to the scroll box on the block and the
@@ -222,13 +242,18 @@ public class CreateTrainNextClient {
 			.isEmpty() || event.getEntity()
 				.isShiftKeyDown())
 			return;
-		if (!(event.getLevel()
-			.getBlockEntity(event.getPos()) instanceof SurveyMarkerBlockEntity marker))
+		BlockEntity clicked = event.getLevel()
+			.getBlockEntity(event.getPos());
+		if (clicked instanceof SurveyMarkerBlockEntity marker)
+			Minecraft.getInstance()
+				.setScreen(new SurveyMarkerScreen(event.getPos(), marker.getBearing(), marker.getLength(),
+					marker.getGrade()));
+		else if (clicked instanceof SignalPlateBlockEntity plate)
+			Minecraft.getInstance()
+				.setScreen(new SignalPlateScreen(event.getPos(), plate.getText(), plate.kind()
+					.maxLength()));
+		else
 			return;
-
-		Minecraft.getInstance()
-			.setScreen(new SurveyMarkerScreen(event.getPos(), marker.getBearing(), marker.getLength(),
-				marker.getGrade()));
 		event.setCanceled(true);
 	}
 
@@ -239,5 +264,6 @@ public class CreateTrainNextClient {
 		event.registerBlockEntityRenderer(CTNRegistry.MULTI_ASPECT_SIGNAL_ENTITY.get(),
 			MultiAspectSignalRenderer::new);
 		event.registerBlockEntityRenderer(CTNRegistry.RELAY_SIGNAL_ENTITY.get(), RelaySignalRenderer::new);
+		event.registerBlockEntityRenderer(CTNRegistry.SIGNAL_PLATE_ENTITY.get(), SignalPlateRenderer::new);
 	}
 }

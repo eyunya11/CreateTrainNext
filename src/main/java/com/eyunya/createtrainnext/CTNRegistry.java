@@ -6,7 +6,10 @@ import com.eyunya.createtrainnext.pole.SignalPoleBlock;
 import com.eyunya.createtrainnext.signal.MultiAspectSignalBlock;
 import com.eyunya.createtrainnext.signal.MultiAspectSignalBlockEntity;
 import com.eyunya.createtrainnext.signal.RelaySignalBlock;
+import com.eyunya.createtrainnext.signal.PlateKind;
 import com.eyunya.createtrainnext.signal.RelaySignalBlockEntity;
+import com.eyunya.createtrainnext.signal.SignalPlateBlock;
+import com.eyunya.createtrainnext.signal.SignalPlateBlockEntity;
 import com.eyunya.createtrainnext.signal.SignalType;
 import com.eyunya.createtrainnext.speed.CTNEdgePointTypes;
 import com.eyunya.createtrainnext.speed.SpeedLimitBlock;
@@ -257,6 +260,28 @@ public class CTNRegistry {
 			.of(RelaySignalBlockEntity::new, RELAY_SIGNAL.get())
 			.build(null));
 
+	/**
+	 * The plates on a signal's pole, one block and item per {@link PlateKind}, with their names written out
+	 * for {@code check_readmes.py} as the signals' are. Plain block items: a plate is put on a pole, not
+	 * against the track.
+	 */
+	public static final DeferredBlock<SignalPlateBlock> SIGNAL_NUMBER_PLATE =
+		plateBlock("signal_number_plate", PlateKind.NUMBER);
+
+	public static final DeferredItem<BlockItem> SIGNAL_NUMBER_PLATE_ITEM =
+		ITEMS.registerSimpleBlockItem("signal_number_plate", SIGNAL_NUMBER_PLATE);
+
+	public static final DeferredBlock<SignalPlateBlock> SIGNAL_CROWN_PLATE =
+		plateBlock("signal_crown_plate", PlateKind.CROWN);
+
+	public static final DeferredItem<BlockItem> SIGNAL_CROWN_PLATE_ITEM =
+		ITEMS.registerSimpleBlockItem("signal_crown_plate", SIGNAL_CROWN_PLATE);
+
+	public static final Supplier<BlockEntityType<SignalPlateBlockEntity>> SIGNAL_PLATE_ENTITY =
+		BLOCK_ENTITIES.register("signal_plate", () -> BlockEntityType.Builder
+			.of(SignalPlateBlockEntity::new, SIGNAL_NUMBER_PLATE.get(), SIGNAL_CROWN_PLATE.get())
+			.build(null));
+
 	public static final DeferredHolder<CreativeModeTab, CreativeModeTab> TAB =
 		CREATIVE_TABS.register("main", () -> CreativeModeTab.builder()
 			.title(Component.translatable("itemGroup." + CreateTrainNext.ID))
@@ -275,6 +300,8 @@ public class CTNRegistry {
 				output.accept(MULTI_ASPECT_SIGNAL_ITEM.get());
 				output.accept(MULTI_ASPECT_SIGNAL_6_ITEM.get());
 				output.accept(RELAY_SIGNAL_ITEM.get());
+				output.accept(SIGNAL_NUMBER_PLATE_ITEM.get());
+				output.accept(SIGNAL_CROWN_PLATE_ITEM.get());
 			})
 			.build());
 
@@ -282,6 +309,15 @@ public class CTNRegistry {
 		return BLOCKS.registerBlock(name, properties -> new MultiAspectSignalBlock(properties, type),
 			BlockBehaviour.Properties.of()
 				.mapColor(MapColor.PODZOL)
+				.strength(0.8F)
+				.sound(SoundType.NETHERITE_BLOCK)
+				.noOcclusion());
+	}
+
+	private static DeferredBlock<SignalPlateBlock> plateBlock(String name, PlateKind kind) {
+		return BLOCKS.registerBlock(name, properties -> new SignalPlateBlock(properties, kind),
+			BlockBehaviour.Properties.of()
+				.mapColor(MapColor.METAL)
 				.strength(0.8F)
 				.sound(SoundType.NETHERITE_BLOCK)
 				.noOcclusion());

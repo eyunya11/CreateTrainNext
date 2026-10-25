@@ -1,5 +1,6 @@
 package com.eyunya.createtrainnext;
 
+import com.eyunya.createtrainnext.signal.SetSignalPlatePacket;
 import com.eyunya.createtrainnext.track.ApplyGradePacket;
 import com.eyunya.createtrainnext.track.SetCurveAnglePacket;
 import com.eyunya.createtrainnext.track.SetCurveGradePacket;
@@ -24,7 +25,7 @@ public class CTNNetwork {
 	 * <p>Clients whose version does not match are refused, which is the point — the alternative is
 	 * a client that connects and then misreads every packet it is sent.
 	 */
-	private static final String VERSION = "2";
+	private static final String VERSION = "3";
 
 	public static void init(IEventBus modEventBus) {
 		modEventBus.addListener(CTNNetwork::register);
@@ -39,6 +40,8 @@ public class CTNNetwork {
 		registrar.playToServer(ApplyGradePacket.TYPE, ApplyGradePacket.STREAM_CODEC, ApplyGradePacket::handle);
 		registrar.playToServer(SetSurveyMarkerPacket.TYPE, SetSurveyMarkerPacket.STREAM_CODEC,
 			SetSurveyMarkerPacket::handle);
+		registrar.playToServer(SetSignalPlatePacket.TYPE, SetSignalPlatePacket.STREAM_CODEC,
+			SetSignalPlatePacket::handle);
 	}
 
 	private CTNNetwork() {}

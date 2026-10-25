@@ -15,6 +15,8 @@
   "block.createtrainnext.multi_aspect_signal_6": "6灯式信号機",
 
   "block.createtrainnext.relay_signal": "中継信号機",
+  "block.createtrainnext.signal_number_plate": "信号機の番号板",
+  "block.createtrainnext.signal_crown_plate": "信号機の冠",
 
   "createtrainnext.multi_aspect_signal.offset": "寄せ",
   "createtrainnext.multi_aspect_signal.offset.center": "中央",
@@ -26,6 +28,8 @@
   "createtrainnext.survey_marker.title": "測量標",
   "createtrainnext.survey_marker.length": "長さ",
   "createtrainnext.survey_marker.apply": "適用",
+  "createtrainnext.signal_plate.title": "信号機の板",
+  "createtrainnext.signal_plate.apply": "適用",
   "createtrainnext.survey_marker.hint": "曲線レール設置杖で敷設します",
   "createtrainnext.survey_marker.bearing": "方位",
   "createtrainnext.survey_marker.grade": "勾配（‰）",

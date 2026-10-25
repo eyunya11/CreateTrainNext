@@ -15,6 +15,8 @@
   "block.createtrainnext.multi_aspect_signal_6": "6-Aspect Railway Signal",
 
   "block.createtrainnext.relay_signal": "Relay Signal",
+  "block.createtrainnext.signal_number_plate": "Signal Number Plate",
+  "block.createtrainnext.signal_crown_plate": "Signal Crown Plate",
 
   "createtrainnext.multi_aspect_signal.offset": "Offset",
   "createtrainnext.multi_aspect_signal.offset.center": "Center",
@@ -26,6 +28,8 @@
   "createtrainnext.survey_marker.title": "Survey Marker",
   "createtrainnext.survey_marker.length": "Length",
   "createtrainnext.survey_marker.apply": "Apply",
+  "createtrainnext.signal_plate.title": "Signal Plate",
+  "createtrainnext.signal_plate.apply": "Apply",
   "createtrainnext.survey_marker.hint": "Lay the line with the Curve Wand",
   "createtrainnext.survey_marker.bearing": "Bearing",
   "createtrainnext.survey_marker.grade": "Grade (‰)",
