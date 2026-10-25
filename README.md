@@ -192,21 +192,23 @@ There are five Japanese-style signals, with two, three, four, five and six lamps
 
 | Signal | Lamps, from the top |
 |---|---|
-| 2-Aspect | red, green |
-| 3-Aspect | yellow, red, green |
+| 2-Aspect | green, red |
+| 3-Aspect | green, yellow, red |
 | 4-Aspect | yellow, red, yellow, green |
 | 5-Aspect | yellow, yellow, red, yellow, green |
 | 6-Aspect | yellow, green, red, green, yellow, green |
+
+The order follows the figures in Japan's national standard for railway signals, where the 2-Aspect and 3-Aspect signals have their red at the bottom. Earlier versions put it at the top of the 2-Aspect and in the middle of the 3-Aspect. Signals placed before show the new order.
 
 The numbers of the lamps that are lit are below. A dash means the signal has no such aspect.
 
 | Aspect | 2-Aspect | 3-Aspect | 4-Aspect | 5-Aspect | 6-Aspect |
 |---|---|---|---|---|---|
-| Stop (停止) | 1 | 2 | 2 | 3 | 3 |
+| Stop (停止) | 2 | 3 | 2 | 3 | 3 |
 | Restricted (警戒) | - | - | - | 1 and 4 | - |
-| Approach (注意) | - | 1 | 3 | 4 | 5 |
+| Approach (注意) | - | 2 | 3 | 4 | 5 |
 | Reduced speed (減速) | - | - | 1 and 4 | 2 and 5 | 1 and 4 |
-| Proceed (進行) | 2 | 3 | 4 | 5 | 4 |
+| Proceed (進行) | 1 | 1 | 4 | 5 | 4 |
 | High-speed proceed (高速進行) | - | - | - | - | 2 and 6 |
 
 The number of clear sections that gives each aspect:
