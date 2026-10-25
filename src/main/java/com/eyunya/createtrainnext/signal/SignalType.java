@@ -12,10 +12,11 @@ import com.eyunya.createtrainnext.signal.SignalAspect.LampColour;
  * <p>What a head is asked is the same whatever it is: how far ahead the line is clear, which a
  * {@link Ladder} turns into an aspect. What differs is how the aspect is shown. Each type has its own
  * column of lamps, read top to bottom, and its own idea of which of them an aspect lights. They follow
- * the vertical heads of JR East, where a smaller head is the bigger one with its upper lamps taken away:
- * the two-aspect is red over green, the three-aspect yellow, red, green, and the four-aspect yellow, red,
- * yellow, green, which is the five-aspect without its top lamp, and so without 警戒. The six-aspect adds
- * a second green below the five-aspect's yellow and gives the pair of greens a meaning of its own, 高速進行.
+ * the figures of the national standard (鉄道に関する技術上の基準を定める省令等の解釈基準, Ⅶ－2 1(1)):
+ * the two-aspect is green over red and the three-aspect green, yellow, red, so on both the red is at the
+ * bottom; the four-aspect is yellow, red, yellow, green, the five-aspect without its top lamp, and so without
+ * 警戒. The six-aspect adds a second green below the five-aspect's yellow and gives the pair of greens a
+ * meaning of its own, 高速進行.
  *
  * <p>The column does not change with traffic, so nothing here is saved by a head: the block it stands
  * in is its type.
@@ -28,17 +29,17 @@ import com.eyunya.createtrainnext.signal.SignalAspect.LampColour;
  */
 public enum SignalType {
 
-	/** 2灯式. Red over green: 停止 or 進行, and nothing between. */
+	/** 2灯式. Green over red: 停止 or 進行, and nothing between. */
 	TWO("multi_aspect_signal_2", "multi_aspect_signal_2", Ladder.TWO,
 		housing(3.5F, 12.5F, 9F, 6.75F),
-		colours(LampColour.RED, LampColour.GREEN),
-		lit(SignalAspect.STOP, 1), lit(SignalAspect.PROCEED, 2)),
+		colours(LampColour.GREEN, LampColour.RED),
+		lit(SignalAspect.STOP, 2), lit(SignalAspect.PROCEED, 1)),
 
-	/** 3灯式. Yellow, red, green. */
+	/** 3灯式. Green, yellow, red. */
 	THREE("multi_aspect_signal_3", "multi_aspect_signal_3", Ladder.THREE,
 		housing(2F, 14F, 10.25F, 8F, 5.75F),
-		colours(LampColour.YELLOW, LampColour.RED, LampColour.GREEN),
-		lit(SignalAspect.STOP, 2), lit(SignalAspect.APPROACH, 1), lit(SignalAspect.PROCEED, 3)),
+		colours(LampColour.GREEN, LampColour.YELLOW, LampColour.RED),
+		lit(SignalAspect.STOP, 3), lit(SignalAspect.APPROACH, 2), lit(SignalAspect.PROCEED, 1)),
 
 	/** 4灯式. Yellow, red, yellow, green: the five-aspect's lamps 2 to 5. */
 	FOUR("multi_aspect_signal_4", "multi_aspect_signal_4", Ladder.FOUR,

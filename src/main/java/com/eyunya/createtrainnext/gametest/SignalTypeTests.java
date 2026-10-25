@@ -59,16 +59,19 @@ public class SignalTypeTests {
 
 	/** In the order of {@link SignalAspect#values()}: 停止, 警戒, 注意, 減速, 進行, 高速進行. */
 	private static final Map<SignalType, String[]> LIT = Map.of(
-		SignalType.TWO, new String[] { "1", "-", "-", "-", "2", "-" },
-		SignalType.THREE, new String[] { "2", "-", "1", "-", "3", "-" },
+		SignalType.TWO, new String[] { "2", "-", "-", "-", "1", "-" },
+		SignalType.THREE, new String[] { "3", "-", "2", "-", "1", "-" },
 		SignalType.FOUR, new String[] { "2", "-", "3", "1,4", "4", "-" },
 		SignalType.FIVE, new String[] { "3", "1,4", "4", "2,5", "5", "-" },
 		SignalType.SIX, new String[] { "3", "-", "5", "1,4", "4", "2,6" });
 
-	/** Top to bottom: R red, Y yellow, G green. */
+	/**
+	 * Top to bottom: R red, Y yellow, G green. As in the figures of the national standard (解釈基準 Ⅶ－2 1(1)),
+	 * where the two- and three-aspect heads have their red at the bottom.
+	 */
 	private static final Map<SignalType, String> COLOURS = Map.of(
-		SignalType.TWO, "RG",
-		SignalType.THREE, "YRG",
+		SignalType.TWO, "GR",
+		SignalType.THREE, "GYR",
 		SignalType.FOUR, "YRYG",
 		SignalType.FIVE, "YYRYG",
 		SignalType.SIX, "YGRGYG");
