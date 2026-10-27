@@ -1,149 +1,65 @@
 {
+	"format_version": "26.3",
 	"credit": "A placeholder, to be redrawn. The post and the plate together, for the item.",
 	"parent": "block/block",
 	"textures": {
+		"3": "createtrainnext:block/track_speed_limit",
+		"4": "createtrainnext:block/traffic_light_body",
 		"pole": "createtrainnext:block/pole",
-		"front": "minecraft:block/white_concrete",
-		"edge": "minecraft:block/black_concrete",
-		"particle": "minecraft:block/white_concrete"
+		"particle": "block/black_concrete"
 	},
 	"elements": [
 		{
 			"name": "pole",
-			"from": [
-				7,
-				0,
-				7
-			],
-			"to": [
-				9,
-				16,
-				9
-			],
+			"from": [7, 0, 7],
+			"to": [9, 16, 9],
 			"faces": {
-				"north": {
-					"uv": [
-						0,
-						0,
-						2,
-						16
-					],
-					"texture": "#pole"
-				},
-				"east": {
-					"uv": [
-						0,
-						0,
-						2,
-						16
-					],
-					"texture": "#pole"
-				},
-				"south": {
-					"uv": [
-						0,
-						0,
-						2,
-						16
-					],
-					"texture": "#pole"
-				},
-				"west": {
-					"uv": [
-						0,
-						0,
-						2,
-						16
-					],
-					"texture": "#pole"
-				},
-				"up": {
-					"uv": [
-						8,
-						0,
-						10,
-						2
-					],
-					"texture": "#pole"
-				},
-				"down": {
-					"uv": [
-						8,
-						2,
-						10,
-						4
-					],
-					"texture": "#pole"
-				}
+				"north": {"uv": [0, 0, 2, 16], "texture": "#pole"},
+				"east": {"uv": [0, 0, 2, 16], "texture": "#pole"},
+				"south": {"uv": [0, 0, 2, 16], "texture": "#pole"},
+				"west": {"uv": [0, 0, 2, 16], "texture": "#pole"},
+				"up": {"uv": [8, 0, 10, 2], "texture": "#pole"},
+				"down": {"uv": [8, 2, 10, 4], "texture": "#pole"}
 			}
 		},
 		{
 			"name": "plate",
-			"from": [
-				4,
-				4,
-				9
-			],
-			"to": [
-				12,
-				12,
-				10
-			],
+			"from": [4, 4, 6],
+			"to": [12, 12, 7],
+			"rotation": {"angle": 0, "axis": "y", "origin": [0, 0, -3]},
 			"faces": {
-				"south": {
-					"uv": [
-						4,
-						4,
-						12,
-						12
-					],
-					"texture": "#front"
-				},
-				"north": {
-					"uv": [
-						4,
-						4,
-						12,
-						12
-					],
-					"texture": "#edge"
-				},
-				"east": {
-					"uv": [
-						6,
-						4,
-						7,
-						12
-					],
-					"texture": "#edge"
-				},
-				"west": {
-					"uv": [
-						9,
-						4,
-						10,
-						12
-					],
-					"texture": "#edge"
-				},
-				"up": {
-					"uv": [
-						4,
-						9,
-						12,
-						10
-					],
-					"texture": "#edge"
-				},
-				"down": {
-					"uv": [
-						4,
-						6,
-						12,
-						7
-					],
-					"texture": "#edge"
-				}
+				"north": {"uv": [4, 4, 12, 12], "texture": "#3"},
+				"east": {"uv": [6, 4, 7, 12], "texture": "#3"},
+				"south": {"uv": [4, 4, 12, 12], "texture": "#3"},
+				"west": {"uv": [9, 4, 10, 12], "texture": "#3"},
+				"up": {"uv": [4, 9, 12, 10], "texture": "#3"},
+				"down": {"uv": [4, 6, 12, 7], "texture": "#3"}
+			}
+		},
+		{
+			"from": [7.25, 5.5, 5.9],
+			"to": [8.25, 10.5, 6],
+			"rotation": {"angle": 0, "axis": "y", "origin": [7.25, 5.5, 5.9]},
+			"faces": {
+				"north": {"uv": [1, 2, 2, 7], "texture": "#4"},
+				"east": {"uv": [1.9, 2, 2, 7], "texture": "#4"},
+				"south": {"uv": [0, 2, 1, 7], "texture": "#4"},
+				"west": {"uv": [0, 2, 0.1, 7], "texture": "#4"},
+				"up": {"uv": [0, 0, 1, 0.1], "texture": "#4"},
+				"down": {"uv": [0, 1.9, 1, 2], "texture": "#4"}
+			}
+		},
+		{
+			"from": [8.95711, 8.37868, 5.9],
+			"to": [9.95711, 10.37868, 6],
+			"rotation": {"angle": 45, "axis": "z", "origin": [8.95711, 8.37868, 5.9]},
+			"faces": {
+				"north": {"uv": [1, 5, 2, 7], "texture": "#4"},
+				"east": {"uv": [1.9, 5, 2, 7], "texture": "#4"},
+				"south": {"uv": [0, 5, 1, 7], "texture": "#4"},
+				"west": {"uv": [0, 5, 0.1, 7], "texture": "#4"},
+				"up": {"uv": [0, 0, 1, 0.1], "texture": "#4"},
+				"down": {"uv": [0, 1.9, 1, 2], "texture": "#4"}
 			}
 		}
 	]

@@ -1,10 +1,10 @@
 {
-	"credit": "A placeholder, to be redrawn. 車両停止標識: the train stop sign in reverse colours. The plate alone, facing south (+z) unturned; SignalPlateRenderer turns it. PlateKind holds where the plate is, and SignalPlateTests holds the two together, so move both if the plate moves.",
+	"credit": "A placeholder, to be redrawn. 停止位置目標: white, with a black back board. The plate alone, facing south (+z) unturned; SignalPlateRenderer turns it and writes on its south face. PlateKind holds where the plate is, and SignalPlateTests holds the two together, so move both if the plate moves.",
 	"parent": "block/block",
 	"textures": {
-		"front": "minecraft:block/black_concrete",
-		"edge": "minecraft:block/gray_concrete",
-		"particle": "minecraft:block/black_concrete"
+		"front": "minecraft:block/white_concrete",
+		"edge": "minecraft:block/black_concrete",
+		"particle": "minecraft:block/white_concrete"
 	},
 	"elements": [
 		{

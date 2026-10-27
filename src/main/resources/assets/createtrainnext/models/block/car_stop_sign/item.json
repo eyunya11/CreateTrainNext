@@ -3,9 +3,9 @@
 	"parent": "block/block",
 	"textures": {
 		"pole": "createtrainnext:block/pole",
-		"front": "minecraft:block/black_concrete",
-		"edge": "minecraft:block/gray_concrete",
-		"particle": "minecraft:block/black_concrete"
+		"front": "minecraft:block/white_concrete",
+		"edge": "minecraft:block/black_concrete",
+		"particle": "minecraft:block/white_concrete"
 	},
 	"elements": [
 		{
