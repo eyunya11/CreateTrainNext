@@ -12,6 +12,7 @@ import com.eyunya.createtrainnext.track.AngledTrackAnchorBlockEntity;
 import com.simibubi.create.Create;
 import com.simibubi.create.content.trains.entity.TravellingPoint;
 import com.simibubi.create.content.trains.entity.TravellingPoint.SteerDirection;
+import com.simibubi.create.content.trains.graph.DimensionPalette;
 import com.simibubi.create.content.trains.graph.TrackEdge;
 import com.simibubi.create.content.trains.graph.TrackGraph;
 import java.util.List;
@@ -34,9 +35,11 @@ import net.createmod.catnip.data.Couple;
 import net.createmod.catnip.data.Pair;
 import net.minecraft.core.BlockPos;
 import net.minecraft.nbt.CompoundTag;
+import net.minecraft.nbt.NbtUtils;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.world.phys.Vec3;
 import net.minecraft.gametest.framework.GameTest;
+import net.minecraft.gametest.framework.GameTestAssertException;
 import net.minecraft.gametest.framework.GameTestHelper;
 import net.minecraft.world.level.block.entity.BlockEntity;
 
@@ -160,6 +163,28 @@ public class SpeedLimitTests {
 	private static void pass(Train train, TrackEdgePoint point, TrackNode from, TrackNode to) {
 		train.frontSignalListener()
 			.test(5.0, Pair.of(point, Couple.create(from, to)));
+	}
+
+	/**
+	 * Saves a graph as the world does when it stops, and reads it back. A point the graph cannot write
+	 * fails the test here, instead of turning up in the log after the last test has passed.
+	 */
+	private static TrackGraph assertSaves(GameTestHelper helper, TrackGraph graph) {
+		var registries = helper.getLevel()
+			.registryAccess();
+		DimensionPalette dimensions = new DimensionPalette();
+		CompoundTag saved;
+		try {
+			saved = graph.write(registries, dimensions);
+		} catch (RuntimeException e) {
+			// The test report carries only the message, and the trace is what says which point could not be
+			// written, so it goes to the log as well.
+			CreateTrainNext.LOGGER.error("Saving a track graph failed in a game test", e);
+			GameTestAssertException failure = new GameTestAssertException("the graph should save, but writing it threw " + e);
+			failure.initCause(e);
+			throw failure;
+		}
+		return TrackGraph.read(saved, registries, dimensions);
 	}
 
 	/** Makes a signal head show an aspect, by saving it, changing what it saved and reading it back as the world does. */
@@ -429,51 +454,104 @@ public class SpeedLimitTests {
 			facing.setType(CTNEdgePointTypes.SPEED_LIMIT);
 			facing.setLocation(Couple.create(b.getLocation(), c.getLocation()), 6.0);
 			facing.setLimit(40);
-			graph.addPoint(CTNEdgePointTypes.SPEED_LIMIT, facing);
 			SpeedLimitEdgePoint away = new SpeedLimitEdgePoint();
 			away.setId(UUID.randomUUID());
 			away.setType(CTNEdgePointTypes.SPEED_LIMIT);
 			away.setLocation(Couple.create(d.getLocation(), c.getLocation()), 3.0);
 			away.setLimit(20);
-			graph.addPoint(CTNEdgePointTypes.SPEED_LIMIT, away);
 
-			TravellingPoint start = new TravellingPoint(a, b, ab, 0, false);
-			var steer = start.steer(SteerDirection.NONE, new Vec3(0, 1, 0));
-			List<TrainSpeedLimits.Ahead> ahead = TrainSpeedLimits.scan(null, graph, start, true, 200, steer);
-			helper.assertTrue(ahead.size() == 1, "going along the route, one sign should be met, not two: " + ahead);
-			helper.assertTrue(ahead.get(0)
-				.sign() && ahead.get(0)
-					.kmh() == 40, "and it should be the one for 40: " + ahead);
-			helper.assertTrue(Math.abs(ahead.get(0)
-				.distance() - (ab.getLength() + 6.0)) < 0.5,
-				"it should be along the first edge and six into the second, " + (ab.getLength() + 6.0) + ", not " + ahead.get(0)
-					.distance());
+			// Neither point has a sign behind it, so nothing would ever take them out of the graph again,
+			// and Create cannot save a point that has no block entity to name: the world would fail to save
+			// the track when the server stopped. They go whether or not the checks pass, and even if adding
+			// the second one throws.
+			try {
+				graph.addPoint(CTNEdgePointTypes.SPEED_LIMIT, facing);
+				graph.addPoint(CTNEdgePointTypes.SPEED_LIMIT, away);
 
-			// Not far enough to reach it.
-			TravellingPoint shortStart = new TravellingPoint(a, b, ab, 0, false);
-			helper.assertTrue(TrainSpeedLimits.scan(null, graph, shortStart, true, 5, shortStart.steer(SteerDirection.NONE, new Vec3(0, 1, 0)))
-				.isEmpty(), "a sign beyond the reach is not found");
+				TravellingPoint start = new TravellingPoint(a, b, ab, 0, false);
+				var steer = start.steer(SteerDirection.NONE, new Vec3(0, 1, 0));
+				List<TrainSpeedLimits.Ahead> ahead = TrainSpeedLimits.scan(null, graph, start, true, 200, steer);
+				helper.assertTrue(ahead.size() == 1, "going along the route, one sign should be met, not two: " + ahead);
+				helper.assertTrue(ahead.get(0)
+					.sign() && ahead.get(0)
+						.kmh() == 40, "and it should be the one for 40: " + ahead);
+				helper.assertTrue(Math.abs(ahead.get(0)
+					.distance() - (ab.getLength() + 6.0)) < 0.5,
+					"it should be along the first edge and six into the second, " + (ab.getLength() + 6.0) + ", not " + ahead.get(0)
+						.distance());
 
-			// The same track from the other end, going back along it: the other sign now faces the train.
-			TrackEdge dc = graph.getConnectionsFrom(d)
-				.get(c);
-			TravellingPoint back = new TravellingPoint(d, c, dc, 0, false);
-			List<TrainSpeedLimits.Ahead> reverse = TrainSpeedLimits.scan(null, graph, back, true, 200, back.steer(SteerDirection.NONE, new Vec3(0, 1, 0)));
-			helper.assertTrue(reverse.size() == 1 && reverse.get(0)
-				.kmh() == 20, "coming the other way the sign for 20 should be the one met: " + reverse);
+				// Not far enough to reach it.
+				TravellingPoint shortStart = new TravellingPoint(a, b, ab, 0, false);
+				helper.assertTrue(TrainSpeedLimits.scan(null, graph, shortStart, true, 5, shortStart.steer(SteerDirection.NONE, new Vec3(0, 1, 0)))
+					.isEmpty(), "a sign beyond the reach is not found");
 
-			// And running backwards along the route, with the end of the train leading, by the way a sign faces
-			// the train and not the way the track was laid.
-			TrackEdge cd = graph.getConnectionsFrom(c)
-				.get(d);
-			TravellingPoint west = new TravellingPoint(c, d, cd, cd.getLength() - 1, false);
-			List<TrainSpeedLimits.Ahead> backwards = TrainSpeedLimits.scan(null, graph, west, false, 200,
-				west.steer(SteerDirection.NONE, new Vec3(0, 1, 0)));
-			helper.assertTrue(backwards.size() == 1 && backwards.get(0)
-				.kmh() == 20 && Math.abs(backwards.get(0)
-					.distance() - 2.0) < 0.5,
-				"going west, the sign for 20 should be met two blocks on, and the one facing east not at all: " + backwards);
+				// The same track from the other end, going back along it: the other sign now faces the train.
+				TrackEdge dc = graph.getConnectionsFrom(d)
+					.get(c);
+				TravellingPoint back = new TravellingPoint(d, c, dc, 0, false);
+				List<TrainSpeedLimits.Ahead> reverse = TrainSpeedLimits.scan(null, graph, back, true, 200, back.steer(SteerDirection.NONE, new Vec3(0, 1, 0)));
+				helper.assertTrue(reverse.size() == 1 && reverse.get(0)
+					.kmh() == 20, "coming the other way the sign for 20 should be the one met: " + reverse);
+
+				// And running backwards along the route, with the end of the train leading, by the way a sign faces
+				// the train and not the way the track was laid.
+				TrackEdge cd = graph.getConnectionsFrom(c)
+					.get(d);
+				TravellingPoint west = new TravellingPoint(c, d, cd, cd.getLength() - 1, false);
+				List<TrainSpeedLimits.Ahead> backwards = TrainSpeedLimits.scan(null, graph, west, false, 200,
+					west.steer(SteerDirection.NONE, new Vec3(0, 1, 0)));
+				helper.assertTrue(backwards.size() == 1 && backwards.get(0)
+					.kmh() == 20 && Math.abs(backwards.get(0)
+						.distance() - 2.0) < 0.5,
+					"going west, the sign for 20 should be met two blocks on, and the one facing east not at all: " + backwards);
+			} finally {
+				graph.removePoint(CTNEdgePointTypes.SPEED_LIMIT, facing.getId());
+				graph.removePoint(CTNEdgePointTypes.SPEED_LIMIT, away.getId());
+			}
+			assertSaves(helper, graph);
 			helper.succeed();
+		});
+	}
+
+	/**
+	 * A sign placed against real track gets a point the graph can save, and the point comes back from
+	 * the save standing at the sign, with the limit the sign was set to before the point existed.
+	 */
+	@GameTest(template = EMPTY, timeoutTicks = 80)
+	public static void aSignsPointIsSavedWithTheTrack(GameTestHelper helper) {
+		BlockPos[] places = { new BlockPos(4, 2, 4), new BlockPos(16, 2, 4), new BlockPos(28, 2, 4) };
+		AngledTrackAnchorBlockEntity[] anchors = route(helper, EAST, places);
+		BlockPos signPos = new BlockPos(16, 2, 6);
+		helper.setBlock(signPos, CTNRegistry.TRACK_SPEED_LIMIT.get()
+			.defaultBlockState());
+		SpeedLimitBlockEntity sign = (SpeedLimitBlockEntity) helper.getBlockEntity(signPos);
+		sign.limit.setValue(60);
+		// Told which track it stands against the way the item that places a sign tells it.
+		CompoundTag target = new CompoundTag();
+		target.putBoolean("TargetDirection", true);
+		target.put("TargetTrack", NbtUtils.writeBlockPos(anchors[1].getBlockPos()
+			.subtract(sign.getBlockPos())));
+		sign.edgePoint.read(target, helper.getLevel()
+			.registryAccess(), false);
+
+		// The point appears once the graph has the route and the sign has ticked, which is not on a set tick,
+		// so this is asked again every tick until it holds or the test times out.
+		helper.succeedWhen(() -> {
+			SpeedLimitEdgePoint point = sign.getSpeedLimitPoint();
+			helper.assertTrue(point != null, "setup: the sign should have a point on the track by now");
+			TrackGraph graph = Create.RAILWAYS.sided(helper.getLevel()).trackNetworks.values()
+				.stream()
+				.filter(g -> g.getPoint(CTNEdgePointTypes.SPEED_LIMIT, point.getId()) == point)
+				.findFirst()
+				.orElse(null);
+			helper.assertTrue(graph != null, "setup: the sign's point should be in a graph");
+
+			SpeedLimitEdgePoint loaded = assertSaves(helper, graph).getPoint(CTNEdgePointTypes.SPEED_LIMIT, point.getId());
+			helper.assertTrue(loaded != null, "the point should come back from the save");
+			helper.assertTrue(sign.getBlockPos()
+				.equals(loaded.getBlockEntityPos()),
+				"it should come back at the sign, " + sign.getBlockPos() + ", not " + loaded.getBlockEntityPos());
+			helper.assertTrue(loaded.getLimit() == 60, "and still be the sign's 60, not " + loaded.getLimit());
 		});
 	}
 

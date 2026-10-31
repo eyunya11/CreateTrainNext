@@ -44,7 +44,7 @@ jobs:
             echo '### Failed game tests'
             echo
             echo '```'
-            grep -h -E 'LogTestReporter|GAME TESTS COMPLETE|required tests failed|optional tests failed|GameTestServer/\]:    - ' build/gametest/logs/latest.log \
+            grep -h -E 'LogTestReporter|GAME TESTS COMPLETE|required tests failed|optional tests failed|GameTestServer/\]:    - |Exception stopping the server' build/gametest/logs/latest.log \
               | sed -E 's/^\[[^]]*\] \[[^]]*\] \[[^]]*\]: //' \
               || echo 'No failure was logged. See the output of the step above.'
             echo '```'

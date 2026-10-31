@@ -122,9 +122,20 @@ neoForge {
 tasks.register('cleanGameTestWorld', Delete) {
     delete layout.buildDirectory.dir('gametest/world')
 }
+// The server saves the world after the last test has passed, and an exception there is only logged: the run
+// still exits as a success. A test that leaves something in the track graph that Create cannot write (a
+// speed limit point with no sign behind it did) would go unnoticed, and in a real world it stops the track
+// from being saved. So the log is read once the server is gone, and an error while stopping fails the run.
+def gameTestLog = layout.buildDirectory.file('gametest/logs/latest.log')
 tasks.configureEach { task ->
-    if (task.name == 'runGameTestServer')
+    if (task.name == 'runGameTestServer') {
         task.dependsOn 'cleanGameTestWorld'
+        task.doLast {
+            def log = gameTestLog.get().asFile
+            if (log.exists() && log.getText('UTF-8').contains('Exception stopping the server'))
+                throw new GradleException("The game test server failed while stopping and saving the world. See ${log}.")
+        }
+    }
 }
 
 // Sets up a dependency configuration called 'localRuntime'.
