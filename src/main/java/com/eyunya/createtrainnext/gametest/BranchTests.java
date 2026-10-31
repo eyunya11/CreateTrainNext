@@ -683,35 +683,59 @@ public class BranchTests {
 			TrackNode behindSouth = farEnd(helper, graph, t.turnout()
 				.curveWith(anchorAt(helper, backSouth, false)), centre);
 
-			// Coming off the branch to the north, going west: left is south.
-			assertSteers(helper, graph, north, node, SteerDirection.NONE, behind, "off a branch, straight on");
-			assertSteers(helper, graph, north, node, SteerDirection.LEFT, behindSouth, "off a branch, left");
-			assertSteers(helper, graph, north, node, SteerDirection.RIGHT, behindNorth, "off a branch, right");
-			// Coming along the line from behind, going east: left is north.
-			assertSteers(helper, graph, behind, node, SteerDirection.NONE, ahead, "along the line, straight on");
-			assertSteers(helper, graph, behind, node, SteerDirection.LEFT, north, "along the line, left");
-			assertSteers(helper, graph, behind, node, SteerDirection.RIGHT, southEnd, "along the line, right");
+			// A train may run either way along its own length, and Create asks a point moving backwards at the
+			// other end of its edge. Left and right are then seen from the end that leads going forwards, as
+			// Create sees them, so they swap; straight on is the line either way.
+			for (boolean forwards : new boolean[] { true, false }) {
+				String way = forwards ? " (running forwards)" : " (running backwards)";
+				// Coming off the branch to the north, going west: left is south.
+				assertSteers(helper, graph, north, node, forwards, SteerDirection.NONE, behind,
+					"off a branch, straight on" + way);
+				assertSteers(helper, graph, north, node, forwards, SteerDirection.LEFT, forwards ? behindSouth
+					: behindNorth, "off a branch, left" + way);
+				assertSteers(helper, graph, north, node, forwards, SteerDirection.RIGHT, forwards ? behindNorth
+					: behindSouth, "off a branch, right" + way);
+				// Coming along the line from behind, going east: left is north.
+				assertSteers(helper, graph, behind, node, forwards, SteerDirection.NONE, ahead,
+					"along the line, straight on" + way);
+				assertSteers(helper, graph, behind, node, forwards, SteerDirection.LEFT, forwards ? north : southEnd,
+					"along the line, left" + way);
+				assertSteers(helper, graph, behind, node, forwards, SteerDirection.RIGHT, forwards ? southEnd : north,
+					"along the line, right" + way);
+			}
 			helper.succeed();
 		});
 	}
 
 	/**
-	 * Checks which way a train driven {@code direction} goes on arriving at {@code at} from {@code from}: the
-	 * ways out are those Create would offer, any that the train can cross onto.
+	 * Checks which way a train driven {@code direction} goes on arriving at {@code at} from {@code from}, set up
+	 * and asked the way {@code TravellingPoint#travel} does it: moving forwards the point is on the edge from
+	 * {@code from} to {@code at}, which is its second node; moving backwards it is on the edge the other way, and
+	 * {@code at} is its first. The ways out are those Create would offer, any the train can cross onto.
 	 */
 	private static void assertSteers(GameTestHelper helper, TrackGraph graph, TrackNode from, TrackNode at,
-		SteerDirection direction, TrackNode expected, String what) {
+		boolean forwards, SteerDirection direction, TrackNode expected, String what) {
 		TrackEdge arriving = graph.getConnectionsFrom(from)
 			.get(at);
-		helper.assertTrue(arriving != null, what + ": the train should have an edge to arrive on");
+		TrackEdge backwards = graph.getConnectionsFrom(at)
+			.get(from);
+		helper.assertTrue(arriving != null && backwards != null, what + ": the train should have an edge to arrive on");
 		List<Entry<TrackNode, TrackEdge>> targets = new ArrayList<>();
 		for (Entry<TrackNode, TrackEdge> target : graph.getConnectionsFrom(at)
-			.entrySet())
-			if (target.getKey() != from && arriving.canTravelTo(target.getValue()))
+			.entrySet()) {
+			if (target.getKey() == from)
+				continue;
+			boolean crossable = forwards ? arriving.canTravelTo(target.getValue())
+				: graph.getConnectionsFrom(target.getKey())
+					.get(at)
+					.canTravelTo(backwards);
+			if (crossable)
 				targets.add(target);
-		TravellingPoint point = new TravellingPoint(from, at, arriving, arriving.getLength(), false);
+		}
+		TravellingPoint point = forwards ? new TravellingPoint(from, at, arriving, arriving.getLength(), false)
+			: new TravellingPoint(at, from, backwards, 0, false);
 		Entry<TrackNode, TrackEdge> chosen = point.steer(direction, new Vec3(0, 1, 0))
-			.apply(graph, Pair.of(true, targets));
+			.apply(graph, Pair.of(forwards, targets));
 		helper.assertTrue(chosen.getKey() == expected, what + " should go to " + expected.getLocation()
 			.getLocation() + ", but goes to " + chosen.getKey()
 				.getLocation()

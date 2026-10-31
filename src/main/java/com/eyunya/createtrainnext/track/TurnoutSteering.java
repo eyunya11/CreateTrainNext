@@ -41,11 +41,15 @@ public final class TurnoutSteering {
 	/**
 	 * The way out of {@code at} a train steered {@code direction} takes, or null to leave it to Create.
 	 *
-	 * @param targets the ways out a train may take there, as Create lists them for its selector.
+	 * @param forwards whether the point is moving along its edge or back along it. Create measures left and
+	 *                 right against the edge either way, so for a train running backwards they are the other way
+	 *                 round from the way it is going, as if seen from the end of the train that leads going
+	 *                 forwards; this keeps to that, so that this mod's turnouts steer like Create's.
+	 * @param targets  the ways out a train may take there, as Create lists them for its selector.
 	 */
 	@Nullable
 	public static Entry<TrackNode, TrackEdge> choose(@Nullable TrackNode at, SteerDirection direction, Vec3 upNormal,
-		List<Entry<TrackNode, TrackEdge>> targets) {
+		boolean forwards, List<Entry<TrackNode, TrackEdge>> targets) {
 		if (at == null || targets.size() < 2)
 			return null;
 		AngledTrackAnchorBlockEntity turnout = turnoutAt(at.getLocation());
@@ -74,7 +78,9 @@ public final class TurnoutSteering {
 			double across = side.dot(target.getValue()
 				.getDirection(true));
 			// Left is the way most to the left, as Create's own LEFT is the one nearest -1; right the other way.
-			double score = direction == SteerDirection.LEFT ? -across : across;
+			// Backwards, both are seen from the other end of the train, as Create sees them.
+			boolean left = (direction == SteerDirection.LEFT) == forwards;
+			double score = left ? -across : across;
 			if (best == null || score > bestAcross) {
 				best = target;
 				bestAcross = score;

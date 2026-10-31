@@ -30,9 +30,11 @@ public abstract class TravellingPointMixin {
 		ITrackSelector create = cir.getReturnValue();
 		TravellingPoint self = (TravellingPoint) (Object) this;
 		cir.setReturnValue((graph, pair) -> {
-			// The node being passed is the end of the edge the point is on when the selector is asked.
-			Entry<TrackNode, TrackEdge> chosen = TurnoutSteering.choose(self.node2, direction, upNormal,
-				pair.getSecond());
+			// The node being passed is the end of the edge the point is on that it is moving towards: the second
+			// moving forwards, and the first moving backwards, which Create says with the pair's flag.
+			boolean forwards = pair.getFirst();
+			Entry<TrackNode, TrackEdge> chosen = TurnoutSteering.choose(forwards ? self.node2 : self.node1, direction,
+				upNormal, forwards, pair.getSecond());
 			return chosen != null ? chosen : create.apply(graph, pair);
 		});
 	}
