@@ -295,7 +295,19 @@ public class AngledTrackAnchorBlockEntity extends TrackBlockEntity {
 		Vec3 node = dockNode();
 		if (node == null || level == null)
 			return true;
-		TrackNodeLocation location = new TrackNodeLocation(node).in(level);
+		Boolean reported = reportedByTrackBeside(new TrackNodeLocation(node).in(level), true);
+		return reported == null || reported;
+	}
+
+	/**
+	 * Whether a track block beside {@code location} that is not an anchor reports it, the way Create's walk
+	 * would find it: true if one does, false if none does, and null if none that is loaded does but one beside
+	 * it is in a chunk that is not loaded, so that it cannot be told.
+	 *
+	 * @param slopedOnly whether only track with a sloped axis counts.
+	 */
+	@Nullable
+	private Boolean reportedByTrackBeside(TrackNodeLocation location, boolean slopedOnly) {
 		boolean unknown = false;
 		for (BlockPos pos : location.allAdjacent()) {
 			if (!level.isLoaded(pos)) {
@@ -305,14 +317,15 @@ public class AngledTrackAnchorBlockEntity extends TrackBlockEntity {
 			BlockState state = level.getBlockState(pos);
 			if (!(state.getBlock() instanceof ITrackBlock track) || state.getBlock() instanceof AngledTrackAnchorBlock)
 				continue;
-			boolean sloped = track.getTrackAxes(level, pos, state)
+			if (slopedOnly && track.getTrackAxes(level, pos, state)
 				.stream()
-				.anyMatch(axis -> Math.abs(axis.y) > 1.0E-4);
-			if (sloped && track.getConnected(level, pos, state, false, null)
+				.noneMatch(axis -> Math.abs(axis.y) > 1.0E-4))
+				continue;
+			if (track.getConnected(level, pos, state, false, null)
 				.contains(location))
 				return true;
 		}
-		return unknown;
+		return unknown ? null : false;
 	}
 
 	/**
@@ -573,6 +586,7 @@ public class AngledTrackAnchorBlockEntity extends TrackBlockEntity {
 			other.alignAxisToYaw();
 		}
 
+		dropLinksWith(other);
 		next = other.getBlockPos();
 		other.prev = worldPosition;
 
@@ -607,9 +621,9 @@ public class AngledTrackAnchorBlockEntity extends TrackBlockEntity {
 	 * @param otherHeading where {@code other} should point afterwards, or null to leave it, written as
 	 *                     {@link #linkTo} takes it.
 	 */
-	public void branchTo(AngledTrackAnchorBlockEntity other, boolean ahead, boolean otherAfter,
+	public boolean branchTo(AngledTrackAnchorBlockEntity other, boolean ahead, boolean otherAfter,
 		@Nullable Vec3 otherHeading) {
-		branchTo(other, ahead, otherAfter, otherHeading, false, null);
+		return branchTo(other, ahead, otherAfter, otherHeading, false, null);
 	}
 
 	/**
@@ -617,17 +631,19 @@ public class AngledTrackAnchorBlockEntity extends TrackBlockEntity {
 	 * {@link #linkTo(AngledTrackAnchorBlockEntity, Vec3, Vec3, boolean, boolean)} does, and taking the place
 	 * of the branch to {@code replacing}, which loses its half of the link. That is how a point put on a
 	 * branch, or an anchor put between two arcs, becomes the branch in the old one's place.
+	 *
+	 * @return whether {@code other} is a branch now; false, with nothing changed, where the side has no room.
 	 */
-	public void branchTo(AngledTrackAnchorBlockEntity other, boolean ahead, boolean otherAfter,
+	public boolean branchTo(AngledTrackAnchorBlockEntity other, boolean ahead, boolean otherAfter,
 		@Nullable Vec3 otherHeading, boolean otherDocks, @Nullable BlockPos replacing) {
 		if (other == this)
-			return;
+			return false;
 		List<BlockPos> side = branches(ahead);
 		BlockPos displacedBranch = replacing != null && side.contains(replacing) && !replacing.equals(other
 			.getBlockPos()) ? replacing : null;
-		boolean already = side.contains(other.getBlockPos());
-		if (!already && displacedBranch == null && side.size() >= MAX_BRANCHES_PER_SIDE)
-			return;
+		int already = side.indexOf(other.getBlockPos());
+		if (already < 0 && displacedBranch == null && side.size() >= MAX_BRANCHES_PER_SIDE)
+			return false;
 		boolean otherWasLone = !other.isLinked();
 
 		Map<AngledTrackAnchorBlockEntity, Vec3> reported = reportedBy(this, other, anchorAt(displacedBranch),
@@ -636,7 +652,7 @@ public class AngledTrackAnchorBlockEntity extends TrackBlockEntity {
 		stale.addAll(other.detachNeighbourhood());
 
 		// Where it was, so that the new branch takes its place in the list and not the end of it.
-		int at = displacedBranch == null ? -1 : side.indexOf(displacedBranch);
+		int at = already >= 0 ? already : displacedBranch == null ? -1 : side.indexOf(displacedBranch);
 		if (displacedBranch != null)
 			clearBranchOfThis(displacedBranch, false);
 		if (otherAfter) {
@@ -651,8 +667,8 @@ public class AngledTrackAnchorBlockEntity extends TrackBlockEntity {
 			other.alignAxisToYaw();
 		}
 
-		if (!already)
-			side.add(at < 0 ? side.size() : Math.min(at, side.size()), other.getBlockPos());
+		dropLinksWith(other);
+		side.add(at < 0 ? side.size() : Math.min(at, side.size()), other.getBlockPos());
 		if (otherAfter)
 			other.prev = worldPosition;
 		else
@@ -669,6 +685,29 @@ public class AngledTrackAnchorBlockEntity extends TrackBlockEntity {
 		pruneGraph(stale);
 		attachNeighbourhood();
 		other.attachNeighbourhood();
+		return true;
+	}
+
+	/**
+	 * Takes away every link there is between this anchor and {@code other}, both halves, for a link between
+	 * them that is about to be made: two anchors are joined by one curve, and whatever else joined them before
+	 * would be a second curve between the same two nodes. Nothing else is told, since the two are all it
+	 * touches and both are being linked again.
+	 */
+	private void dropLinksWith(AngledTrackAnchorBlockEntity other) {
+		BlockPos there = other.worldPosition;
+		if (there.equals(prev))
+			prev = null;
+		if (there.equals(next))
+			next = null;
+		branchesAhead.remove(there);
+		branchesBehind.remove(there);
+		if (worldPosition.equals(other.prev))
+			other.prev = null;
+		if (worldPosition.equals(other.next))
+			other.next = null;
+		other.branchesAhead.remove(worldPosition);
+		other.branchesBehind.remove(worldPosition);
 	}
 
 	/** Drops all of this anchor's links, branches too, and the matching halves on its neighbours. */
@@ -924,6 +963,7 @@ public class AngledTrackAnchorBlockEntity extends TrackBlockEntity {
 
 	private void markChanged() {
 		connectionsStale = true;
+		dockCheckedAt = Long.MIN_VALUE;
 		sendUpdate();
 
 		// A curve is built from both its ends, and is held by whichever of them has the lower
@@ -1648,23 +1688,23 @@ public class AngledTrackAnchorBlockEntity extends TrackBlockEntity {
 	public boolean isDockedOnTrack() {
 		if (level == null || slopeDock || (prev == null) == (next == null))
 			return false;
+		// Asked several times over by one click or one tick of the wand's ghost, and the answer cannot change
+		// in between unless the links do, which forget it: see markChanged.
+		long now = level.getGameTime();
+		if (dockCheckedAt == now)
+			return dockedOnTrack;
 		Vec3 entry = entryNode();
 		Vec3 exit = exitNode();
 		// A node at the centre of the block meets no track of Create's, which puts its nodes on boundaries.
-		if (entry.distanceToSqr(exit) < 1.0E-6)
-			return false;
-		TrackNodeLocation location = new TrackNodeLocation(prev == null ? entry : exit).in(level);
-		for (BlockPos pos : location.allAdjacent()) {
-			if (!level.isLoaded(pos))
-				continue;
-			BlockState state = level.getBlockState(pos);
-			if (state.getBlock() instanceof ITrackBlock track && !(state.getBlock() instanceof AngledTrackAnchorBlock)
-				&& track.getConnected(level, pos, state, false, null)
-					.contains(location))
-				return true;
-		}
-		return false;
+		dockedOnTrack = entry.distanceToSqr(exit) >= 1.0E-6 && Boolean.TRUE.equals(reportedByTrackBeside(
+			new TrackNodeLocation(prev == null ? entry : exit).in(level), false));
+		dockCheckedAt = now;
+		return dockedOnTrack;
 	}
+
+	/** What {@link #isDockedOnTrack} last found, and the game tick it found it in. */
+	private boolean dockedOnTrack;
+	private long dockCheckedAt = Long.MIN_VALUE;
 
 	/**
 	 * Two distinct lattice points for {@code TrackPropagator}'s linear-only seeding query, which

@@ -1235,6 +1235,145 @@ public class BranchTests {
 		});
 	}
 
+	// ------------------------------------------------------------- review fixes
+
+	/**
+	 * An anchor left with branches and no line, its line gone from both sides past branches that run into it,
+	 * is an end once a curve is drawn from it, with its node on the boundary of its block. The ghost has to be
+	 * drawn from that node, the one the curve is built from, not the centre.
+	 */
+	@GameTest(template = EMPTY, timeoutTicks = 60)
+	public static void aCurveFromAnAnchorWithOnlyBranchesIsBuiltAsShown(GameTestHelper helper) {
+		AngledTrackAnchorBlockEntity[] line = route(helper, EAST, BEHIND, TURNOUT, AHEAD);
+		AngledTrackAnchorBlockEntity branch = anchor(helper, BRANCH);
+		// Its route runs into the turnout, so it cannot take the line's place.
+		line[1].branchTo(branch, true, false, arcEnd(helper, TURNOUT, line[1].heading(), BRANCH).scale(-1));
+		line[0].unlink();
+		line[2].unlink();
+		helper.assertTrue(line[1].getPrev() == null && line[1].getNext() == null && line[1].hasBranch(),
+			"setup: the turnout should be left with its branch and no line");
+
+		Level level = helper.getLevel();
+		CurvePlanner.Plan plan = CurvePlanner.plan(level, helper.absolutePos(TURNOUT), helper.absolutePos(
+			BRANCH_SOUTH), Direction.UP, 0);
+		helper.assertTrue(plan.valid(), "a curve on from the anchor should be possible, but was " + plan.error());
+		helper.assertTrue(CurvePlanner.apply(level, plan) == null, "the curve should have been built");
+		BezierConnection built = line[1].buildCurveToNext();
+		helper.assertTrue(built != null && CurvePlanner.deviation(plan.curve(), built) < 1.0E-6,
+			"what was built should be the curve the ghost showed, but they are " + (built == null ? "-"
+				: CurvePlanner.deviation(plan.curve(), built)) + " apart");
+		helper.succeed();
+	}
+
+	/**
+	 * Two anchors are joined by one curve. Linking an anchor to one of its own branches makes the branch the
+	 * line, and leaves it nothing else: not a branch as well, and not linked back the other way.
+	 */
+	@GameTest(template = EMPTY)
+	public static void linkingToABranchLeavesOneLinkBetweenTheTwo(GameTestHelper helper) {
+		AngledTrackAnchorBlockEntity[] line = route(helper, EAST, BEHIND, TURNOUT);
+		AngledTrackAnchorBlockEntity branch = anchor(helper, BRANCH);
+		line[1].branchTo(branch, true, false, arcEnd(helper, TURNOUT, line[1].heading(), BRANCH).scale(-1));
+		helper.assertTrue(Objects.equals(branch.getNext(), line[1].getBlockPos()), "setup: the branch should run in");
+
+		line[1].linkTo(branch, null, arcEnd(helper, TURNOUT, line[1].heading(), BRANCH));
+		helper.assertTrue(Objects.equals(line[1].getNext(), branch.getBlockPos()) && !line[1].hasBranch(),
+			"the anchor should be the turnout's next and no longer a branch");
+		helper.assertTrue(Objects.equals(branch.getPrev(), line[1].getBlockPos()) && branch.getNext() == null,
+			"the anchor should hold the turnout as its prev only, but its next is " + branch.getNext());
+		helper.assertTrue(line[1].neighbours()
+			.size() == 2 && line[1].curvesThrough()
+				.size() == 2, "the turnout should have one curve each side and nothing twice");
+		helper.succeed();
+	}
+
+	/**
+	 * A branch is refused, and nothing is left behind, when its side has filled up between the plan and the
+	 * build: the anchor the plan put at the far end is taken out again.
+	 */
+	@GameTest(template = EMPTY)
+	public static void aBranchWithNoRoomLeftIsRefusedAndUndone(GameTestHelper helper) {
+		Turnout t = turnout(helper);
+		Level level = helper.getLevel();
+		BlockPos target = new BlockPos(30, 2, 28);
+		CurvePlanner.Plan plan = CurvePlanner.plan(level, helper.absolutePos(TURNOUT), helper.absolutePos(target),
+			Direction.UP, 0);
+		helper.assertTrue(plan.valid(), "setup: a second branch should be possible, but was " + plan.error());
+
+		AngledTrackAnchorBlockEntity south = anchor(helper, BRANCH_SOUTH);
+		helper.assertTrue(t.turnout()
+			.branchTo(south, true, true, arcEnd(helper, TURNOUT, t.turnout()
+				.heading(), BRANCH_SOUTH)), "setup: the side should take a second branch");
+		helper.assertTrue(!t.turnout()
+			.branchTo(anchor(helper, new BlockPos(40, 2, 28)), true, true, null), "a third branch should be refused");
+
+		helper.assertTrue("branch_taken".equals(CurvePlanner.apply(level, plan)), "building the plan made before"
+			+ " the side filled up should be refused");
+		helper.assertTrue(!helper.getBlockState(target)
+			.is(CTNRegistry.ANGLED_TRACK_ANCHOR.get()), "the anchor the plan placed should be taken out again");
+		helper.assertTrue(t.turnout()
+			.getBranches(true)
+			.equals(List.of(t.branch()
+				.getBlockPos(), south.getBlockPos())), "the branches should be as they were");
+		helper.succeed();
+	}
+
+	/**
+	 * A branch that differs each way is mended into two arcs, behind the turnout whichever way its route runs,
+	 * and ahead of it where its route runs in, which is the one way the curve arrives at the turnout's front.
+	 */
+	@GameTest(template = EMPTY, timeoutTicks = 60)
+	public static void aBranchIsMendedOnEitherSideWhicheverWayItRuns(GameTestHelper helper) {
+		AngledTrackAnchorBlockEntity[] line = route(helper, EAST, BEHIND, TURNOUT, AHEAD);
+		Vec3 north = AngledTrackAnchorBlockEntity.directionFromYaw(CurveConsistencyTests.NORTH);
+		// One runs on from the turnout, west and round to arrive pointing north; the other comes in from the
+		// south-west, leaving pointing north and arriving at the turnout going east.
+		BlockPos onPos = new BlockPos(2, 2, 8);
+		BlockPos inPos = new BlockPos(2, 2, 26);
+		AngledTrackAnchorBlockEntity on = anchor(helper, onPos);
+		AngledTrackAnchorBlockEntity in = anchor(helper, inPos);
+		line[1].branchTo(on, false, true, north);
+		line[1].branchTo(in, false, false, north);
+		// Ahead, one that leaves pointing south and arrives at the turnout going west.
+		BlockPos aheadInPos = new BlockPos(30, 2, 8);
+		AngledTrackAnchorBlockEntity aheadIn = anchor(helper, aheadInPos);
+		line[1].branchTo(aheadIn, true, false, north.scale(-1));
+
+		helper.runAfterDelay(1, () -> {
+			for (AngledTrackAnchorBlockEntity far : new AngledTrackAnchorBlockEntity[] { on, in, aheadIn }) {
+				CurveRepair.Link link = null;
+				for (CurveRepair.Link each : CurveRepair.links(helper.getLevel(), Vec3.atCenterOf(far.getBlockPos()),
+					24))
+					if (each.from() == far && each.to()
+						.equals(line[1].getBlockPos())
+						|| each.from() == line[1] && each.to()
+							.equals(far.getBlockPos()))
+						link = each;
+				helper.assertTrue(link != null && link.overLimit(), "setup: the branch to " + far.getBlockPos()
+					.toShortString() + " should be listed as differing each way");
+				CurveRepair.Outcome outcome = CurveRepair.repair(helper.getLevel(), link);
+				helper.assertTrue(outcome.repaired(), "the branch to " + far.getBlockPos()
+					.toShortString() + " should have been mended, but was " + outcome.error());
+			}
+			helper.assertTrue(line[1].getBranches(false)
+				.size() == 2 && !line[1].getBranches(false)
+					.contains(onPos) && !line[1].getBranches(false)
+						.contains(inPos), "both branches behind should run through their new anchors now");
+			helper.assertTrue(line[1].getBranches(true)
+				.size() == 1 && !line[1].getBranches(true)
+					.contains(aheadInPos), "the branch ahead should run through its new anchor now");
+
+			helper.runAfterDelay(GRAPH_TICKS, () -> {
+				for (BezierConnection curve : line[1].curvesThrough())
+					assertEdges(helper, curve);
+				for (BlockPos middle : line[1].neighbours())
+					for (BezierConnection curve : anchorAt(helper, relativeOf(helper, middle), false).curvesThrough())
+						assertEdges(helper, curve);
+				helper.succeed();
+			});
+		});
+	}
+
 	// --------------------------------------------------------------- helpers
 
 	/** The one branch on a side of {@code anchor}, or null if that side has none or more than one. */
@@ -1298,31 +1437,11 @@ public class BranchTests {
 		return node;
 	}
 
-	/**
-	 * Checks that the graph has an edge each way along {@code drawn}, lying on it, as
-	 * {@link CurveConsistencyTests#assertConsistent} does for a route.
-	 */
+	/** Checks that the graph has an edge each way along {@code drawn}, lying on it: see assertCurveInGraph. */
 	private static void assertEdges(GameTestHelper helper, BezierConnection drawn) {
-		Level level = helper.getLevel();
-		String link = drawn.bePositions.getFirst()
+		CurveConsistencyTests.assertCurveInGraph(helper, drawn, drawn.bePositions.getFirst()
 			.toShortString() + " -> "
 			+ drawn.bePositions.getSecond()
-				.toShortString();
-		TrackNodeLocation fromLocation = new TrackNodeLocation(drawn.starts.getFirst()).in(level);
-		TrackNodeLocation toLocation = new TrackNodeLocation(drawn.starts.getSecond()).in(level);
-		TrackGraph graph = Create.RAILWAYS.sided(level)
-			.getGraph(level, fromLocation);
-		helper.assertTrue(graph != null && graph.locateNode(fromLocation) != null && graph.locateNode(toLocation) != null,
-			link + " should be in the graph by now");
-		TrackEdge forward = graph.getConnectionsFrom(graph.locateNode(fromLocation))
-			.get(graph.locateNode(toLocation));
-		TrackEdge back = graph.getConnectionsFrom(graph.locateNode(toLocation))
-			.get(graph.locateNode(fromLocation));
-		helper.assertTrue(forward != null && back != null, link + " should be an edge in both directions");
-		double forwardOff = CurvePlanner.deviation(drawn, forward.getTurn());
-		double backOff = CurvePlanner.deviation(drawn, back.getTurn());
-		helper.assertTrue(forwardOff <= CurvePlanner.MAX_ORIENTATION_DEVIATION && backOff
-			<= CurvePlanner.MAX_ORIENTATION_DEVIATION, link + ": the edges should lie on the drawn curve, but are "
-				+ forwardOff + " and " + backOff + " off");
+				.toShortString());
 	}
 }

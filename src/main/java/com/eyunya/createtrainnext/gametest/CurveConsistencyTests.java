@@ -333,32 +333,40 @@ public class CurveConsistencyTests {
 
 			BezierConnection drawn = from.buildCurveToNext();
 			helper.assertTrue(drawn != null, link + " should have a curve to draw");
-
-			TrackNodeLocation fromLocation = new TrackNodeLocation(from.exitNode()).in(level);
-			TrackNodeLocation toLocation = new TrackNodeLocation(to.entryNode()).in(level);
-			TrackGraph graph = Create.RAILWAYS.sided(level)
-				.getGraph(level, fromLocation);
-			helper.assertTrue(graph != null && graph.locateNode(fromLocation) != null
-				&& graph.locateNode(toLocation) != null, link + " should be in the graph by now");
-
-			TrackNode fromNode = graph.locateNode(fromLocation);
-			TrackNode toNode = graph.locateNode(toLocation);
-			TrackEdge forward = graph.getConnectionsFrom(fromNode)
-				.get(toNode);
-			TrackEdge back = graph.getConnectionsFrom(toNode)
-				.get(fromNode);
-			helper.assertTrue(forward != null && back != null, link + " should be an edge in both directions");
-
-			double forwardOff = CurvePlanner.deviation(drawn, forward.getTurn());
-			double backOff = CurvePlanner.deviation(drawn, back.getTurn());
-			helper.assertTrue(forwardOff <= CurvePlanner.MAX_ORIENTATION_DEVIATION,
-				link + ": the edge along the route should lie on the drawn curve, but is " + forwardOff + " off");
-			helper.assertTrue(backOff <= CurvePlanner.MAX_ORIENTATION_DEVIATION,
-				link + ": the edge against the route should lie on the drawn curve, but is " + backOff + " off");
-			helper.assertTrue(Math.abs(forward.getLength() - back.getLength()) < 0.05,
-				link + ": the two edges should be as long as one another, but are " + forward.getLength() + " and "
-					+ back.getLength());
+			assertCurveInGraph(helper, drawn, link);
 		}
+	}
+
+	/**
+	 * Checks one curve against the graph Create built: the edge for each direction of travel between its two
+	 * ends has to lie on it, and be as long as the other.
+	 */
+	static void assertCurveInGraph(GameTestHelper helper, BezierConnection drawn, String link) {
+		Level level = helper.getLevel();
+		TrackNodeLocation fromLocation = new TrackNodeLocation(drawn.starts.getFirst()).in(level);
+		TrackNodeLocation toLocation = new TrackNodeLocation(drawn.starts.getSecond()).in(level);
+		TrackGraph graph = Create.RAILWAYS.sided(level)
+			.getGraph(level, fromLocation);
+		helper.assertTrue(graph != null && graph.locateNode(fromLocation) != null
+			&& graph.locateNode(toLocation) != null, link + " should be in the graph by now");
+
+		TrackNode fromNode = graph.locateNode(fromLocation);
+		TrackNode toNode = graph.locateNode(toLocation);
+		TrackEdge forward = graph.getConnectionsFrom(fromNode)
+			.get(toNode);
+		TrackEdge back = graph.getConnectionsFrom(toNode)
+			.get(fromNode);
+		helper.assertTrue(forward != null && back != null, link + " should be an edge in both directions");
+
+		double forwardOff = CurvePlanner.deviation(drawn, forward.getTurn());
+		double backOff = CurvePlanner.deviation(drawn, back.getTurn());
+		helper.assertTrue(forwardOff <= CurvePlanner.MAX_ORIENTATION_DEVIATION,
+			link + ": the edge along the route should lie on the drawn curve, but is " + forwardOff + " off");
+		helper.assertTrue(backOff <= CurvePlanner.MAX_ORIENTATION_DEVIATION,
+			link + ": the edge against the route should lie on the drawn curve, but is " + backOff + " off");
+		helper.assertTrue(Math.abs(forward.getLength() - back.getLength()) < 0.05,
+			link + ": the two edges should be as long as one another, but are " + forward.getLength() + " and "
+				+ back.getLength());
 	}
 
 	static InteractionResult click(GameTestHelper helper, Player player, ItemStack wand, BlockPos relative) {
