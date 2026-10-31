@@ -25,9 +25,12 @@ import com.simibubi.create.content.trains.graph.TrackNode;
 import com.simibubi.create.content.trains.graph.TrackNodeLocation;
 import com.simibubi.create.content.trains.track.BezierConnection;
 import com.simibubi.create.content.trains.track.TrackBlock;
+import com.simibubi.create.content.trains.track.TrackBlockEntity;
+import com.simibubi.create.content.trains.track.TrackMaterial;
 import com.simibubi.create.content.trains.track.TrackPropagator;
 import com.simibubi.create.content.trains.track.TrackShape;
 
+import net.createmod.catnip.data.Couple;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.gametest.framework.GameTest;
@@ -808,6 +811,126 @@ public class BranchTests {
 			assertOneGraph(helper, "the track and the branch", Vec3.atBottomCenterOf(helper.absolutePos(CREATE_TRACK))
 				.add(-0.5, 0, 0), branch.starts.getSecond());
 			GraphCleanlinessTests.assertClean(helper, "with a branch ahead of an end on Create's track", -1);
+			helper.succeed();
+		});
+	}
+
+	// --------------------------------------- Create's track that branches or crosses
+
+	private static final BlockPos CROSSING = new BlockPos(10, 2, 16);
+
+	/**
+	 * A crossing has a line each way, and a curve drawn out of one joins the end of the line it runs nearer
+	 * to: east out of the line along x, north out of the line along z.
+	 */
+	@GameTest(template = EMPTY, timeoutTicks = 60)
+	public static void aCurveLeavesTheLineOfACrossingItIsDrawnAlong(GameTestHelper helper) {
+		helper.setBlock(CROSSING, AllBlocks.TRACK.get()
+			.defaultBlockState()
+			.setValue(TrackBlock.SHAPE, TrackShape.CR_O));
+		Level level = helper.getLevel();
+		helper.assertTrue(CurvePlanner.canStartFrom(level, helper.absolutePos(CROSSING)),
+			"a crossing should be somewhere a curve can start");
+
+		CurvePlanner.Plan north = CurvePlanner.plan(level, helper.absolutePos(CROSSING), helper.absolutePos(
+			new BlockPos(12, 2, 0)), Direction.UP, 0);
+		helper.assertTrue(north.valid() && north.start()
+			.anchorPos()
+			.equals(helper.absolutePos(new BlockPos(10, 2, 15))), "aimed north, the curve should leave the north end"
+				+ " of the line along z, but was " + north.error() + " at " + north.start());
+
+		BlockPos target = new BlockPos(26, 2, 12);
+		CurvePlanner.Plan east = CurvePlanner.plan(level, helper.absolutePos(CROSSING), helper.absolutePos(target),
+			Direction.UP, 0);
+		helper.assertTrue(east.valid() && east.start()
+			.docked() && east.start()
+				.anchorPos()
+				.equals(helper.absolutePos(new BlockPos(11, 2, 16))), "aimed east, the curve should leave the east end of"
+					+ " the line along x, but was " + east.error() + " at " + east.start());
+		helper.assertTrue(CurvePlanner.apply(level, east) == null, "the curve should have been built");
+		AngledTrackAnchorBlockEntity end = anchorAt(helper, new BlockPos(11, 2, 16), false);
+		helper.assertTrue(end.isDockedOnTrack(), "the end should be joined onto the crossing");
+
+		helper.runAfterDelay(GRAPH_TICKS, () -> {
+			BezierConnection curve = end.buildCurveToNext();
+			assertEdges(helper, curve);
+			assertOneGraph(helper, "the crossing's line and the curve", Vec3.atBottomCenterOf(helper.absolutePos(
+				CROSSING))
+				.add(-0.5, 0, 0), curve.starts.getSecond());
+			GraphCleanlinessTests.assertClean(helper, "with a curve off a crossing", -1);
+			helper.succeed();
+		});
+	}
+
+	/** Through the wand: the crossing is picked by the first click, and the second builds. */
+	@GameTest(template = EMPTY)
+	public static void theWandDrawsOutOfACrossing(GameTestHelper helper) {
+		helper.setBlock(CROSSING, AllBlocks.TRACK.get()
+			.defaultBlockState()
+			.setValue(TrackBlock.SHAPE, TrackShape.CR_D));
+		Player player = helper.makeMockPlayer(GameType.CREATIVE);
+		ItemStack wand = new ItemStack(CTNRegistry.CURVE_WAND.get());
+		helper.assertTrue(CurveConsistencyTests.click(helper, player, wand, CROSSING)
+			.consumesAction(), "the first click should pick the crossing");
+		InteractionResult built = CurveConsistencyTests.click(helper, player, wand, new BlockPos(24, 2, 30));
+		helper.assertTrue(built.consumesAction(), "the second click should have built a curve, but gave " + built);
+		helper.succeed();
+	}
+
+	/**
+	 * Create's own junction, a curve of Create's leaving the end of a straight piece of its track. The wand
+	 * joins the same end, and the node there is one with three ways out: the straight track, Create's curve
+	 * and this mod's.
+	 */
+	@GameTest(template = EMPTY, timeoutTicks = 60)
+	public static void aCurveCanLeaveTheEndOfCreatesOwnJunction(GameTestHelper helper) {
+		Level level = helper.getLevel();
+		BlockPos straight = new BlockPos(10, 2, 16);
+		BlockPos turned = new BlockPos(16, 2, 10);
+		helper.setBlock(straight, AllBlocks.TRACK.get()
+			.defaultBlockState()
+			.setValue(TrackBlock.SHAPE, TrackShape.XO)
+			.setValue(TrackBlock.HAS_BE, true));
+		helper.setBlock(turned, AllBlocks.TRACK.get()
+			.defaultBlockState()
+			.setValue(TrackBlock.SHAPE, TrackShape.ZO)
+			.setValue(TrackBlock.HAS_BE, true));
+
+		// A quarter circle from the east end of the straight piece round to the south end of the other, which
+		// is how Create's own wand would lay it.
+		Vec3 junction = Vec3.atBottomCenterOf(helper.absolutePos(straight))
+			.add(0.5, 0, 0);
+		Vec3 far = Vec3.atBottomCenterOf(helper.absolutePos(turned))
+			.add(0, 0, 0.5);
+		Vec3 up = new Vec3(0, 1, 0);
+		BezierConnection createCurve = new BezierConnection(Couple.create(helper.absolutePos(straight), helper
+			.absolutePos(turned)), Couple.create(junction, far), Couple.create(new Vec3(1, 0, 0), new Vec3(0, 0, 1)),
+			Couple.create(up, up), true, false, TrackMaterial.ANDESITE);
+		((TrackBlockEntity) helper.getBlockEntity(straight)).addConnection(createCurve);
+		((TrackBlockEntity) helper.getBlockEntity(turned)).addConnection(createCurve.secondary());
+		TrackPropagator.onRailAdded(level, helper.absolutePos(straight), helper.getBlockState(straight));
+
+		helper.assertTrue(CurvePlanner.canStartFrom(level, helper.absolutePos(straight)),
+			"the straight piece of Create's junction should be somewhere a curve can start");
+		CurvePlanner.Plan plan = CurvePlanner.plan(level, helper.absolutePos(straight), helper.absolutePos(
+			new BlockPos(30, 2, 22)), Direction.UP, 0);
+		helper.assertTrue(plan.valid() && plan.start()
+			.anchorPos()
+			.equals(helper.absolutePos(new BlockPos(11, 2, 16))), "the curve should leave the end Create's curve leaves,"
+				+ " but was " + plan.error() + " at " + plan.start());
+		helper.assertTrue(CurvePlanner.apply(level, plan) == null, "the curve should have been built");
+		AngledTrackAnchorBlockEntity end = anchorAt(helper, new BlockPos(11, 2, 16), false);
+
+		helper.runAfterDelay(GRAPH_TICKS, () -> {
+			BezierConnection curve = end.buildCurveToNext();
+			assertEdges(helper, curve);
+			TrackNodeLocation at = new TrackNodeLocation(junction).in(level);
+			TrackGraph graph = Create.RAILWAYS.sided(level)
+				.getGraph(level, at);
+			helper.assertTrue(graph != null && graph.locateNode(at) != null && graph.getConnectionsFrom(graph.locateNode(
+				at))
+				.size() == 3, "the straight track, Create's curve and the anchor should meet at the end of the straight");
+			assertOneGraph(helper, "Create's curve and this mod's", far, curve.starts.getSecond());
 			helper.succeed();
 		});
 	}

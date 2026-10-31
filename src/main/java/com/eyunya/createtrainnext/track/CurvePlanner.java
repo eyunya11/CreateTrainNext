@@ -396,10 +396,40 @@ public final class CurvePlanner {
 		if (!(state.getBlock() instanceof ITrackBlock track))
 			return false;
 
-		// The same refusal resolve() makes, asked here so that a junction is refused by the click that
-		// picked it rather than by every click after it. A slope can be started from, at either end.
-		return track.getTrackAxes(level, pos, state)
-			.size() == 1;
+		// The same refusal resolve() makes, asked here so that track no curve can use is refused by the click
+		// that picked it rather than by every click after it. A slope can be started from, at either end, and a
+		// crossing from the end of either of its lines.
+		return axisToward(track.getTrackAxes(level, pos, state), Vec3.ZERO) != null;
+	}
+
+	/**
+	 * Which of the axes Create's track at a block reports a curve going {@code toOther} would use: its one
+	 * axis, or of a crossing's two, the one that runs nearer the way the curve goes, so that the curve
+	 * carries on the line it is drawn out of. Null where there are several and one is not level: Create has no
+	 * such track, every one of its crossings being two level lines, but another mod's track block may, and
+	 * which end of it a curve should join is not something to guess.
+	 *
+	 * <p>A crossing puts the nodes at the ends of each of its lines where a straight piece of track along
+	 * that line would ({@code TrackBlock#getConnected}), so the end of either line is as good a place to
+	 * join as the end of any straight track.
+	 */
+	@Nullable
+	private static Vec3 axisToward(List<Vec3> axes, Vec3 toOther) {
+		if (axes.size() == 1)
+			return axes.get(0);
+		Vec3 best = null;
+		double bestAlong = -1;
+		for (Vec3 axis : axes) {
+			if (Math.abs(axis.y) > 1.0E-4)
+				return null;
+			double along = toOther.lengthSqr() < 1.0E-8 ? 0 : Math.abs(axis.normalize()
+				.dot(toOther.normalize()));
+			if (along > bestAlong) {
+				bestAlong = along;
+				best = axis;
+			}
+		}
+		return best;
 	}
 
 	/**
@@ -860,15 +890,14 @@ public final class CurvePlanner {
 		// Create's track, so placing one directly alongside the other lands both on the same point
 		// and the graph merges them. Anywhere else and the curve simply stops next to the track.
 		if (state.getBlock() instanceof ITrackBlock track) {
-			List<Vec3> axes = track.getTrackAxes(level, hitPos, state);
+			Vec3 toOther = flat(towards.subtract(Vec3.atBottomCenterOf(hitPos)));
+			Vec3 axis = axisToward(track.getTrackAxes(level, hitPos, state), toOther);
 			// Not "junction": that key is the ghost's note that an anchor goes between two arcs.
-			if (axes.size() > 1)
+			if (axis == null)
 				return Endpoint.failed("junction_track");
 
 			// The side of the track that faces the rest of the curve. An axis serves either way
 			// along itself, so this is the only thing that picks between the two.
-			Vec3 axis = axes.get(0);
-			Vec3 toOther = flat(towards.subtract(Vec3.atBottomCenterOf(hitPos)));
 			Vec3 side = axis.dot(toOther) < 0 ? axis.scale(-1) : axis;
 			return trackEnd(level, hitPos, state, track, side, role, towards);
 		}
