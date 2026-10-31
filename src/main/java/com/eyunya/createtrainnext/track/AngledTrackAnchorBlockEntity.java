@@ -1195,7 +1195,8 @@ public class AngledTrackAnchorBlockEntity extends TrackBlockEntity {
 	}
 
 	/**
-	 * Whether the graph holds the curve to the anchor ahead, as an edge each way between its two ends.
+	 * Whether the graph holds the curves this anchor holds, the one to the anchor ahead and its branches', as
+	 * an edge each way between their two ends.
 	 *
 	 * <p>True when there is nothing to check: no anchor ahead, or one that is not loaded, since a curve that
 	 * cannot be built cannot be told apart from one that is not there.
@@ -1203,10 +1204,15 @@ public class AngledTrackAnchorBlockEntity extends TrackBlockEntity {
 	public boolean linkAheadIsInGraph() {
 		if (level == null || level.isClientSide)
 			return true;
-		BezierConnection curve = buildCurveToNext();
-		if (curve == null)
-			return true;
+		// And the branches it holds, which a rebuild from here puts back with the rest.
+		for (BezierConnection curve : ownedCurves())
+			if (!isInGraph(curve))
+				return false;
+		return true;
+	}
 
+	/** Whether the graph holds {@code curve} as an edge each way between its two ends. */
+	private boolean isInGraph(BezierConnection curve) {
 		TrackNodeLocation from = new TrackNodeLocation(curve.starts.getFirst()).in(level);
 		TrackNodeLocation to = new TrackNodeLocation(curve.starts.getSecond()).in(level);
 		TrackGraph graph = Create.RAILWAYS.sided(level)

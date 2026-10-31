@@ -15,6 +15,7 @@ import com.eyunya.createtrainnext.CTNRegistry;
 import com.eyunya.createtrainnext.CreateTrainNext;
 import com.eyunya.createtrainnext.track.AngledTrackAnchorBlockEntity;
 import com.eyunya.createtrainnext.track.CurvePlanner;
+import com.eyunya.createtrainnext.track.CurveRepair;
 import com.eyunya.createtrainnext.track.CurveWandSelection;
 import com.simibubi.create.AllBlocks;
 import com.simibubi.create.Create;
@@ -587,6 +588,118 @@ public class BranchTests {
 		helper.succeed();
 	}
 
+	// ------------------------------------------------------ points and mending
+
+	/**
+	 * A point put on a branch, for a signal to stand on: the turnout's branch is the new anchor now, and the
+	 * rest of the branch runs on from it.
+	 */
+	@GameTest(template = EMPTY, timeoutTicks = 60)
+	public static void aPointCanBePutOnABranch(GameTestHelper helper) {
+		Turnout t = turnout(helper);
+
+		// New anchors are indexed a tick after they are placed, and finding a curve asks the index.
+		helper.runAfterDelay(1, () -> {
+			AngledTrackAnchorBlockEntity point = putPointOn(helper, t.turnout()
+				.curveWith(t.branch()), t.branch());
+			helper.assertTrue(Objects.equals(t.turnout()
+				.getBranchAhead(), point.getBlockPos()) && Objects.equals(point.getPrev(), t.turnout()
+					.getBlockPos()), "the point should be the turnout's branch now");
+			assertChain(helper, point, relativeOf(helper, point), BRANCH);
+			assertChain(helper, t.turnout(), BEHIND, TURNOUT, AHEAD);
+
+			helper.runAfterDelay(GRAPH_TICKS, () -> {
+				assertEdges(helper, t.turnout()
+					.curveWith(point));
+				assertConsistent(helper, point);
+				GraphCleanlinessTests.assertClean(helper, "with a point on a branch", 7);
+				helper.succeed();
+			});
+		});
+	}
+
+	/** The same for a branch that runs into the turnout, whose curve its own first anchor holds. */
+	@GameTest(template = EMPTY, timeoutTicks = 60)
+	public static void aPointCanBePutOnABranchThatRunsIn(GameTestHelper helper) {
+		Turnout t = turnout(helper);
+		t.branch()
+			.reverseRoute();
+
+		// New anchors are indexed a tick after they are placed, and finding a curve asks the index.
+		helper.runAfterDelay(1, () -> {
+			AngledTrackAnchorBlockEntity point = putPointOn(helper, t.branch()
+				.curveWith(t.turnout()), t.turnout());
+			helper.assertTrue(Objects.equals(t.turnout()
+				.getBranchAhead(), point.getBlockPos()) && Objects.equals(point.getNext(), t.turnout()
+					.getBlockPos()), "the point should be the turnout's branch now, running into it");
+			assertChain(helper, t.branch(), BRANCH, relativeOf(helper, point));
+
+			helper.runAfterDelay(GRAPH_TICKS, () -> {
+				assertEdges(helper, t.turnout()
+					.curveWith(point));
+				assertConsistent(helper, t.branch());
+				helper.succeed();
+			});
+		});
+	}
+
+	/**
+	 * A branch whose ends point different ways, which the wand never builds as one curve, is found by the
+	 * command that looks for such links and mended into two arcs, still a branch of its turnout.
+	 */
+	@GameTest(template = EMPTY, timeoutTicks = 60)
+	public static void aBranchThatDiffersEachWayIsMended(GameTestHelper helper) {
+		AngledTrackAnchorBlockEntity[] line = route(helper, EAST, BEHIND, TURNOUT, AHEAD);
+		BlockPos farPos = new BlockPos(30, 2, 8);
+		AngledTrackAnchorBlockEntity far = anchor(helper, farPos);
+		line[1].branchTo(far, true, true, AngledTrackAnchorBlockEntity.directionFromYaw(CurveConsistencyTests.NORTH));
+
+		// New anchors are indexed a tick after they are placed, and listing links asks the index.
+		helper.runAfterDelay(1, () -> {
+			CurveRepair.Link link = null;
+			for (CurveRepair.Link each : CurveRepair.links(helper.getLevel(), Vec3.atCenterOf(line[1].getBlockPos()),
+				4))
+				if (each.to()
+					.equals(far.getBlockPos()))
+					link = each;
+			helper.assertTrue(link != null && link.overLimit(),
+				"setup: the branch should be listed as differing each way");
+
+			CurveRepair.Outcome outcome = CurveRepair.repair(helper.getLevel(), link);
+			helper.assertTrue(outcome.repaired(), "the branch should have been mended, but was " + outcome.error());
+			AngledTrackAnchorBlockEntity middle = anchorAt(helper, relativeOf(helper, outcome.junction()), false);
+			helper.assertTrue(Objects.equals(line[1].getBranchAhead(), middle.getBlockPos()) && Objects.equals(far.getPrev(),
+				middle.getBlockPos()), "the turnout's branch should run through the new anchor to the far end");
+
+			helper.runAfterDelay(GRAPH_TICKS, () -> {
+				assertEdges(helper, line[1].curveWith(middle));
+				assertConsistent(helper, middle);
+				helper.succeed();
+			});
+		});
+	}
+
+	/**
+	 * Create's own picking finds a curve by the block entity that holds it, which is how a signal is put
+	 * straight onto a curve: a branch is held like any other.
+	 */
+	@GameTest(template = EMPTY)
+	public static void aBranchIsOfferedToCreatesCurvePicking(GameTestHelper helper) {
+		Turnout t = turnout(helper);
+		// The end with the lower position holds it.
+		AngledTrackAnchorBlockEntity holder = t.turnout()
+			.getBlockPos()
+			.compareTo(t.branch()
+				.getBlockPos()) < 0 ? t.turnout() : t.branch();
+		AngledTrackAnchorBlockEntity other = holder == t.turnout() ? t.branch() : t.turnout();
+		BezierConnection held = holder.getConnections()
+			.get(other.getBlockPos());
+		helper.assertTrue(held != null, "the branch should be among its holder's connections");
+		helper.assertTrue(CurvePlanner.deviation(held, t.turnout()
+			.curveWith(t.branch())) < 1.0E-6, "and be the curve that is drawn");
+		helper.succeed();
+	}
+
 	// ------------------------------------------------- beside Create's track
 
 	/** A piece of Create's level track along x, west of a route that is joined onto its east end. */
@@ -700,6 +813,27 @@ public class BranchTests {
 	}
 
 	// --------------------------------------------------------------- helpers
+
+	/** Puts a point half way along {@code curve} the way the wand does, and returns the anchor it placed. */
+	private static AngledTrackAnchorBlockEntity putPointOn(GameTestHelper helper, BezierConnection curve,
+		AngledTrackAnchorBlockEntity farEnd) {
+		helper.assertTrue(curve != null, "setup: there should be a curve to put a point on");
+		CurvePlanner.SplitTarget target = CurvePlanner.findCurveNear(helper.getLevel(), curve.getPosition(0.5), 2.0);
+		helper.assertTrue(target != null && target.valid(), "a point should be possible half way along, but was "
+			+ (target == null ? "nothing found" : target.error()));
+		helper.assertTrue(Objects.equals(target.far(), farEnd.getBlockPos()), "the curve found should be the one asked"
+			+ " about");
+		helper.assertTrue(CurvePlanner.split(helper.getLevel(), target), "the point should have been put");
+		return anchorAt(helper, relativeOf(helper, target.anchorPos()), false);
+	}
+
+	private static BlockPos relativeOf(GameTestHelper helper, BlockPos absolute) {
+		return CurveConsistencyTests.relative(helper, absolute);
+	}
+
+	private static BlockPos relativeOf(GameTestHelper helper, AngledTrackAnchorBlockEntity anchor) {
+		return relativeOf(helper, anchor.getBlockPos());
+	}
 
 	/** Checks that the graph has nodes at both places, and that they are in the same graph. */
 	private static void assertOneGraph(GameTestHelper helper, String what, Vec3 a, Vec3 b) {

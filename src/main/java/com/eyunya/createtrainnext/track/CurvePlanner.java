@@ -1827,7 +1827,7 @@ public final class CurvePlanner {
 	 * @param error    why it cannot be done there, or null if it can.
 	 */
 	public record SplitTarget(@Nullable AngledTrackAnchorBlockEntity owner, double t, Vec3 point, Vec3 tangent,
-		double slope, BlockPos anchorPos, @Nullable String error) {
+		double slope, BlockPos anchorPos, @Nullable String error, @Nullable BlockPos far) {
 
 		public boolean valid() {
 			return error == null && owner != null;
@@ -1849,32 +1849,32 @@ public final class CurvePlanner {
 		double bestT = 0;
 		double bestDistance = maxDistance * maxDistance;
 
-		for (AngledTrackAnchorBlockEntity anchor : AnchorIndex.in(level)) {
-			BezierConnection curve = anchor.buildCurveToNext();
-			if (curve == null)
-				continue;
-			if (!curve.getBounds()
-				.inflate(maxDistance)
-				.contains(near))
-				continue;
-
-			double length = curve.getLength();
-			int samples = Math.max(8, (int) (length * 4));
-
-			for (int i = 0; i <= samples; i++) {
-				double t = i / (double) samples;
-				double distance = curve.getPosition(t)
-					.distanceToSqr(near);
-				if (distance >= bestDistance)
+		// Every curve is held by one of its two ends, the branches of a turnout among them, so asking each anchor
+		// for those it holds asks about each curve once.
+		for (AngledTrackAnchorBlockEntity anchor : AnchorIndex.in(level))
+			for (BezierConnection curve : anchor.ownedCurves()) {
+				if (!curve.getBounds()
+					.inflate(maxDistance)
+					.contains(near))
 					continue;
 
-				bestDistance = distance;
-				bestOwner = anchor;
-				bestCurve = curve;
-				bestLength = length;
-				bestT = t;
+				double length = curve.getLength();
+				int samples = Math.max(8, (int) (length * 4));
+
+				for (int i = 0; i <= samples; i++) {
+					double t = i / (double) samples;
+					double distance = curve.getPosition(t)
+						.distanceToSqr(near);
+					if (distance >= bestDistance)
+						continue;
+
+					bestDistance = distance;
+					bestOwner = anchor;
+					bestCurve = curve;
+					bestLength = length;
+					bestT = t;
+				}
 			}
-		}
 
 		// Only the winner is described. Everything in describeSplit reads the world, and doing that
 		// for each sample that happened to be an improvement would mean hundreds of block lookups
@@ -1886,6 +1886,8 @@ public final class CurvePlanner {
 		double t, double length) {
 
 		Vec3 point = curve.getPosition(t);
+		// The anchor at the curve's other end: the owner's next, or a branch of its.
+		BlockPos far = curve.bePositions.getSecond();
 
 		// The tangent as a difference across a short step rather than the bezier's derivative, so
 		// this needs nothing but the curve's public shape.
@@ -1905,21 +1907,21 @@ public final class CurvePlanner {
 		// Both halves have to be a curve in their own right afterwards. The same MIN_SPAN the wand
 		// holds a new curve to, measured along this one.
 		if (t * length < MIN_SPAN + 1 || (1 - t) * length < MIN_SPAN + 1)
-			return new SplitTarget(owner, t, point, tangent, slope, anchorPos, "split_too_close");
-		if (anchorPos.equals(owner.getBlockPos()) || anchorPos.equals(owner.getNext()))
-			return new SplitTarget(owner, t, point, tangent, slope, anchorPos, "split_too_close");
+			return new SplitTarget(owner, t, point, tangent, slope, anchorPos, "split_too_close", far);
+		if (anchorPos.equals(owner.getBlockPos()) || anchorPos.equals(far))
+			return new SplitTarget(owner, t, point, tangent, slope, anchorPos, "split_too_close", far);
 		if (level.getBlockEntity(anchorPos) instanceof AngledTrackAnchorBlockEntity)
-			return new SplitTarget(owner, t, point, tangent, slope, anchorPos, "split_occupied");
+			return new SplitTarget(owner, t, point, tangent, slope, anchorPos, "split_occupied", far);
 		if (!level.getBlockState(anchorPos)
 			.canBeReplaced())
-			return new SplitTarget(owner, t, point, tangent, slope, anchorPos, "no_room");
+			return new SplitTarget(owner, t, point, tangent, slope, anchorPos, "no_room", far);
 
 		// Splitting replaces the curve with two others, and a signal standing on it remembers the
 		// curve it was put on by where its ends are.
 		if (carriesPoints(level, curve))
-			return new SplitTarget(owner, t, point, tangent, slope, anchorPos, "split_has_points");
+			return new SplitTarget(owner, t, point, tangent, slope, anchorPos, "split_has_points", far);
 
-		return new SplitTarget(owner, t, point, tangent, slope, anchorPos, null);
+		return new SplitTarget(owner, t, point, tangent, slope, anchorPos, null, far);
 	}
 
 	/**
@@ -1972,9 +1974,20 @@ public final class CurvePlanner {
 			return false;
 
 		AngledTrackAnchorBlockEntity owner = target.owner();
-		BlockPos nextPos = owner.getNext();
-		if (nextPos == null || !(level.getBlockEntity(nextPos) instanceof AngledTrackAnchorBlockEntity ahead))
+		BlockPos farPos = target.far();
+		if (farPos == null || !(level.getBlockEntity(farPos) instanceof AngledTrackAnchorBlockEntity ahead))
 			return false;
+		// Which kind of link the curve is: the owner's next, and maybe a branch coming into a turnout there; or
+		// a branch of the owner's, running on from it. Read before anything changes, as the first link below
+		// takes the far end off the owner.
+		boolean ownersBranch = !farPos.equals(owner.getNext());
+		boolean intoBranch = !ownersBranch && ahead.isBranch(owner.getBlockPos());
+		if (ownersBranch && !(owner.isBranch(farPos) && owner.getBlockPos()
+			.equals(ahead.getPrev())))
+			return false;
+		boolean branchAhead = ownersBranch ? farPos.equals(owner.getBranchAhead())
+			: owner.getBlockPos()
+				.equals(ahead.getBranchAhead());
 
 		BlockPos pos = target.anchorPos();
 		clearFor(level, pos);
@@ -1989,8 +2002,16 @@ public final class CurvePlanner {
 		// before it, not looked up again after. So does whether it is docked onto a slope, which it
 		// is not for the moment between the two links, when it has no curve.
 		boolean aheadDocked = ahead.isSlopeDocked();
-		owner.linkTo(inserted, null, AngledTrackAnchorBlockEntity.tangentOf(target.tangent(), target.slope()));
-		inserted.linkTo(ahead, null, null, false, aheadDocked);
+		Vec3 aim = AngledTrackAnchorBlockEntity.tangentOf(target.tangent(), target.slope());
+		// A branch stays a branch of its turnout, at whichever end of the two curves the turnout is.
+		if (ownersBranch)
+			owner.branchTo(inserted, branchAhead, true, aim);
+		else
+			owner.linkTo(inserted, null, aim);
+		if (intoBranch)
+			ahead.branchTo(inserted, branchAhead, false, null);
+		else
+			inserted.linkTo(ahead, null, null, false, aheadDocked);
 		return true;
 	}
 
