@@ -708,6 +708,53 @@ public class BranchTests {
 	}
 
 	/**
+	 * Straight on is the straight track, whatever the anchor holds it as. Which way out is the anchor's line and
+	 * which a branch follows the order they were drawn in: here the line ahead was drawn round a curve and the
+	 * straight track after it, as a branch. A driven train still goes straight on along the straight track.
+	 */
+	@GameTest(template = EMPTY, timeoutTicks = 60)
+	public static void straightOnIsTheStraightTrackEvenWhenItIsABranch(GameTestHelper helper) {
+		AngledTrackAnchorBlockEntity[] line = route(helper, EAST, BEHIND, TURNOUT);
+		Level level = helper.getLevel();
+		AngledTrackAnchorBlockEntity curved = anchor(helper, BRANCH);
+		line[1].linkTo(curved, null, arcEnd(helper, TURNOUT, line[1].heading(), BRANCH));
+		AngledTrackAnchorBlockEntity straight = anchor(helper, AHEAD);
+		line[1].branchTo(straight, true, true, line[1].heading());
+		BlockPos backSouth = new BlockPos(2, 2, 24);
+		AngledTrackAnchorBlockEntity behindBranch = anchor(helper, backSouth);
+		line[1].branchTo(behindBranch, false, false, arcEnd(helper, TURNOUT, line[1].heading()
+			.scale(-1), backSouth).scale(-1));
+		helper.assertTrue(Objects.equals(line[1].getNext(), curved.getBlockPos()) && Objects.equals(onlyBranch(line[1],
+			true), straight.getBlockPos()), "setup: the line ahead should be the curve, and the straight track a branch");
+
+		helper.runAfterDelay(GRAPH_TICKS, () -> {
+			Vec3 centre = Vec3.atBottomCenterOf(line[1].getBlockPos());
+			TrackNodeLocation at = new TrackNodeLocation(centre).in(level);
+			TrackGraph graph = Create.RAILWAYS.sided(level)
+				.getGraph(level, at);
+			TrackNode node = graph.locateNode(at);
+			TrackNode behind = farEnd(helper, graph, line[1].buildCurveFromPrev(), centre);
+			TrackNode curveEnd = farEnd(helper, graph, line[1].buildCurveToNext(), centre);
+			TrackNode straightEnd = farEnd(helper, graph, line[1].curveWith(straight), centre);
+			TrackNode branchEnd = farEnd(helper, graph, line[1].curveWith(behindBranch), centre);
+
+			for (boolean forwards : new boolean[] { true, false }) {
+				String way = forwards ? " (running forwards)" : " (running backwards)";
+				assertSteers(helper, graph, behind, node, forwards, SteerDirection.NONE, straightEnd,
+					"along the line, straight on" + way);
+				assertSteers(helper, graph, branchEnd, node, forwards, SteerDirection.NONE, straightEnd,
+					"off a branch, straight on" + way);
+				assertSteers(helper, graph, straightEnd, node, forwards, SteerDirection.NONE, behind,
+					"back along the straight track, straight on" + way);
+				// Going east, left is north, where the curve goes.
+				assertSteers(helper, graph, behind, node, forwards, SteerDirection.LEFT, forwards ? curveEnd
+					: straightEnd, "along the line, left" + way);
+			}
+			helper.succeed();
+		});
+	}
+
+	/**
 	 * Checks which way a train driven {@code direction} goes on arriving at {@code at} from {@code from}, set up
 	 * and asked the way {@code TravellingPoint#travel} does it: moving forwards the point is on the edge from
 	 * {@code from} to {@code at}, which is its second node; moving backwards it is on the edge the other way, and
