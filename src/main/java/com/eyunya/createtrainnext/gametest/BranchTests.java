@@ -16,13 +16,16 @@ import com.eyunya.createtrainnext.CreateTrainNext;
 import com.eyunya.createtrainnext.track.AngledTrackAnchorBlockEntity;
 import com.eyunya.createtrainnext.track.CurvePlanner;
 import com.eyunya.createtrainnext.track.CurveWandSelection;
+import com.simibubi.create.AllBlocks;
 import com.simibubi.create.Create;
 import com.simibubi.create.content.trains.graph.TrackEdge;
 import com.simibubi.create.content.trains.graph.TrackGraph;
 import com.simibubi.create.content.trains.graph.TrackNode;
 import com.simibubi.create.content.trains.graph.TrackNodeLocation;
 import com.simibubi.create.content.trains.track.BezierConnection;
+import com.simibubi.create.content.trains.track.TrackBlock;
 import com.simibubi.create.content.trains.track.TrackPropagator;
+import com.simibubi.create.content.trains.track.TrackShape;
 
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
@@ -309,8 +312,8 @@ public class BranchTests {
 
 	/**
 	 * A branch whose route runs into the turnout cannot be the line on from it, so with the line beyond gone it
-	 * stays a branch, on a side with no line. The turnout keeps its node at its centre, where the branch meets
-	 * it, rather than turning into an end with its nodes on the boundary of its block.
+	 * stays a branch, on a side with no line. The turnout is an end now, with its nodes on the boundary of its
+	 * block like any end along an axis, and the branch meets it at the one on its side.
 	 */
 	@GameTest(template = EMPTY, timeoutTicks = 80)
 	public static void aBranchThatRunsInStaysABranchWhenTheLineBeyondGoes(GameTestHelper helper) {
@@ -327,16 +330,20 @@ public class BranchTests {
 				.getNext() == null && Objects.equals(t.turnout()
 					.getBranchAhead(), t.branch()
 						.getBlockPos()), "the branch should still be a branch");
-			Vec3 centre = Vec3.atBottomCenterOf(t.turnout()
-				.getBlockPos());
+			Vec3 east = Vec3.atBottomCenterOf(t.turnout()
+				.getBlockPos())
+				.add(0.5, 0, 0);
 			helper.assertTrue(t.turnout()
-				.entryNode()
-				.equals(centre) && t.turnout()
-					.exitNode()
-					.equals(centre), "the turnout should keep its node at its centre");
+				.exitNode()
+				.equals(east), "the turnout should be an end, its node ahead on the boundary of its block");
+			BezierConnection branch = t.turnout()
+				.curveWith(t.branch());
+			helper.assertTrue(branch != null && branch.starts.getSecond()
+				.equals(east), "the branch should meet the turnout at the node on its side");
 
 			helper.runAfterDelay(SETTLE_TICKS, () -> {
-				GraphCleanlinessTests.assertClean(helper, "after breaking the line beyond a branch that runs in", 4);
+				// Two at each end of what is left of the line, one at the end of the branch.
+				GraphCleanlinessTests.assertClean(helper, "after breaking the line beyond a branch that runs in", 5);
 				for (BezierConnection curve : t.turnout()
 					.curvesThrough())
 					assertEdges(helper, curve);
@@ -580,7 +587,130 @@ public class BranchTests {
 		helper.succeed();
 	}
 
+	// ------------------------------------------------- beside Create's track
+
+	/** A piece of Create's level track along x, west of a route that is joined onto its east end. */
+	private static final BlockPos CREATE_TRACK = new BlockPos(10, 2, 16);
+	private static final BlockPos DOCKED = new BlockPos(11, 2, 16);
+	private static final BlockPos DOCKED_AHEAD = new BlockPos(27, 2, 16);
+
+	private static AngledTrackAnchorBlockEntity[] besideCreateTrack(GameTestHelper helper) {
+		helper.setBlock(CREATE_TRACK, AllBlocks.TRACK.get()
+			.defaultBlockState()
+			.setValue(TrackBlock.SHAPE, TrackShape.XO));
+		return route(helper, EAST, DOCKED, DOCKED_AHEAD);
+	}
+
+	/**
+	 * The side of an end joined onto Create's track is the track's, not free: a curve out of it would run back
+	 * over the track, and give the end a curve on both sides, which moves its node off the one it shares with
+	 * the track. It is a place for a branch instead.
+	 */
+	@GameTest(template = EMPTY, timeoutTicks = 40)
+	public static void theSideOfAnEndJoinedOntoCreateTrackIsNotFree(GameTestHelper helper) {
+		AngledTrackAnchorBlockEntity[] line = besideCreateTrack(helper);
+		Level level = helper.getLevel();
+
+		helper.assertTrue(line[0].isDockedOnTrack(), "the end beside the track should count as joined onto it");
+		helper.assertTrue(!line[1].isDockedOnTrack(), "the far end, with nothing beside it, should not");
+		helper.assertTrue(!line[0].hasFreeSide(), "the side the track is on should not be free");
+		helper.assertTrue(CurvePlanner.canStartFrom(level, helper.absolutePos(DOCKED)),
+			"the end should still be a place to start a branch from");
+
+		// Aimed behind, which is where a curve out of the free side used to go.
+		CurvePlanner.Plan plan = CurvePlanner.plan(level, helper.absolutePos(DOCKED), helper.absolutePos(
+			new BlockPos(2, 2, 10)), Direction.UP, 0);
+		helper.assertTrue(plan.valid() && plan.start()
+			.branch() == CurvePlanner.Branch.BEHIND, "aimed behind, it should be a branch beside the track, but was "
+				+ plan.error() + " / " + plan.start());
+		helper.succeed();
+	}
+
+	/**
+	 * A branch beside Create's track leaves the node the end shares with the track, and the end keeps it: the
+	 * track, the end's span and the branch all meet there, and the track is still part of the line.
+	 */
+	@GameTest(template = EMPTY, timeoutTicks = 60)
+	public static void aBranchBesideCreateTrackKeepsTheEndOnTheTrack(GameTestHelper helper) {
+		AngledTrackAnchorBlockEntity[] line = besideCreateTrack(helper);
+		Level level = helper.getLevel();
+		Vec3 shared = line[0].entryNode();
+
+		CurvePlanner.Plan plan = CurvePlanner.plan(level, helper.absolutePos(DOCKED), helper.absolutePos(
+			new BlockPos(2, 2, 10)), Direction.UP, 0);
+		helper.assertTrue(plan.valid(), "setup: the branch should be possible, but was " + plan.error());
+		helper.assertTrue(CurvePlanner.apply(level, plan) == null, "the branch should have been built");
+		helper.assertTrue(Objects.equals(line[0].getBranchBehind(), helper.absolutePos(new BlockPos(2, 2, 10))),
+			"the branch should be behind the end");
+		helper.assertTrue(line[0].entryNode()
+			.equals(shared) && line[0].isDockedOnTrack(), "the end should keep the node it shares with the track");
+		BezierConnection branch = line[0].curveWith(anchorAt(helper, new BlockPos(2, 2, 10), false));
+		helper.assertTrue(branch != null && branch.starts.getFirst()
+			.equals(shared), "the branch should leave that node");
+		helper.assertTrue(CurvePlanner.deviation(plan.curve(), branch) < 1.0E-6, "what was built should be the curve"
+			+ " the ghost showed");
+
+		helper.runAfterDelay(GRAPH_TICKS, () -> {
+			assertEdges(helper, branch);
+			assertOneGraph(helper, "the track and the branch", Vec3.atBottomCenterOf(helper.absolutePos(CREATE_TRACK))
+				.add(-0.5, 0, 0), branch.starts.getSecond());
+			assertOneGraph(helper, "the track and the line", Vec3.atBottomCenterOf(helper.absolutePos(CREATE_TRACK))
+				.add(-0.5, 0, 0), line[1].exitNode());
+			TrackNodeLocation at = new TrackNodeLocation(shared).in(level);
+			TrackGraph graph = Create.RAILWAYS.sided(level)
+				.getGraph(level, at);
+			helper.assertTrue(graph != null && graph.locateNode(at) != null && graph.getConnectionsFrom(graph.locateNode(
+				at))
+				.size() == 3, "the track, the span and the branch should meet at the shared node");
+			GraphCleanlinessTests.assertClean(helper, "with a branch beside Create's track", -1);
+			helper.succeed();
+		});
+	}
+
+	/** A branch on the side of the curve leaves the end's other boundary, and the end stays on the track. */
+	@GameTest(template = EMPTY, timeoutTicks = 60)
+	public static void aBranchAheadOfAnEndOnCreateTrackLeavesItOnTheTrack(GameTestHelper helper) {
+		AngledTrackAnchorBlockEntity[] line = besideCreateTrack(helper);
+		Level level = helper.getLevel();
+		Vec3 shared = line[0].entryNode();
+		BlockPos target = new BlockPos(27, 2, 10);
+
+		CurvePlanner.Plan plan = CurvePlanner.plan(level, helper.absolutePos(DOCKED), helper.absolutePos(target),
+			Direction.UP, 0);
+		helper.assertTrue(plan.valid() && plan.start()
+			.branch() == CurvePlanner.Branch.AHEAD, "aimed ahead, it should be a branch beside the line, but was " + plan
+				.error());
+		helper.assertTrue(CurvePlanner.apply(level, plan) == null, "the branch should have been built");
+		helper.assertTrue(line[0].entryNode()
+			.equals(shared) && line[0].isDockedOnTrack(), "the end should keep the node it shares with the track");
+		BezierConnection branch = line[0].curveWith(anchorAt(helper, target, false));
+		helper.assertTrue(branch != null && branch.starts.getFirst()
+			.equals(line[0].exitNode()), "the branch should leave the end's node ahead, beside the line");
+		helper.assertTrue(CurvePlanner.deviation(plan.curve(), branch) < 1.0E-6, "what was built should be the curve"
+			+ " the ghost showed");
+
+		helper.runAfterDelay(GRAPH_TICKS, () -> {
+			assertEdges(helper, branch);
+			assertEdges(helper, line[0].buildCurveToNext());
+			assertOneGraph(helper, "the track and the branch", Vec3.atBottomCenterOf(helper.absolutePos(CREATE_TRACK))
+				.add(-0.5, 0, 0), branch.starts.getSecond());
+			GraphCleanlinessTests.assertClean(helper, "with a branch ahead of an end on Create's track", -1);
+			helper.succeed();
+		});
+	}
+
 	// --------------------------------------------------------------- helpers
+
+	/** Checks that the graph has nodes at both places, and that they are in the same graph. */
+	private static void assertOneGraph(GameTestHelper helper, String what, Vec3 a, Vec3 b) {
+		Level level = helper.getLevel();
+		TrackNodeLocation first = new TrackNodeLocation(a).in(level);
+		TrackNodeLocation second = new TrackNodeLocation(b).in(level);
+		TrackGraph graph = Create.RAILWAYS.sided(level)
+			.getGraph(level, first);
+		helper.assertTrue(graph != null && graph.locateNode(first) != null, what + ": the first should be a node");
+		helper.assertTrue(graph.locateNode(second) != null, what + ": the second should be a node of the same graph");
+	}
 
 	/**
 	 * The anchor at {@code relative}: placed there on the Z axis if {@code place}, or the one already there, as

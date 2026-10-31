@@ -415,7 +415,11 @@ public class AngledTrackAnchorBlockEntity extends TrackBlockEntity {
 	public boolean canBranch(boolean ahead) {
 		if (isSlopeDocked())
 			return false;
-		return ahead ? next != null && branchAhead == null : prev != null && branchBehind == null;
+		// The line beside a branch may be Create's own track, which an end joined onto it has on its side
+		// without a curve.
+		boolean line = (ahead ? next != null : prev != null) || isDockedOnTrack() && (ahead ? next == null
+			: prev == null);
+		return line && (ahead ? branchAhead == null : branchBehind == null);
 	}
 
 	/** Whether a branch could leave this anchor on either side, where it has no side free for a route. */
@@ -454,9 +458,11 @@ public class AngledTrackAnchorBlockEntity extends TrackBlockEntity {
 	 * <p>An end docked onto a slope has none. The side without a curve is the slope's, and a curve there
 	 * would make the anchor one with a curve on each side, whose node is at its centre and not on the
 	 * slope's end.
+	 *
+	 * <p>Nor has an end joined onto Create's level track, for the same reason: see {@link #isDockedOnTrack}.
 	 */
 	public boolean hasFreeSide() {
-		return (prev == null || next == null) && !isSlopeDocked();
+		return (prev == null || next == null) && !isSlopeDocked() && !isDockedOnTrack();
 	}
 
 	/**
@@ -1574,11 +1580,52 @@ public class AngledTrackAnchorBlockEntity extends TrackBlockEntity {
 	 * <p>An end is also where the route is handing over to Create's discrete axes anyway, so the
 	 * small amount of roughness that two boundary nodes reintroduce belongs there if anywhere.
 	 *
-	 * <p>An anchor with a branch counts, whatever its route does: the branch and the line beside it leave
-	 * from one node, and only the centre can be that node for both.
+	 * <p>A branch does not count. It leaves from the node on its own side, beside the line there, and an end's
+	 * node on each side is where it was without one: an end joined onto Create's track keeps the node it
+	 * shares with the track, which is the one thing a dock is for.
 	 */
 	private boolean isInterior() {
-		return prev != null && next != null || hasBranch();
+		return prev != null && next != null;
+	}
+
+	/**
+	 * The node this anchor's curve to the anchor at {@code pos} leaves from: the one ahead for its next and
+	 * the branch ahead, the one behind for anything else. Both are the centre wherever the anchor has a
+	 * route through it.
+	 */
+	public Vec3 nodeToward(BlockPos pos) {
+		return pos.equals(next) || pos.equals(branchAhead) ? exitNode() : entryNode();
+	}
+
+	/**
+	 * Whether this is an end whose side without a curve is joined onto Create's own track: the node on that
+	 * side, on the boundary of its block, is one a piece of Create's track reports too. Asked of the blocks
+	 * themselves, not remembered, since the wand did not record it until there were branches, and it stops
+	 * being true when the track is mined.
+	 *
+	 * <p>That side is not free. A curve out of it would run back over the track, and the anchor would have a
+	 * curve on both sides and its node at its centre, which is no longer the track's. It can take a branch
+	 * instead, beside the track: see {@link #canBranch(boolean)}.
+	 */
+	public boolean isDockedOnTrack() {
+		if (level == null || slopeDock || (prev == null) == (next == null))
+			return false;
+		Vec3 entry = entryNode();
+		Vec3 exit = exitNode();
+		// A node at the centre of the block meets no track of Create's, which puts its nodes on boundaries.
+		if (entry.distanceToSqr(exit) < 1.0E-6)
+			return false;
+		TrackNodeLocation location = new TrackNodeLocation(prev == null ? entry : exit).in(level);
+		for (BlockPos pos : location.allAdjacent()) {
+			if (!level.isLoaded(pos))
+				continue;
+			BlockState state = level.getBlockState(pos);
+			if (state.getBlock() instanceof ITrackBlock track && !(state.getBlock() instanceof AngledTrackAnchorBlock)
+				&& track.getConnected(level, pos, state, false, null)
+					.contains(location))
+				return true;
+		}
+		return false;
 	}
 
 	/**
@@ -1618,17 +1665,17 @@ public class AngledTrackAnchorBlockEntity extends TrackBlockEntity {
 	 * The curve from this anchor to {@code ahead}, run from this end, or null if there is none to build:
 	 * the curve to {@link #next}, or to a branch this anchor holds.
 	 *
-	 * <p>The far end's node is its {@link #entryNode} whichever link this is, since the only way it can be
-	 * anything but its prev is as the turnout a branch comes into, and a turnout's node is its centre, as
-	 * both of its nodes are. The same for this end's {@link #exitNode}.
+	 * <p>Each end leaves from its node on the side the other is on ({@link #nodeToward}), which for the curve
+	 * to the next is this anchor's exit and the far one's entry, as it always was, and for a branch is the
+	 * node on the branch's side.
 	 */
 	@Nullable
 	public BezierConnection buildCurveTo(@Nullable AngledTrackAnchorBlockEntity ahead) {
 		if (ahead == null)
 			return null;
 
-		Vec3 start = exitNode();
-		Vec3 end = ahead.entryNode();
+		Vec3 start = nodeToward(ahead.worldPosition);
+		Vec3 end = ahead.nodeToward(worldPosition);
 		if (end.subtract(start)
 			.lengthSqr() < 1.0E-4)
 			return null;
