@@ -56,12 +56,16 @@ public final class TurnoutSteering {
 		if (turnout == null)
 			return null;
 
-		// The heading on the side the ways out are on: they all leave the node along it.
+		// The heading on the side the ways out are on: the turnout's own all leave the node along it. Asked of
+		// all of them together, since a node shared with Create's track can have a way out of Create's there
+		// too, at any angle, and one across the heading would say nothing about which side it is.
 		Vec3 heading = turnout.heading();
-		Vec3 out = targets.get(0)
-			.getValue()
-			.getDirection(true)
-			.dot(heading) >= 0 ? heading : heading.scale(-1);
+		double along = 0;
+		for (Entry<TrackNode, TrackEdge> target : targets)
+			along += target.getValue()
+				.getDirection(true)
+				.dot(heading);
+		Vec3 out = along >= 0 ? heading : heading.scale(-1);
 		Vec3 side = out.cross(upNormal);
 
 		Entry<TrackNode, TrackEdge> best = null;

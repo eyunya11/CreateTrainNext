@@ -255,15 +255,20 @@ public final class CurveRepair {
 		// no curve, and is not.
 		boolean toDocked = to.isSlopeDocked();
 		boolean branchAhead = Boolean.TRUE.equals(fromBranch ? from.branchSide(toPos) : to.branchSide(fromPos));
+		// Where this anchor is among the far turnout's branches, for the middle one to take that place: the
+		// first link takes it off the turnout before the second puts the middle on.
+		int toAt = toBranch ? to.getBranches(branchAhead)
+			.indexOf(fromPos) : -1;
 		Vec3 middleAim = AngledTrackAnchorBlockEntity.tangentOf(junction.heading(), junctionSlope);
 		// A branch stays a branch of its turnout, which is one end or the other.
 		if (fromBranch)
 			from.branchTo(middle, branchAhead, true, middleAim, false, toPos);
 		else
 			from.linkTo(middle, null, middleAim);
-		if (toBranch)
+		if (toBranch) {
 			to.branchTo(middle, branchAhead, false, null);
-		else
+			to.moveBranch(junction.pos(), toAt);
+		} else
 			middle.linkTo(to, null, null, false, toDocked);
 		return new Outcome(link, null, junction.pos(), moved);
 	}

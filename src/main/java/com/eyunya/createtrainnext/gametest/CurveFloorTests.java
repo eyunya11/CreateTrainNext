@@ -2,6 +2,7 @@ package com.eyunya.createtrainnext.gametest;
 
 import static com.eyunya.createtrainnext.gametest.CurveConsistencyTests.anchor;
 
+import java.lang.reflect.Field;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -153,6 +154,59 @@ public class CurveFloorTests {
 		helper.assertTrue(!level.getBlockState(left)
 			.is(CTNRegistry.CURVE_FILLER.get()), "taking the floor up should clear it");
 		helper.succeed();
+	}
+
+	/**
+	 * A floor goes with its link, wherever the far end is. An anchor keeps renewing the floor of a link whose far
+	 * end is in a chunk that is not loaded, since it cannot build the curve to see; one whose link has gone in the
+	 * meantime has to take that floor up instead, or nothing ever would.
+	 */
+	@GameTest(template = EMPTY)
+	@SuppressWarnings("unchecked")
+	public static void aFloorGoesWithItsLinkWhereverTheFarEndIs(GameTestHelper helper)
+		throws ReflectiveOperationException {
+		Level level = helper.getLevel();
+		AngledTrackAnchorBlockEntity from = anchor(helper, new BlockPos(4, 1, 26));
+		AngledTrackAnchorBlockEntity to = anchor(helper, new BlockPos(20, 1, 10));
+		from.linkTo(to, AngledTrackAnchorBlockEntity.tangentOf(EAST, 0), AngledTrackAnchorBlockEntity.tangentOf(NORTH, 0));
+		BezierConnection curve = from.buildCurveToNext();
+
+		boolean collision = CTNConfig.SERVER.curveCollision.get();
+		try {
+			CTNConfig.SERVER.curveCollision.set(true);
+			from.updateOccupancy();
+			helper.assertTrue(!fillersUnder(level, curve).isEmpty(), "setup: the curve should have a floor");
+
+			// The link goes, and the anchor is made to remember the floor by a far end that is not loaded: above
+			// the build height, where nothing ever is. That is where it stands when the link went while the far
+			// end's chunk was unloaded.
+			from.unlink();
+			Field field = AngledTrackAnchorBlockEntity.class.getDeclaredField("occupied");
+			field.setAccessible(true);
+			Map<BlockPos, BezierConnection> occupied = (Map<BlockPos, BezierConnection>) field.get(from);
+			BezierConnection laid = occupied.remove(to.getBlockPos());
+			helper.assertTrue(laid != null, "setup: the anchor should remember the floor it laid");
+			occupied.put(to.getBlockPos()
+				.atY(level.getMaxBuildHeight() + 16), laid);
+
+			from.updateOccupancy();
+			helper.assertTrue(fillersUnder(level, curve).isEmpty(), "the floor of a link that has gone should be taken"
+				+ " up, but is still at " + fillersUnder(level, curve));
+		} finally {
+			CTNConfig.SERVER.curveCollision.set(collision);
+		}
+		helper.succeed();
+	}
+
+	/** The blocks under {@code curve} that hold a piece of floor. */
+	private static List<BlockPos> fillersUnder(Level level, BezierConnection curve) {
+		List<BlockPos> found = new ArrayList<>();
+		for (BlockPos pos : CurveOccupancy.rasterise(curve)
+			.keySet())
+			if (level.getBlockState(pos)
+				.is(CTNRegistry.CURVE_FILLER.get()))
+				found.add(pos);
+		return found;
 	}
 
 	/**

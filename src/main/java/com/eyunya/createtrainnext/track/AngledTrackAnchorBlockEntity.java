@@ -460,6 +460,23 @@ public class AngledTrackAnchorBlockEntity extends TrackBlockEntity {
 		return branchSide(pos) != null;
 	}
 
+	/**
+	 * Puts the branch to {@code pos} at {@code index} among those on its side, for one that has taken the place
+	 * of another by a route that lost the old one first. The order is which of them {@link #promoteBranch} moves
+	 * up to be the line, so the new one should be where the old one was.
+	 */
+	public void moveBranch(BlockPos pos, int index) {
+		Boolean ahead = branchSide(pos);
+		if (ahead == null || index < 0)
+			return;
+		List<BlockPos> side = branches(ahead);
+		if (side.indexOf(pos) == Math.min(index, side.size() - 1))
+			return;
+		side.remove(pos);
+		side.add(Math.min(index, side.size()), pos);
+		markChanged();
+	}
+
 	public boolean isLinked() {
 		return prev != null || next != null || hasBranch();
 	}
@@ -2072,8 +2089,8 @@ public class AngledTrackAnchorBlockEntity extends TrackBlockEntity {
 			// as there being none: the link is still there and so is its floor. Clearing it here took the
 			// floor from under a long link every time its far end was out of the loaded chunks. The floor is
 			// kept alive as it was last laid, in the chunks that are here, since a floor nobody renews times
-			// out.
-			if (!level.isLoaded(end)) {
+			// out. Only while the link is there: one that has gone takes its floor with it, wherever the far end is.
+			if (!level.isLoaded(end) && isLinkedTo(end)) {
 				if (laid != null)
 					CurveOccupancy.place(level, laid);
 				continue;
@@ -2100,7 +2117,7 @@ public class AngledTrackAnchorBlockEntity extends TrackBlockEntity {
 	}
 
 	/** Whether this anchor has a link to the anchor at {@code pos}, of any kind. */
-	private boolean isLinkedTo(BlockPos pos) {
+	public boolean isLinkedTo(BlockPos pos) {
 		return pos.equals(prev) || pos.equals(next) || isBranch(pos);
 	}
 

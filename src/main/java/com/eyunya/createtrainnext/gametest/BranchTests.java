@@ -22,6 +22,7 @@ import com.eyunya.createtrainnext.track.AngledTrackAnchorBlockEntity;
 import com.eyunya.createtrainnext.track.CurvePlanner;
 import com.eyunya.createtrainnext.track.CurveRepair;
 import com.eyunya.createtrainnext.track.CurveWandSelection;
+import com.eyunya.createtrainnext.track.TurnoutSteering;
 import com.simibubi.create.AllBlocks;
 import com.simibubi.create.Create;
 import com.simibubi.create.content.trains.entity.TravellingPoint;
@@ -755,6 +756,51 @@ public class BranchTests {
 	}
 
 	/**
+	 * Left and right at a turnout stay where they are with a way out of some other track there too, listed first
+	 * and leaving across the turnout's heading and a little back: Create's own track sharing the node can have
+	 * one. Which side the turnout's ways out are on is not that one's to say.
+	 */
+	@GameTest(template = EMPTY, timeoutTicks = 60)
+	public static void aWayOutAcrossTheTurnoutDoesNotTurnItsSidesRound(GameTestHelper helper) {
+		Turnout t = turnout(helper);
+		Level level = helper.getLevel();
+
+		helper.runAfterDelay(GRAPH_TICKS, () -> {
+			Vec3 centre = Vec3.atBottomCenterOf(t.turnout()
+				.getBlockPos());
+			TrackNodeLocation at = new TrackNodeLocation(centre).in(level);
+			TrackGraph graph = Create.RAILWAYS.sided(level)
+				.getGraph(level, at);
+			TrackNode node = graph.locateNode(at);
+			TrackNode behind = farEnd(helper, graph, t.turnout()
+				.buildCurveFromPrev(), centre);
+			TrackNode north = farEnd(helper, graph, t.turnout()
+				.curveWith(t.branch()), centre);
+
+			// Going east, south of the turnout and an eighth back, half a block since nodes sit on the half-block
+			// grid: only ever offered here, never in the graph.
+			TrackNode across = new TrackNode(new TrackNodeLocation(centre.add(-0.5, 0, 4)).in(level), 0,
+				new Vec3(0, 1, 0));
+			List<Entry<TrackNode, TrackEdge>> targets = new ArrayList<>();
+			targets.add(Map.entry(across, new TrackEdge(node, across, null, TrackMaterial.ANDESITE)));
+			for (Entry<TrackNode, TrackEdge> target : graph.getConnectionsFrom(node)
+				.entrySet())
+				if (target.getKey() != behind)
+					targets.add(target);
+			helper.assertTrue(targets.size() == 3, "setup: the line ahead, the branch and the one across should be"
+				+ " offered, but " + targets.size() + " are");
+
+			Entry<TrackNode, TrackEdge> left = TurnoutSteering.choose(node, SteerDirection.LEFT, new Vec3(0, 1, 0),
+				true, targets);
+			helper.assertTrue(left != null && left.getKey() == north, "going east, left should still be the branch to"
+				+ " the north, but is " + (left == null ? "nothing" : left.getKey()
+					.getLocation()
+					.getLocation()));
+			helper.succeed();
+		});
+	}
+
+	/**
 	 * Checks which way a train driven {@code direction} goes on arriving at {@code at} from {@code from}, set up
 	 * and asked the way {@code TravellingPoint#travel} does it: moving forwards the point is on the edge from
 	 * {@code from} to {@code at}, which is its second node; moving backwards it is on the edge the other way, and
@@ -860,6 +906,29 @@ public class BranchTests {
 		helper.succeed();
 	}
 
+	/**
+	 * No curve is drawn between two anchors a curve already joins. Linking them would take the link they have
+	 * away: a branch from a turnout to the anchor on its line beside it would leave the turnout with no line
+	 * there, and a branch to its own branch would replace the curve it has.
+	 */
+	@GameTest(template = EMPTY)
+	public static void noCurveIsDrawnBetweenTwoAnchorsAlreadyJoined(GameTestHelper helper) {
+		turnout(helper);
+		Level level = helper.getLevel();
+		List<String> drawn = new ArrayList<>();
+		for (BlockPos[] pair : new BlockPos[][] { { TURNOUT, AHEAD }, { TURNOUT, BRANCH }, { TURNOUT, BEHIND },
+			{ AHEAD, TURNOUT }, { BRANCH, TURNOUT }, { BEHIND, TURNOUT } }) {
+			CurvePlanner.Plan plan = CurvePlanner.plan(level, helper.absolutePos(pair[0]), helper.absolutePos(pair[1]),
+				Direction.UP, 0);
+			if (!"already_linked".equals(plan.error()))
+				drawn.add(pair[0].toShortString() + " to " + pair[1].toShortString() + ": " + (plan.valid() ? "valid"
+					: plan.error()));
+		}
+		helper.assertTrue(drawn.isEmpty(), "each curve between anchors already joined should be refused as such, but "
+			+ drawn);
+		helper.succeed();
+	}
+
 	// ------------------------------------------------------ points and mending
 
 	/**
@@ -943,6 +1012,37 @@ public class BranchTests {
 				assertConsistent(helper, t.branch());
 				helper.succeed();
 			});
+		});
+	}
+
+	/**
+	 * A point put on a branch that runs in takes that branch's place among the turnout's branches, not the end
+	 * of the list: the order is which of them becomes the line if the line beyond goes.
+	 */
+	@GameTest(template = EMPTY, timeoutTicks = 60)
+	public static void aPointOnABranchThatRunsInKeepsItsPlace(GameTestHelper helper) {
+		Turnout t = turnout(helper);
+		t.branch()
+			.reverseRoute();
+		AngledTrackAnchorBlockEntity south = anchor(helper, BRANCH_SOUTH);
+		t.turnout()
+			.branchTo(south, true, true, arcEnd(helper, TURNOUT, t.turnout()
+				.heading(), BRANCH_SOUTH));
+		helper.assertTrue(t.turnout()
+			.getBranches(true)
+			.equals(List.of(t.branch()
+				.getBlockPos(), south.getBlockPos())), "setup: the branch that runs in should be first");
+
+		// New anchors are indexed a tick after they are placed, and finding a curve asks the index.
+		helper.runAfterDelay(1, () -> {
+			AngledTrackAnchorBlockEntity point = putPointOn(helper, t.branch()
+				.curveWith(t.turnout()), t.turnout());
+			helper.assertTrue(t.turnout()
+				.getBranches(true)
+				.equals(List.of(point.getBlockPos(), south.getBlockPos())), "the point should have taken the old"
+					+ " branch's place, first, but the branches are " + t.turnout()
+						.getBranches(true));
+			helper.succeed();
 		});
 	}
 
@@ -1332,8 +1432,9 @@ public class BranchTests {
 		BlockPos inPos = new BlockPos(2, 2, 26);
 		AngledTrackAnchorBlockEntity on = anchor(helper, onPos);
 		AngledTrackAnchorBlockEntity in = anchor(helper, inPos);
-		line[1].branchTo(on, false, true, north);
+		// The one that runs in first, so that mending it shows whether it keeps its place.
 		line[1].branchTo(in, false, false, north);
+		line[1].branchTo(on, false, true, north);
 		// Ahead, one that leaves pointing south and arrives at the turnout going west.
 		BlockPos aheadInPos = new BlockPos(30, 2, 8);
 		AngledTrackAnchorBlockEntity aheadIn = anchor(helper, aheadInPos);
@@ -1359,6 +1460,10 @@ public class BranchTests {
 				.size() == 2 && !line[1].getBranches(false)
 					.contains(onPos) && !line[1].getBranches(false)
 						.contains(inPos), "both branches behind should run through their new anchors now");
+			helper.assertTrue(line[1].getBranches(false)
+				.get(0)
+				.equals(in.getNext()), "the new anchor on the branch that runs in should have its place, first, but the"
+					+ " branches are " + line[1].getBranches(false));
 			helper.assertTrue(line[1].getBranches(true)
 				.size() == 1 && !line[1].getBranches(true)
 					.contains(aheadInPos), "the branch ahead should run through its new anchor now");

@@ -84,6 +84,7 @@
   "message.createtrainnext.wand.same_anchor": "Both ends would be the same anchor.",
   "message.createtrainnext.wand.branch_taken": "This side of the anchor already has two branches.",
   "message.createtrainnext.wand.branch_to_branch": "A branch cannot go straight into another branch. Put an anchor between them.",
+  "message.createtrainnext.wand.already_linked": "These two anchors are already joined by a curve.",
   "message.createtrainnext.wand.dock_taken": "This end of the sloped track already has a curve.",
   "message.createtrainnext.wand.junction_track": "This kind of track cannot be an end of a curve.",
   "message.createtrainnext.wand.slope_turn": "Sloped track can only be joined straight on, along its own line.",

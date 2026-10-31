@@ -84,6 +84,7 @@
   "message.createtrainnext.wand.same_anchor": "始点と終点が同じアンカーになります。",
   "message.createtrainnext.wand.branch_taken": "このアンカーのこちら側には、すでに分岐線が2本あります。",
   "message.createtrainnext.wand.branch_to_branch": "分岐線どうしは直接つなげません。間にアンカーを置いてください。",
+  "message.createtrainnext.wand.already_linked": "この2つのアンカーは、すでに曲線でつながっています。",
   "message.createtrainnext.wand.dock_taken": "傾斜した線路のこちらの端には、すでに曲線がつながっています。",
   "message.createtrainnext.wand.junction_track": "この形の線路は、曲線の端にできません。",
   "message.createtrainnext.wand.slope_turn": "傾斜した線路とは、その延長線上でまっすぐにしかつなげません。",

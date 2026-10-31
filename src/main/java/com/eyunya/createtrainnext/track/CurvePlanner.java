@@ -548,6 +548,13 @@ public final class CurvePlanner {
 		// curve between two turnouts would be no anchor's. A plain anchor between them does it.
 		if (start.branches() && end.branches())
 			return Plan.failed("branch_to_branch");
+		// Two anchors are joined by one curve, and linking them again takes away the link they have: a second
+		// curve between them would quietly replace the first, and a branch to the anchor on the line beside it
+		// would leave the turnout with no line on that side.
+		if (level.getBlockEntity(start.anchorPos()) instanceof AngledTrackAnchorBlockEntity from
+			&& level.getBlockEntity(end.anchorPos()) instanceof AngledTrackAnchorBlockEntity to
+			&& (from.isLinkedTo(to.getBlockPos()) || to.isLinkedTo(from.getBlockPos())))
+			return Plan.failed("already_linked");
 
 		// A curve is one link, and a link runs from somebody's next to somebody's prev. So one end
 		// has to give up its next and the other its prev, and which way round that falls out of
@@ -2026,6 +2033,10 @@ public final class CurvePlanner {
 			return false;
 		boolean branchAhead = Boolean.TRUE.equals(ownersBranch ? owner.branchSide(farPos)
 			: ahead.branchSide(owner.getBlockPos()));
+		// Where the owner is among the turnout's branches, for the point to take that place: the first link
+		// takes the owner off the turnout before the second puts the point on.
+		int intoAt = intoBranch ? ahead.getBranches(branchAhead)
+			.indexOf(owner.getBlockPos()) : -1;
 
 		BlockPos pos = target.anchorPos();
 		clearFor(level, pos);
@@ -2047,9 +2058,10 @@ public final class CurvePlanner {
 			owner.branchTo(inserted, branchAhead, true, aim, false, farPos);
 		else
 			owner.linkTo(inserted, null, aim);
-		if (intoBranch)
+		if (intoBranch) {
 			ahead.branchTo(inserted, branchAhead, false, null);
-		else
+			ahead.moveBranch(pos, intoAt);
+		} else
 			inserted.linkTo(ahead, null, null, false, aheadDocked);
 		return true;
 	}
