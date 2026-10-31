@@ -396,12 +396,9 @@ public class AngledTrackAnchorBlock extends Block implements EntityBlock, ITrack
 		// centre is reachable only from that block, so reporting the curve ahead alone left the
 		// graph walkable in one direction — and rebuilding walks forward after deleting everything
 		// it can reach, which quietly dropped the curve behind. Reporting both makes it symmetric,
-		// the way Create's own track is by storing each bezier on both of its ends.
-		for (BezierConnection owned : new BezierConnection[] { anchor.buildCurveToNext(),
-			anchor.buildCurveFromPrev() }) {
-			if (owned == null)
-				continue;
-
+		// the way Create's own track is by storing each bezier on both of its ends. A turnout's branches
+		// are reported the same way, from its end as well as the branch's.
+		for (BezierConnection owned : anchor.curvesThrough()) {
 			BezierConnection bc = orientedAwayFrom(owned, connectedTo);
 			ITrackBlock.addToListIfConnected(connectedTo, list,
 				(d, b) -> d == 1 ? Vec3.atLowerCornerOf(bc.bePositions.get(b)) : bc.starts.get(b), bc.normals::get,

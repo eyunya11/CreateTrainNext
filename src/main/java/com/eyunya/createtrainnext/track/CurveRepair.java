@@ -99,16 +99,17 @@ public final class CurveRepair {
 				.distanceTo(centre) > radius)
 				continue;
 
-			Link link = linkFrom(anchor);
-			if (link != null)
-				links.add(link);
+			// The branches it holds as well as the link to its next.
+			for (BezierConnection curve : anchor.ownedCurves())
+				links.add(new Link(anchor, curve.bePositions.getSecond(), curve.getLength(),
+					CurvePlanner.orientationDeviation(curve)));
 		}
 		links.sort(Comparator.comparingDouble(Link::deviation)
 			.reversed());
 		return links;
 	}
 
-	/** The link this anchor owns, or null if it has none that can be measured. */
+	/** The link from this anchor to its next, or null if it has none that can be measured. */
 	@Nullable
 	public static Link linkFrom(AngledTrackAnchorBlockEntity anchor) {
 		BezierConnection curve = anchor.buildCurveToNext();
@@ -161,15 +162,22 @@ public final class CurveRepair {
 			return Outcome.left(link, "client");
 
 		AngledTrackAnchorBlockEntity from = link.from();
-		BlockPos toPos = from.getNext();
+		BlockPos toPos = link.to();
 		if (toPos == null || !level.isLoaded(toPos)
 			|| !(level.getBlockEntity(toPos) instanceof AngledTrackAnchorBlockEntity to))
 			return Outcome.left(link, "not_loaded");
-		if (!from.getBlockPos()
-			.equals(to.getPrev()))
+		if (!from.owns(to) || !from.agreesWith(to))
 			return Outcome.left(link, "links_disagree");
 
-		BezierConnection single = from.buildCurveToNext();
+		// The link is the from anchor's next or one of its branches, and comes into the to anchor as its prev
+		// or as one of its branches; which, says which side of each it is on.
+		BlockPos fromPos = from.getBlockPos();
+		boolean fromBranch = !toPos.equals(from.getNext());
+		boolean toBranch = !fromPos.equals(to.getPrev());
+		boolean leavesAhead = toPos.equals(from.getNext()) || Boolean.TRUE.equals(from.branchSide(toPos));
+		boolean arrivesBehind = fromPos.equals(to.getPrev()) || Boolean.FALSE.equals(to.branchSide(fromPos));
+
+		BezierConnection single = from.buildCurveTo(to);
 		if (single == null)
 			return Outcome.left(link, "not_loaded");
 		if (CurvePlanner.orientationDeviation(single) <= CurvePlanner.MAX_ORIENTATION_DEVIATION)
@@ -181,10 +189,15 @@ public final class CurveRepair {
 
 		// The ends of the curve as the anchors report them now. Neither moves: linking through an
 		// anchor in the middle changes the other side of each anchor, not the side this curve is on.
-		Vec3 startPoint = from.exitNode();
-		Vec3 endPoint = to.entryNode();
-		Vec3 startHeading = from.heading();
-		Vec3 endHeading = to.heading();
+		Vec3 startPoint = from.nodeToward(toPos);
+		Vec3 endPoint = to.nodeToward(fromPos);
+		// Which way the curve runs at each end, from the one to the other.
+		Vec3 startHeading = leavesAhead ? from.heading() : from.heading()
+			.scale(-1);
+		Vec3 endHeading = arrivesBehind ? to.heading() : to.heading()
+			.scale(-1);
+		double startSlope = AngledTrackAnchorBlockEntity.slopeOf(from.outwardTo(toPos));
+		double endSlope = -AngledTrackAnchorBlockEntity.slopeOf(to.outwardTo(fromPos));
 
 		Biarc.Junction junction = Biarc.find(startPoint, startHeading, endPoint, endHeading,
 			pos -> CurvePlanner.junctionUsable(level, pos));
@@ -202,16 +215,18 @@ public final class CurveRepair {
 		double junctionSlope = (float) ((endPoint.y - startPoint.y) / run);
 
 		BezierConnection first = CurvePlanner.curveBetween(from.getBlockPos(), junction.pos(), startPoint,
-			junction.point(), startHeading, junction.heading(), from.getSlope(), junctionSlope);
+			junction.point(), startHeading, junction.heading(), startSlope, junctionSlope);
 		BezierConnection second = CurvePlanner.curveBetween(junction.pos(), toPos, junction.point(), endPoint,
-			junction.heading(), endHeading, junctionSlope, to.getSlope());
+			junction.heading(), endHeading, junctionSlope, endSlope);
 
 		// Each arc against the track already on the far side of the anchor it starts or ends at. An
 		// anchor with a curve on both sides is asked about the one that is staying: the link being
-		// replaced is the other side, and is not what the new arc has to line up with.
-		Vec3 arriving = from.getPrev() == null ? null
-			: CurvePlanner.adjoiningDirection(from, false, CurvePlanner.Role.START);
-		Vec3 leaving = to.getNext() == null ? null : CurvePlanner.adjoiningDirection(to, true, CurvePlanner.Role.END);
+		// replaced is the other side, and is not what the new arc has to line up with. So is a turnout about
+		// the line on the far side of its branch.
+		Vec3 arriving = (leavesAhead ? from.getPrev() : from.getNext()) == null ? null
+			: CurvePlanner.adjoiningDirection(from, !leavesAhead, CurvePlanner.Role.START);
+		Vec3 leaving = (arrivesBehind ? to.getNext() : to.getPrev()) == null ? null
+			: CurvePlanner.adjoiningDirection(to, arrivesBehind, CurvePlanner.Role.END);
 
 		String error = CurvePlanner.validateCurve(first, startPoint, junction.point(), startHeading,
 			junction.heading(), arriving, null);
@@ -239,8 +254,22 @@ public final class CurveRepair {
 		// Whether the far anchor is docked onto a slope goes with it too: between the two links it has
 		// no curve, and is not.
 		boolean toDocked = to.isSlopeDocked();
-		from.linkTo(middle, null, AngledTrackAnchorBlockEntity.tangentOf(junction.heading(), junctionSlope));
-		middle.linkTo(to, null, null, false, toDocked);
+		boolean branchAhead = Boolean.TRUE.equals(fromBranch ? from.branchSide(toPos) : to.branchSide(fromPos));
+		// Where this anchor is among the far turnout's branches, for the middle one to take that place: the
+		// first link takes it off the turnout before the second puts the middle on.
+		int toAt = toBranch ? to.getBranches(branchAhead)
+			.indexOf(fromPos) : -1;
+		Vec3 middleAim = AngledTrackAnchorBlockEntity.tangentOf(junction.heading(), junctionSlope);
+		// A branch stays a branch of its turnout, which is one end or the other.
+		if (fromBranch)
+			from.branchTo(middle, branchAhead, true, middleAim, false, toPos);
+		else
+			from.linkTo(middle, null, middleAim);
+		if (toBranch) {
+			to.branchTo(middle, branchAhead, false, null);
+			to.moveBranch(junction.pos(), toAt);
+		} else
+			middle.linkTo(to, null, null, false, toDocked);
 		return new Outcome(link, null, junction.pos(), moved);
 	}
 

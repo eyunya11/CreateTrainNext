@@ -85,6 +85,17 @@ public final class CurvePlanner {
 		}
 	}
 
+	/**
+	 * Whether an end of a curve is a branch leaving an anchor that a route already runs through, and on which
+	 * side: alongside the curve to its next ({@code AHEAD}), or the one from its prev ({@code BEHIND}). See
+	 * {@link AngledTrackAnchorBlockEntity#getBranches}.
+	 */
+	public enum Branch {
+		NONE,
+		AHEAD,
+		BEHIND
+	}
+
 	private static final Vec3 UP = new Vec3(0, 1, 0);
 
 	/**
@@ -212,15 +223,24 @@ public final class CurvePlanner {
 	 * @param dockNode     where this end's node is when it is docked onto the end of Create's sloped
 	 *                     track: the slope's own end node, which the anchor will share. Null for every
 	 *                     other end, whose node follows from its anchor's heading and links.
+	 * @param branch       whether this end is a branch out of an anchor a route runs through, and which side
+	 *                     of it. Such an end may be either end of the link, since the anchor keeps a branch
+	 *                     apart from its prev and next, so its {@code side} is {@link Side#EITHER}.
 	 */
 	public record Endpoint(@Nullable String error, BlockPos anchorPos, boolean mustPlace,
 		@Nullable Vec3 fixedHeading, boolean interior, boolean docked, Side side, double fixedSlope,
-		@Nullable Vec3 dockNode) {
+		@Nullable Vec3 dockNode, Branch branch) {
 
 		/** An end that is not docked onto a slope. */
 		public Endpoint(@Nullable String error, BlockPos anchorPos, boolean mustPlace, @Nullable Vec3 fixedHeading,
 			boolean interior, boolean docked, Side side, double fixedSlope) {
 			this(error, anchorPos, mustPlace, fixedHeading, interior, docked, side, fixedSlope, null);
+		}
+
+		/** An end that is not a branch. */
+		public Endpoint(@Nullable String error, BlockPos anchorPos, boolean mustPlace, @Nullable Vec3 fixedHeading,
+			boolean interior, boolean docked, Side side, double fixedSlope, @Nullable Vec3 dockNode) {
+			this(error, anchorPos, mustPlace, fixedHeading, interior, docked, side, fixedSlope, dockNode, Branch.NONE);
 		}
 
 		static Endpoint failed(String error) {
@@ -230,12 +250,18 @@ public final class CurvePlanner {
 		/** This end moved to another height in the same column, for a grade to choose where it goes. */
 		Endpoint atHeight(int y) {
 			return new Endpoint(error, anchorPos.atY(y), mustPlace, fixedHeading, interior, docked, side, fixedSlope,
-				dockNode);
+				dockNode, branch);
 		}
 
 		/** This end moved to another block at the same height, for an angle to choose where it goes. */
 		Endpoint movedTo(BlockPos pos) {
-			return new Endpoint(error, pos, mustPlace, fixedHeading, interior, docked, side, fixedSlope, dockNode);
+			return new Endpoint(error, pos, mustPlace, fixedHeading, interior, docked, side, fixedSlope, dockNode,
+				branch);
+		}
+
+		/** Whether this end is a branch out of an anchor a route already runs through. */
+		public boolean branches() {
+			return branch != Branch.NONE;
 		}
 
 		/**
@@ -364,16 +390,46 @@ public final class CurvePlanner {
 	 */
 	public static boolean canStartFrom(Level level, BlockPos pos) {
 		if (level.getBlockEntity(pos) instanceof AngledTrackAnchorBlockEntity anchor)
-			return anchor.hasFreeSide();
+			return anchor.hasFreeSide() || anchor.canBranch();
 
 		BlockState state = level.getBlockState(pos);
 		if (!(state.getBlock() instanceof ITrackBlock track))
 			return false;
 
-		// The same refusal resolve() makes, asked here so that a junction is refused by the click that
-		// picked it rather than by every click after it. A slope can be started from, at either end.
-		return track.getTrackAxes(level, pos, state)
-			.size() == 1;
+		// The same refusal resolve() makes, asked here so that track no curve can use is refused by the click
+		// that picked it rather than by every click after it. A slope can be started from, at either end, and a
+		// crossing from the end of either of its lines.
+		return axisToward(track.getTrackAxes(level, pos, state), Vec3.ZERO) != null;
+	}
+
+	/**
+	 * Which of the axes Create's track at a block reports a curve going {@code toOther} would use: its one
+	 * axis, or of a crossing's two, the one that runs nearer the way the curve goes, so that the curve
+	 * carries on the line it is drawn out of. Null where there are several and one is not level: Create has no
+	 * such track, every one of its crossings being two level lines, but another mod's track block may, and
+	 * which end of it a curve should join is not something to guess.
+	 *
+	 * <p>A crossing puts the nodes at the ends of each of its lines where a straight piece of track along
+	 * that line would ({@code TrackBlock#getConnected}), so the end of either line is as good a place to
+	 * join as the end of any straight track.
+	 */
+	@Nullable
+	private static Vec3 axisToward(List<Vec3> axes, Vec3 toOther) {
+		if (axes.size() == 1)
+			return axes.get(0);
+		Vec3 best = null;
+		double bestAlong = -1;
+		for (Vec3 axis : axes) {
+			if (Math.abs(axis.y) > 1.0E-4)
+				return null;
+			double along = toOther.lengthSqr() < 1.0E-8 ? 0 : Math.abs(axis.normalize()
+				.dot(toOther.normalize()));
+			if (along > bestAlong) {
+				bestAlong = along;
+				best = axis;
+			}
+		}
+		return best;
 	}
 
 	/**
@@ -395,7 +451,10 @@ public final class CurvePlanner {
 			}
 			return 0;
 		}
-		Endpoint endpoint = fromExisting(anchor, Role.START);
+		Endpoint endpoint = fromExisting(anchor, Role.START, null);
+		// A branch may leave either way, up or down the line's climb, which is the same climb.
+		if (endpoint.branches())
+			return Math.abs(endpoint.fixedSlope());
 		return endpoint.error() != null || endpoint.fixedHeading() == null ? 0 : endpoint.fixedSlope();
 	}
 
@@ -472,7 +531,7 @@ public final class CurvePlanner {
 				end = end.movedTo(onLine);
 				blocked = true;
 			} else if (level.getBlockEntity(onLine) instanceof AngledTrackAnchorBlockEntity there) {
-				end = fromExisting(there, Role.END);
+				end = fromExisting(there, Role.END, Vec3.atBottomCenterOf(start.anchorPos()));
 				if (end.error() != null)
 					return Plan.failed(end.error());
 			} else {
@@ -485,6 +544,17 @@ public final class CurvePlanner {
 		if (start.anchorPos()
 			.equals(end.anchorPos()))
 			return Plan.failed("same_anchor");
+		// A link is somebody's next and somebody's prev, and a turnout keeps a branch apart from both, so a
+		// curve between two turnouts would be no anchor's. A plain anchor between them does it.
+		if (start.branches() && end.branches())
+			return Plan.failed("branch_to_branch");
+		// Two anchors are joined by one curve, and linking them again takes away the link they have: a second
+		// curve between them would quietly replace the first, and a branch to the anchor on the line beside it
+		// would leave the turnout with no line on that side.
+		if (level.getBlockEntity(start.anchorPos()) instanceof AngledTrackAnchorBlockEntity from
+			&& level.getBlockEntity(end.anchorPos()) instanceof AngledTrackAnchorBlockEntity to
+			&& (from.isLinkedTo(to.getBlockPos()) || to.isLinkedTo(from.getBlockPos())))
+			return Plan.failed("already_linked");
 
 		// A curve is one link, and a link runs from somebody's next to somebody's prev. So one end
 		// has to give up its next and the other its prev, and which way round that falls out of
@@ -709,10 +779,9 @@ public final class CurvePlanner {
 		boolean toDocks = toEnd.onSlope();
 
 		Biarc.Junction junction = plan.junction();
-		if (junction == null) {
-			from.linkTo(to, fromAim, toAim, fromDocks, toDocks);
-			return null;
-		}
+		if (junction == null)
+			return link(from, fromEnd, to, toEnd, fromAim, toAim, fromDocks, toDocks) ? null
+				: abandon(level, plan, reversed, placed, "branch_taken");
 
 		// Two arcs, and an anchor where they meet. It points the way the route runs there, which is
 		// the junction's heading when the link runs the way the curve was drawn and its opposite when
@@ -724,13 +793,39 @@ public final class CurvePlanner {
 		if (!(level.getBlockEntity(junction.pos()) instanceof AngledTrackAnchorBlockEntity middle))
 			return abandon(level, plan, reversed, placed);
 
-		from.linkTo(middle, fromAim, middleHeading, fromDocks, false);
-		middle.linkTo(to, null, toAim, false, toDocks);
+		if (!link(from, fromEnd, middle, null, fromAim, middleHeading, fromDocks, false)
+			|| !link(middle, null, to, toEnd, null, toAim, false, toDocks))
+			return abandon(level, plan, reversed, placed, "branch_taken");
 		return null;
+	}
+
+	/**
+	 * Links {@code from} to {@code to}, so that the route runs from one into the other: as one's next and the
+	 * other's prev, or, where either end is a branch out of a turnout, as the turnout's branch and the other's
+	 * prev or next. The two cannot both be branches; {@link #connect} refuses that.
+	 *
+	 * @param fromEnd what the plan said about {@code from}, or null for the anchor between two arcs.
+	 * @param toEnd   the same for {@code to}.
+	 * @return whether they were linked: a branch is not, on a side of the turnout with no room left.
+	 */
+	private static boolean link(AngledTrackAnchorBlockEntity from, @Nullable Endpoint fromEnd,
+		AngledTrackAnchorBlockEntity to, @Nullable Endpoint toEnd, @Nullable Vec3 fromAim, @Nullable Vec3 toAim,
+		boolean fromDocks, boolean toDocks) {
+		if (fromEnd != null && fromEnd.branches())
+			return from.branchTo(to, fromEnd.branch() == Branch.AHEAD, true, toAim, toDocks, null);
+		if (toEnd != null && toEnd.branches())
+			return to.branchTo(from, toEnd.branch() == Branch.AHEAD, false, fromAim, fromDocks, null);
+		from.linkTo(to, fromAim, toAim, fromDocks, toDocks);
+		return true;
 	}
 
 	/** Puts the world back as far as {@link #apply} had got, and says there was no room. */
 	private static String abandon(Level level, Plan plan, boolean reversed, List<BlockPos> placed) {
+		return abandon(level, plan, reversed, placed, "no_room");
+	}
+
+	/** The same, giving {@code reason} as why. */
+	private static String abandon(Level level, Plan plan, boolean reversed, List<BlockPos> placed, String reason) {
 		// Only where an anchor really stands: a block that could not be placed leaves nothing of ours
 		// there, and what is there instead is not ours to remove.
 		for (BlockPos pos : placed)
@@ -742,7 +837,7 @@ public final class CurvePlanner {
 		if (reversed && level.getBlockEntity(plan.end()
 			.anchorPos()) instanceof AngledTrackAnchorBlockEntity turned)
 			turned.reverseRoute();
-		return "no_room";
+		return reason;
 	}
 
 	private static void place(Level level, Endpoint endpoint, Vec3 heading, List<BlockPos> placed) {
@@ -799,7 +894,7 @@ public final class CurvePlanner {
 		boolean heightFree) {
 		// An anchor was clicked outright.
 		if (level.getBlockEntity(hitPos) instanceof AngledTrackAnchorBlockEntity anchor)
-			return fromExisting(anchor, role);
+			return fromExisting(anchor, role, towards);
 
 		BlockState state = level.getBlockState(hitPos);
 
@@ -808,17 +903,16 @@ public final class CurvePlanner {
 		// Create's track, so placing one directly alongside the other lands both on the same point
 		// and the graph merges them. Anywhere else and the curve simply stops next to the track.
 		if (state.getBlock() instanceof ITrackBlock track) {
-			List<Vec3> axes = track.getTrackAxes(level, hitPos, state);
+			Vec3 toOther = flat(towards.subtract(Vec3.atBottomCenterOf(hitPos)));
+			Vec3 axis = axisToward(track.getTrackAxes(level, hitPos, state), toOther);
 			// Not "junction": that key is the ghost's note that an anchor goes between two arcs.
-			if (axes.size() > 1)
+			if (axis == null)
 				return Endpoint.failed("junction_track");
 
 			// The side of the track that faces the rest of the curve. An axis serves either way
 			// along itself, so this is the only thing that picks between the two.
-			Vec3 axis = axes.get(0);
-			Vec3 toOther = flat(towards.subtract(Vec3.atBottomCenterOf(hitPos)));
 			Vec3 side = axis.dot(toOther) < 0 ? axis.scale(-1) : axis;
-			return trackEnd(level, hitPos, state, track, side, role);
+			return trackEnd(level, hitPos, state, track, side, role, towards);
 		}
 
 		// Open ground: the anchor goes where a block would have gone. Only ever the far end of a
@@ -830,7 +924,7 @@ public final class CurvePlanner {
 
 		BlockPos placePos = state.canBeReplaced() ? hitPos : hitPos.relative(face == null ? Direction.UP : face);
 		if (level.getBlockEntity(placePos) instanceof AngledTrackAnchorBlockEntity existing)
-			return fromExisting(existing, role);
+			return fromExisting(existing, role, towards);
 		if (!heightFree && !level.getBlockState(placePos)
 			.canBeReplaced())
 			return Endpoint.failed("no_room");
@@ -859,9 +953,10 @@ public final class CurvePlanner {
 	 * the way.
 	 *
 	 * @param side the track's axis, pointing out of the end that faces the rest of the curve.
+	 * @param towards roughly where the other end of the curve is, for an anchor there that is to branch.
 	 */
 	private static Endpoint trackEnd(Level level, BlockPos hitPos, BlockState state, ITrackBlock track, Vec3 side,
-		Role role) {
+		Role role, Vec3 towards) {
 		Vec3 node = Vec3.atBottomCenterOf(hitPos)
 			.add(0, track.getElevationAtCenter(level, hitPos, state), 0)
 			.add(side.scale(0.5));
@@ -877,7 +972,7 @@ public final class CurvePlanner {
 
 		if (level.getBlockEntity(anchorPos) instanceof AngledTrackAnchorBlockEntity existing) {
 			if (!sloped)
-				return fromExisting(existing, role);
+				return fromExisting(existing, role, towards);
 			if (existing.isSlopeDocked())
 				return Endpoint.failed("dock_taken");
 			if (existing.isLinked())
@@ -893,22 +988,35 @@ public final class CurvePlanner {
 	/**
 	 * What an anchor that already exists allows.
 	 *
-	 * <p>Each anchor holds one link in each direction, so a route runs through it rather than
-	 * branching at it. A curve therefore has to leave by the side that is still free, and the side
-	 * that is taken is what fixes the heading: it belongs to the curve already there.
+	 * <p>Each anchor holds one link in each direction, so a route runs through it. A curve leaves by the
+	 * side that is still free, and the side that is taken is what fixes the heading: it belongs to the
+	 * curve already there.
+	 *
+	 * <p>An anchor with no side free is one a route runs through, and a curve from it is a branch: it
+	 * leaves along the route's heading, beside the line on whichever side faces {@code towards}, so that
+	 * the turnout is made the way the player is pointing. A side that has a branch already has no room for
+	 * another.
+	 *
+	 * @param towards roughly where the other end of the curve is; null where it is not known, which takes
+	 *                the side ahead where there is a choice.
 	 */
-	private static Endpoint fromExisting(AngledTrackAnchorBlockEntity anchor, Role role) {
+	private static Endpoint fromExisting(AngledTrackAnchorBlockEntity anchor, Role role, @Nullable Vec3 towards) {
 		boolean nextFree = anchor.getNext() == null;
 		boolean prevFree = anchor.getPrev() == null;
 
-		if (!nextFree && !prevFree)
-			return Endpoint.failed(role == Role.START ? "start_taken" : "end_taken");
 		// One docked onto a slope has the slope on the side without a curve, so neither is free; but it has
 		// one curve, not two, and saying it had two would point the player at the wrong thing.
 		if (anchor.isSlopeDocked())
 			return Endpoint.failed("dock_taken");
+		// Nor is the side of an end joined onto Create's level track, whose track is the line there.
+		if (!anchor.hasFreeSide())
+			return branchFrom(anchor, role, towards);
 
 		Side side = nextFree && prevFree ? Side.EITHER : nextFree ? Side.NEXT : Side.PREV;
+		// An anchor whose line has gone from both sides of a branch still points the way the branch runs, and
+		// turning it would move the branch: a new curve goes out of whichever side faces the other end.
+		if (side == Side.EITHER && anchor.hasBranch())
+			side = aheadOf(anchor, towards) ? Side.NEXT : Side.PREV;
 
 		// Which way a new curve leaves this anchor. An anchor already carrying one has its
 		// direction settled — the route runs through it, so the new curve continues the line, and
@@ -925,8 +1033,39 @@ public final class CurvePlanner {
 
 		// The climb is read off the same vector, so it turns round with the heading: an anchor whose
 		// route climbs, continued backwards out of its first anchor, is a descent for the new curve.
-		return new Endpoint(null, anchor.getBlockPos(), false, fixed == null ? null : flatUnit(fixed),
-			anchor.isLinked(), false, side, fixed == null ? 0.0 : AngledTrackAnchorBlockEntity.slopeOf(fixed));
+		// Whether it will have a route through it once linked, which is whether the other side has a line. An
+		// anchor with branches and no line has none, and a branch does not move a node.
+		boolean interior = side == Side.NEXT ? anchor.getPrev() != null
+			: side == Side.PREV && anchor.getNext() != null;
+		return new Endpoint(null, anchor.getBlockPos(), false, fixed == null ? null : flatUnit(fixed), interior,
+			false, side, fixed == null ? 0.0 : AngledTrackAnchorBlockEntity.slopeOf(fixed));
+	}
+
+	/**
+	 * A branch out of an anchor a route runs through, on the side that faces {@code towards}: see
+	 * {@link #fromExisting}. It leaves along the route's heading on that side, climb and all, so that it
+	 * meets the line there at no angle, which is what lets a train from the other side take either.
+	 *
+	 * <p>It leaves from the anchor's node on that side, which a branch does not move: the centre for an
+	 * anchor in the middle of a route, the boundary of its block for an end joined onto Create's track.
+	 */
+	private static Endpoint branchFrom(AngledTrackAnchorBlockEntity anchor, Role role, @Nullable Vec3 towards) {
+		boolean ahead = aheadOf(anchor, towards);
+		if (!anchor.canBranch(ahead))
+			return Endpoint.failed("branch_taken");
+
+		Vec3 outward = ahead ? anchor.tangent() : anchor.tangent()
+			.scale(-1);
+		Vec3 fixed = role == Role.START ? outward : outward.scale(-1);
+		boolean interior = anchor.getPrev() != null && anchor.getNext() != null;
+		return new Endpoint(null, anchor.getBlockPos(), false, flatUnit(fixed), interior, false, Side.EITHER,
+			AngledTrackAnchorBlockEntity.slopeOf(fixed), null, ahead ? Branch.AHEAD : Branch.BEHIND);
+	}
+
+	/** Whether {@code towards} lies ahead of an anchor, along its heading; ahead where it is not known. */
+	private static boolean aheadOf(AngledTrackAnchorBlockEntity anchor, @Nullable Vec3 towards) {
+		return towards == null || flat(towards.subtract(Vec3.atBottomCenterOf(anchor.getBlockPos())))
+			.dot(anchor.heading()) >= 0;
 	}
 
 	// ------------------------------------------------------------- geometry
@@ -1465,10 +1604,17 @@ public final class CurvePlanner {
 	 */
 	@Nullable
 	private static Vec3 adjoiningDirection(Level level, Endpoint endpoint, Vec3 heading, Role role) {
+		// A branch out of an end leaves the boundary of the end's block, where what a train comes off is the
+		// end's own span, aimed along the heading.
 		if (!endpoint.interior())
 			return null;
 		if (!(level.getBlockEntity(endpoint.anchorPos()) instanceof AngledTrackAnchorBlockEntity anchor))
 			return null;
+
+		// A branch is beside the line on its own side, and a train that takes it comes from the other: the
+		// line there is what it has to line up with.
+		if (endpoint.branches())
+			return adjoiningDirection(anchor, endpoint.branch() == Branch.BEHIND, role);
 
 		// Whichever side is already spoken for is the one with a curve on it. Exactly one is, or
 		// the endpoint would not have got this far.
@@ -1727,7 +1873,7 @@ public final class CurvePlanner {
 	 * @param error    why it cannot be done there, or null if it can.
 	 */
 	public record SplitTarget(@Nullable AngledTrackAnchorBlockEntity owner, double t, Vec3 point, Vec3 tangent,
-		double slope, BlockPos anchorPos, @Nullable String error) {
+		double slope, BlockPos anchorPos, @Nullable String error, @Nullable BlockPos far) {
 
 		public boolean valid() {
 			return error == null && owner != null;
@@ -1749,32 +1895,32 @@ public final class CurvePlanner {
 		double bestT = 0;
 		double bestDistance = maxDistance * maxDistance;
 
-		for (AngledTrackAnchorBlockEntity anchor : AnchorIndex.in(level)) {
-			BezierConnection curve = anchor.buildCurveToNext();
-			if (curve == null)
-				continue;
-			if (!curve.getBounds()
-				.inflate(maxDistance)
-				.contains(near))
-				continue;
-
-			double length = curve.getLength();
-			int samples = Math.max(8, (int) (length * 4));
-
-			for (int i = 0; i <= samples; i++) {
-				double t = i / (double) samples;
-				double distance = curve.getPosition(t)
-					.distanceToSqr(near);
-				if (distance >= bestDistance)
+		// Every curve is held by one of its two ends, the branches of a turnout among them, so asking each anchor
+		// for those it holds asks about each curve once.
+		for (AngledTrackAnchorBlockEntity anchor : AnchorIndex.in(level))
+			for (BezierConnection curve : anchor.ownedCurves()) {
+				if (!curve.getBounds()
+					.inflate(maxDistance)
+					.contains(near))
 					continue;
 
-				bestDistance = distance;
-				bestOwner = anchor;
-				bestCurve = curve;
-				bestLength = length;
-				bestT = t;
+				double length = curve.getLength();
+				int samples = Math.max(8, (int) (length * 4));
+
+				for (int i = 0; i <= samples; i++) {
+					double t = i / (double) samples;
+					double distance = curve.getPosition(t)
+						.distanceToSqr(near);
+					if (distance >= bestDistance)
+						continue;
+
+					bestDistance = distance;
+					bestOwner = anchor;
+					bestCurve = curve;
+					bestLength = length;
+					bestT = t;
+				}
 			}
-		}
 
 		// Only the winner is described. Everything in describeSplit reads the world, and doing that
 		// for each sample that happened to be an improvement would mean hundreds of block lookups
@@ -1786,6 +1932,8 @@ public final class CurvePlanner {
 		double t, double length) {
 
 		Vec3 point = curve.getPosition(t);
+		// The anchor at the curve's other end: the owner's next, or a branch of its.
+		BlockPos far = curve.bePositions.getSecond();
 
 		// The tangent as a difference across a short step rather than the bezier's derivative, so
 		// this needs nothing but the curve's public shape.
@@ -1805,21 +1953,21 @@ public final class CurvePlanner {
 		// Both halves have to be a curve in their own right afterwards. The same MIN_SPAN the wand
 		// holds a new curve to, measured along this one.
 		if (t * length < MIN_SPAN + 1 || (1 - t) * length < MIN_SPAN + 1)
-			return new SplitTarget(owner, t, point, tangent, slope, anchorPos, "split_too_close");
-		if (anchorPos.equals(owner.getBlockPos()) || anchorPos.equals(owner.getNext()))
-			return new SplitTarget(owner, t, point, tangent, slope, anchorPos, "split_too_close");
+			return new SplitTarget(owner, t, point, tangent, slope, anchorPos, "split_too_close", far);
+		if (anchorPos.equals(owner.getBlockPos()) || anchorPos.equals(far))
+			return new SplitTarget(owner, t, point, tangent, slope, anchorPos, "split_too_close", far);
 		if (level.getBlockEntity(anchorPos) instanceof AngledTrackAnchorBlockEntity)
-			return new SplitTarget(owner, t, point, tangent, slope, anchorPos, "split_occupied");
+			return new SplitTarget(owner, t, point, tangent, slope, anchorPos, "split_occupied", far);
 		if (!level.getBlockState(anchorPos)
 			.canBeReplaced())
-			return new SplitTarget(owner, t, point, tangent, slope, anchorPos, "no_room");
+			return new SplitTarget(owner, t, point, tangent, slope, anchorPos, "no_room", far);
 
 		// Splitting replaces the curve with two others, and a signal standing on it remembers the
 		// curve it was put on by where its ends are.
 		if (carriesPoints(level, curve))
-			return new SplitTarget(owner, t, point, tangent, slope, anchorPos, "split_has_points");
+			return new SplitTarget(owner, t, point, tangent, slope, anchorPos, "split_has_points", far);
 
-		return new SplitTarget(owner, t, point, tangent, slope, anchorPos, null);
+		return new SplitTarget(owner, t, point, tangent, slope, anchorPos, null, far);
 	}
 
 	/**
@@ -1872,9 +2020,23 @@ public final class CurvePlanner {
 			return false;
 
 		AngledTrackAnchorBlockEntity owner = target.owner();
-		BlockPos nextPos = owner.getNext();
-		if (nextPos == null || !(level.getBlockEntity(nextPos) instanceof AngledTrackAnchorBlockEntity ahead))
+		BlockPos farPos = target.far();
+		if (farPos == null || !(level.getBlockEntity(farPos) instanceof AngledTrackAnchorBlockEntity ahead))
 			return false;
+		// Which kind of link the curve is: the owner's next, and maybe a branch coming into a turnout there; or
+		// a branch of the owner's, running on from it. Read before anything changes, as the first link below
+		// takes the far end off the owner.
+		boolean ownersBranch = !farPos.equals(owner.getNext());
+		boolean intoBranch = !ownersBranch && ahead.isBranch(owner.getBlockPos());
+		if (ownersBranch && !(owner.isBranch(farPos) && owner.getBlockPos()
+			.equals(ahead.getPrev())))
+			return false;
+		boolean branchAhead = Boolean.TRUE.equals(ownersBranch ? owner.branchSide(farPos)
+			: ahead.branchSide(owner.getBlockPos()));
+		// Where the owner is among the turnout's branches, for the point to take that place: the first link
+		// takes the owner off the turnout before the second puts the point on.
+		int intoAt = intoBranch ? ahead.getBranches(branchAhead)
+			.indexOf(owner.getBlockPos()) : -1;
 
 		BlockPos pos = target.anchorPos();
 		clearFor(level, pos);
@@ -1889,8 +2051,18 @@ public final class CurvePlanner {
 		// before it, not looked up again after. So does whether it is docked onto a slope, which it
 		// is not for the moment between the two links, when it has no curve.
 		boolean aheadDocked = ahead.isSlopeDocked();
-		owner.linkTo(inserted, null, AngledTrackAnchorBlockEntity.tangentOf(target.tangent(), target.slope()));
-		inserted.linkTo(ahead, null, null, false, aheadDocked);
+		Vec3 aim = AngledTrackAnchorBlockEntity.tangentOf(target.tangent(), target.slope());
+		// A branch stays a branch of its turnout, at whichever end of the two curves the turnout is. The point
+		// takes the old branch's place, or the room its curve left, so there is always room for it.
+		if (ownersBranch)
+			owner.branchTo(inserted, branchAhead, true, aim, false, farPos);
+		else
+			owner.linkTo(inserted, null, aim);
+		if (intoBranch) {
+			ahead.branchTo(inserted, branchAhead, false, null);
+			ahead.moveBranch(pos, intoAt);
+		} else
+			inserted.linkTo(ahead, null, null, false, aheadDocked);
 		return true;
 	}
 

@@ -468,6 +468,15 @@ public class CurveWandPreview {
 				detail = detail.copy()
 					.append(Component.translatable("message.createtrainnext.wand.junction")
 						.withStyle(ChatFormatting.YELLOW));
+			// A branch makes a turnout of an anchor in the middle of a line, which trains will now be able
+			// to turn off at: worth saying, since the anchor was clicked like any other.
+			if (plan.start()
+				.branches()
+				|| plan.end()
+					.branches())
+				detail = detail.copy()
+					.append(Component.translatable("message.createtrainnext.wand.branches")
+						.withStyle(ChatFormatting.YELLOW));
 			// The dialled-in angle is only shown once it is not zero, so the common case — two
 			// clicks and no adjustment at all — says nothing about a control the player never used. Nor is
 			// it shown for a curve it does not turn, such as one joined to a slope.

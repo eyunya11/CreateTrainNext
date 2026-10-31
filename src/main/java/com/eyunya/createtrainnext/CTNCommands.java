@@ -158,7 +158,7 @@ public class CTNCommands {
 		int checked = 0;
 		int unjudged = 0;
 		for (AngledTrackAnchorBlockEntity anchor : toList(AnchorIndex.in(level))) {
-			if (anchor.getNext() == null || Vec3.atCenterOf(anchor.getBlockPos())
+			if (anchor.getNext() == null && !anchor.hasBranch() || Vec3.atCenterOf(anchor.getBlockPos())
 				.distanceTo(centre) > radius)
 				continue;
 			if (anchor.hasUnloadedNeighbour() || anchor.hasRebuildPending()) {
@@ -350,7 +350,9 @@ public class CTNCommands {
 
 		if (level.getBlockEntity(pos) instanceof AngledTrackAnchorBlockEntity anchor)
 			say(source, "yaw = " + anchor.getYaw() + "  prev=" + (anchor.getPrev() != null) + " next="
-				+ (anchor.getNext() != null) + "  flipped=" + anchor.isFlipped());
+				+ (anchor.getNext() != null) + "  branchesAhead=" + anchor.getBranches(true)
+					.size() + " branchesBehind=" + anchor.getBranches(false)
+						.size() + "  flipped=" + anchor.isFlipped());
 
 		// Case 1: is the block's centre a node, and does any edge leaving it match?
 		Vec3 centre = Vec3.atBottomCenterOf(pos)
@@ -381,9 +383,8 @@ public class CTNCommands {
 			censusAt(source, level, "centre", centre);
 			censusAt(source, level, "entryNode", a.entryNode());
 			censusAt(source, level, "exitNode", a.exitNode());
-			for (BlockPos neighbour : new BlockPos[] { a.getPrev(), a.getNext() })
-				if (neighbour != null)
-					censusAt(source, level, "neighbour " + neighbour, Vec3.atBottomCenterOf(neighbour));
+			for (BlockPos neighbour : a.neighbours())
+				censusAt(source, level, "neighbour " + neighbour, Vec3.atBottomCenterOf(neighbour));
 		}
 
 		// Case 2: the linear query, and the direction from the centre out to each end it reports.

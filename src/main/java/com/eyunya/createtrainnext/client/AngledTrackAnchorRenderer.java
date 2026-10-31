@@ -41,8 +41,7 @@ public class AngledTrackAnchorRenderer implements BlockEntityRenderer<AngledTrac
 		if (span != null)
 			TrackRenderer.renderBezierTurn(level, span, ms, vb);
 
-		BezierConnection curve = anchor.getCurveForRender();
-		if (curve != null)
+		for (BezierConnection curve : anchor.getCurvesForRender())
 			TrackRenderer.renderBezierTurn(level, curve, ms, vb);
 	}
 

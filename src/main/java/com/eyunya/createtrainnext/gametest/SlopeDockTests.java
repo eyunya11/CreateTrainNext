@@ -753,17 +753,17 @@ public class SlopeDockTests {
 		});
 	}
 
-	/** A slope is somewhere to start; a junction still is not. */
+	/** A slope is somewhere to start, and so is a crossing, from the end of either of its lines. */
 	@GameTest(template = EMPTY)
-	public static void aSlopeIsSomewhereToStartAndAJunctionIsNot(GameTestHelper helper) {
+	public static void aSlopeAndACrossingAreSomewhereToStart(GameTestHelper helper) {
 		helper.setBlock(SLOPE, CreateSlopeTests.slope(TrackShape.AN));
 		BlockPos crossing = new BlockPos(32, 1, 16);
 		helper.setBlock(crossing, CreateSlopeTests.slope(TrackShape.CR_O));
 		Level level = helper.getLevel();
 		helper.assertTrue(CurvePlanner.canStartFrom(level, helper.absolutePos(SLOPE)), "a slope should be somewhere to start");
-		helper.assertTrue(!CurvePlanner.canStartFrom(level, helper.absolutePos(crossing)), "a crossing should not");
-		helper.assertTrue("junction_track".equals(plan(helper, crossing, new BlockPos(32, 1, 4)).error()),
-			"a curve from a crossing should be refused as one, but: " + plan(helper, crossing, new BlockPos(32, 1, 4)).error());
+		helper.assertTrue(CurvePlanner.canStartFrom(level, helper.absolutePos(crossing)), "so should a crossing");
+		CurvePlanner.Plan plan = plan(helper, crossing, new BlockPos(32, 1, 4));
+		helper.assertTrue(plan.valid(), "a curve from a crossing should be possible, but: " + plan.error());
 		helper.succeed();
 	}
 

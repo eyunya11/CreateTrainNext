@@ -138,13 +138,14 @@ public class CurveWandItem extends Item {
 	// ------------------------------------------------------------- the clicks
 
 	private InteractionResult startCurve(Level level, Player player, ItemStack stack, BlockPos pos) {
-		// An anchor with a curve on both sides is a refusal worth saying out loud, because the
-		// player pointed at track and got nothing. Clicking scenery is not: they are as likely to
-		// have been reaching past it as asking for anything. One free side is enough to start
-		// from, and which way the curve leaves by is the planner's to work out from what is free.
-		if (level.getBlockEntity(pos) instanceof AngledTrackAnchorBlockEntity anchor && !anchor.hasFreeSide()) {
+		// An anchor with nothing left to give is a refusal worth saying out loud, because the player
+		// pointed at track and got nothing. Clicking scenery is not: they are as likely to have been
+		// reaching past it as asking for anything. One free side is enough to start from, and so is a
+		// side that can still take a branch; which way the curve leaves by is the planner's to work out.
+		if (level.getBlockEntity(pos) instanceof AngledTrackAnchorBlockEntity anchor && !anchor.hasFreeSide()
+			&& !anchor.canBranch()) {
 			if (!level.isClientSide)
-				message(player, anchor.isSlopeDocked() ? "dock_taken" : "start_taken");
+				message(player, anchor.isSlopeDocked() ? "dock_taken" : "branch_taken");
 			AllSoundEvents.DENY.playFrom(player, 1, 1);
 			return InteractionResult.FAIL;
 		}
