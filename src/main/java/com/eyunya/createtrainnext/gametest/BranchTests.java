@@ -10,9 +10,12 @@ import static com.eyunya.createtrainnext.gametest.CurveConsistencyTests.route;
 import java.util.Map;
 import java.util.Objects;
 
+import com.eyunya.createtrainnext.CTNDataComponents;
+import com.eyunya.createtrainnext.CTNRegistry;
 import com.eyunya.createtrainnext.CreateTrainNext;
 import com.eyunya.createtrainnext.track.AngledTrackAnchorBlockEntity;
 import com.eyunya.createtrainnext.track.CurvePlanner;
+import com.eyunya.createtrainnext.track.CurveWandSelection;
 import com.simibubi.create.Create;
 import com.simibubi.create.content.trains.graph.TrackEdge;
 import com.simibubi.create.content.trains.graph.TrackGraph;
@@ -22,9 +25,14 @@ import com.simibubi.create.content.trains.track.BezierConnection;
 import com.simibubi.create.content.trains.track.TrackPropagator;
 
 import net.minecraft.core.BlockPos;
+import net.minecraft.core.Direction;
 import net.minecraft.gametest.framework.GameTest;
 import net.minecraft.gametest.framework.GameTestHelper;
 import net.minecraft.nbt.CompoundTag;
+import net.minecraft.world.InteractionResult;
+import net.minecraft.world.entity.player.Player;
+import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.level.GameType;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.entity.BlockEntity;
@@ -442,7 +450,149 @@ public class BranchTests {
 		helper.succeed();
 	}
 
+	// ---------------------------------------------------------------- the wand
+
+	/**
+	 * Clicking an anchor a line runs through and then open ground ahead of it draws a branch, and builds what
+	 * the ghost showed: the branch leaves the turnout along the line and arrives where it was aimed.
+	 */
+	@GameTest(template = EMPTY, timeoutTicks = 60)
+	public static void theWandBranchesOffALine(GameTestHelper helper) {
+		AngledTrackAnchorBlockEntity[] line = route(helper, EAST, BEHIND, TURNOUT, AHEAD);
+		Level level = helper.getLevel();
+
+		CurvePlanner.Plan plan = CurvePlanner.plan(level, helper.absolutePos(TURNOUT), helper.absolutePos(BRANCH),
+			Direction.UP, 0);
+		helper.assertTrue(plan.valid(), "a branch should be possible, but was refused: " + plan.error());
+		helper.assertTrue(plan.start()
+			.branch() == CurvePlanner.Branch.AHEAD, "the branch should leave on the side it was aimed at, ahead");
+
+		Player player = helper.makeMockPlayer(GameType.CREATIVE);
+		ItemStack wand = new ItemStack(CTNRegistry.CURVE_WAND.get());
+		helper.assertTrue(CurveConsistencyTests.click(helper, player, wand, TURNOUT)
+			.consumesAction(), "the first click should pick the anchor to branch from");
+		InteractionResult built = CurveConsistencyTests.click(helper, player, wand, BRANCH);
+		helper.assertTrue(built.consumesAction(), "the second click should have built the branch, but gave " + built);
+
+		AngledTrackAnchorBlockEntity branch = anchorAt(helper, BRANCH, false);
+		helper.assertTrue(Objects.equals(line[1].getBranchAhead(), branch.getBlockPos()) && Objects.equals(branch
+			.getPrev(), line[1].getBlockPos()), "the new anchor should be a branch ahead of the turnout, running on from it");
+		assertChain(helper, line[1], BEHIND, TURNOUT, AHEAD);
+		helper.assertTrue(CurvePlanner.deviation(plan.curve(), line[1].curveWith(branch)) < 1.0E-6,
+			"what was built should be the curve the ghost showed");
+		CurveWandSelection carried = wand.get(CTNDataComponents.CURVE_SELECTION);
+		helper.assertTrue(carried != null && carried.pos()
+			.equals(branch.getBlockPos()), "the selection should carry on from the end of the branch");
+
+		helper.runAfterDelay(GRAPH_TICKS, () -> {
+			GraphCleanlinessTests.assertClean(helper, "with a branch drawn by the wand", 6);
+			for (BezierConnection curve : line[1].curvesThrough())
+				assertEdges(helper, curve);
+			helper.succeed();
+		});
+	}
+
+	/** Aimed behind the turnout, the branch leaves beside the line behind it, against the line's heading. */
+	@GameTest(template = EMPTY, timeoutTicks = 60)
+	public static void aBranchLeavesOnTheSideItIsAimedAt(GameTestHelper helper) {
+		AngledTrackAnchorBlockEntity[] line = route(helper, EAST, BEHIND, TURNOUT, AHEAD);
+		BlockPos back = new BlockPos(2, 2, 8);
+
+		CurvePlanner.Plan plan = CurvePlanner.plan(helper.getLevel(), helper.absolutePos(TURNOUT), helper.absolutePos(
+			back), Direction.UP, 0);
+		helper.assertTrue(plan.valid() && plan.start()
+			.branch() == CurvePlanner.Branch.BEHIND, "a branch aimed behind should leave behind, but was " + plan.error()
+				+ " / " + plan.start());
+		helper.assertTrue(CurvePlanner.apply(helper.getLevel(), plan) == null, "the branch should have been built");
+		helper.assertTrue(Objects.equals(line[1].getBranchBehind(), helper.absolutePos(back)) && line[1]
+			.getBranchAhead() == null, "the branch should be behind the turnout");
+
+		helper.runAfterDelay(GRAPH_TICKS, () -> {
+			for (BezierConnection curve : line[1].curvesThrough())
+				assertEdges(helper, curve);
+			helper.succeed();
+		});
+	}
+
+	/** A side has room for one branch; the other side still has room for its own. */
+	@GameTest(template = EMPTY)
+	public static void aSideTakesOneBranch(GameTestHelper helper) {
+		Turnout t = turnout(helper);
+		Level level = helper.getLevel();
+
+		CurvePlanner.Plan again = CurvePlanner.plan(level, helper.absolutePos(TURNOUT), helper.absolutePos(
+			new BlockPos(30, 2, 24)), Direction.UP, 0);
+		helper.assertTrue("branch_taken".equals(again.error()), "a second branch ahead should be refused, but was "
+			+ again.error());
+		helper.assertTrue(CurvePlanner.canStartFrom(level, helper.absolutePos(TURNOUT)),
+			"the side behind is still free for a branch, so the turnout can be started from");
+
+		CurvePlanner.Plan behind = CurvePlanner.plan(level, helper.absolutePos(TURNOUT), helper.absolutePos(
+			new BlockPos(2, 2, 24)), Direction.UP, 0);
+		helper.assertTrue(behind.valid() && behind.start()
+			.branch() == CurvePlanner.Branch.BEHIND, "a branch behind should still be possible, but was " + behind
+				.error());
+		helper.assertTrue(CurvePlanner.apply(level, behind) == null, "setup: the second branch should be built");
+		helper.assertTrue(!CurvePlanner.canStartFrom(level, helper.absolutePos(TURNOUT)),
+			"with a branch on both sides, nothing more can leave the turnout");
+		helper.succeed();
+	}
+
+	/**
+	 * A curve can end at a turnout as well as begin at one: a branch that comes in, whose route runs into the
+	 * turnout. That joins the two lines up, so the selection is done with.
+	 */
+	@GameTest(template = EMPTY, timeoutTicks = 60)
+	public static void aCurveCanEndInABranch(GameTestHelper helper) {
+		AngledTrackAnchorBlockEntity[] line = route(helper, EAST, BEHIND, TURNOUT, AHEAD);
+		AngledTrackAnchorBlockEntity lone = anchorAt(helper, BRANCH, true);
+
+		Player player = helper.makeMockPlayer(GameType.CREATIVE);
+		ItemStack wand = new ItemStack(CTNRegistry.CURVE_WAND.get());
+		helper.assertTrue(CurveConsistencyTests.click(helper, player, wand, BRANCH)
+			.consumesAction(), "the first click should pick the lone anchor");
+		InteractionResult built = CurveConsistencyTests.click(helper, player, wand, TURNOUT);
+		helper.assertTrue(built.consumesAction(), "the second click should have built a branch into the turnout, but"
+			+ " gave " + built);
+
+		helper.assertTrue(Objects.equals(line[1].getBranchAhead(), lone.getBlockPos()) && Objects.equals(lone.getNext(),
+			line[1].getBlockPos()), "the lone anchor should be a branch ahead of the turnout, running into it");
+		helper.assertTrue(wand.get(CTNDataComponents.CURVE_SELECTION) == null,
+			"the turnout has nothing left to carry on from that way, so the selection should be gone");
+
+		helper.runAfterDelay(GRAPH_TICKS, () -> {
+			for (BezierConnection curve : line[1].curvesThrough())
+				assertEdges(helper, curve);
+			helper.succeed();
+		});
+	}
+
+	/** Two turnouts cannot be joined by one curve, since it would be a branch at both ends and no one's link. */
+	@GameTest(template = EMPTY)
+	public static void twoTurnoutsAreNotJoinedDirectly(GameTestHelper helper) {
+		route(helper, EAST, BEHIND, TURNOUT, AHEAD);
+		route(helper, EAST, new BlockPos(6, 2, 4), new BlockPos(14, 2, 4), new BlockPos(30, 2, 4));
+
+		CurvePlanner.Plan plan = CurvePlanner.plan(helper.getLevel(), helper.absolutePos(TURNOUT), helper.absolutePos(
+			new BlockPos(14, 2, 4)), Direction.UP, 0);
+		helper.assertTrue("branch_to_branch".equals(plan.error()), "a curve between two turnouts should be refused,"
+			+ " but was " + plan.error());
+		helper.succeed();
+	}
+
 	// --------------------------------------------------------------- helpers
+
+	/**
+	 * The anchor at {@code relative}: placed there on the Z axis if {@code place}, or the one already there, as
+	 * the wand left it.
+	 */
+	private static AngledTrackAnchorBlockEntity anchorAt(GameTestHelper helper, BlockPos relative, boolean place) {
+		if (place)
+			return CurveConsistencyTests.anchor(helper, relative);
+		BlockEntity entity = helper.getBlockEntity(relative);
+		helper.assertTrue(entity instanceof AngledTrackAnchorBlockEntity, "there should be an anchor at " + relative);
+		return (AngledTrackAnchorBlockEntity) entity;
+	}
 
 	/** The node at whichever end of a curve meeting the turnout is not the turnout's, {@code centre}. */
 	private static TrackNode farEnd(GameTestHelper helper, TrackGraph graph, BezierConnection curve, Vec3 centre) {

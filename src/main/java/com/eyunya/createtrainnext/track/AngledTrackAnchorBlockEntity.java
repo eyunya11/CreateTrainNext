@@ -407,6 +407,22 @@ public class AngledTrackAnchorBlockEntity extends TrackBlockEntity {
 		return branchAhead != null || branchBehind != null;
 	}
 
+	/**
+	 * Whether a branch could leave this anchor on one side: there is a line there for it to leave beside,
+	 * and no branch yet. The wand makes a branch only where both sides have a line, which is what an anchor
+	 * with no free side is; see {@code CurvePlanner#fromExisting}.
+	 */
+	public boolean canBranch(boolean ahead) {
+		if (isSlopeDocked())
+			return false;
+		return ahead ? next != null && branchAhead == null : prev != null && branchBehind == null;
+	}
+
+	/** Whether a branch could leave this anchor on either side, where it has no side free for a route. */
+	public boolean canBranch() {
+		return !hasFreeSide() && (canBranch(true) || canBranch(false));
+	}
+
 	/** Whether {@code pos} is the far end of one of this anchor's branches. */
 	public boolean isBranch(@Nullable BlockPos pos) {
 		return pos != null && (pos.equals(branchAhead) || pos.equals(branchBehind));
@@ -570,6 +586,15 @@ public class AngledTrackAnchorBlockEntity extends TrackBlockEntity {
 	 */
 	public void branchTo(AngledTrackAnchorBlockEntity other, boolean ahead, boolean otherAfter,
 		@Nullable Vec3 otherHeading) {
+		branchTo(other, ahead, otherAfter, otherHeading, false);
+	}
+
+	/**
+	 * The same, docking {@code other} onto Create's sloped track at the side the link leaves free, as
+	 * {@link #linkTo(AngledTrackAnchorBlockEntity, Vec3, Vec3, boolean, boolean)} does.
+	 */
+	public void branchTo(AngledTrackAnchorBlockEntity other, boolean ahead, boolean otherAfter,
+		@Nullable Vec3 otherHeading, boolean otherDocks) {
 		if (other == this)
 			return;
 		boolean otherWasLone = !other.isLinked();
@@ -603,8 +628,8 @@ public class AngledTrackAnchorBlockEntity extends TrackBlockEntity {
 		else
 			other.next = worldPosition;
 
-		if (otherWasLone)
-			other.slopeDock = false;
+		if (otherDocks || otherWasLone)
+			other.slopeDock = otherDocks;
 		dropDockUnlessEnd();
 		other.dropDockUnlessEnd();
 
