@@ -15,6 +15,7 @@ An addon for [Create](https://github.com/Creators-of-Create/Create) that lets tr
 - Lay a curve at any angle with two right clicks. A ghost shows what will be built before you build it: green means it can be laid, red means it cannot. Angles near a multiple of 15 degrees are drawn to it, so 45 and 90 degrees come out exact.
 - Trains run on these curves as they do on any Create track. The signals are built on Create's own signal system.
 - Two ends at different heights are joined at one steady grade, which the anchors remember, so a climb is a slope and not a staircase. Hold the sprint key and scroll to set a grade, and the wand lays the whole route at it.
+- A branch can be drawn off an anchor in the middle of a route, and off an end joined onto Create track.
 - A Survey Marker lays a dead straight line at a bearing, length and grade you set.
 - An invisible floor is laid along each curve at rail height, so you can walk on curves.
 - Adds Japanese-style signals with two, three, four, five and six lamps, a relay signal and a speed limit sign, and a pole that carries the signals.
@@ -66,7 +67,7 @@ When the curve climbs or falls, another line gives its grade in permille (‰, t
 
 | Action | What it does |
 |---|---|
-| Right click track or an anchor | Starts a curve there. An anchor can start one if either side is free. |
+| Right click track or an anchor | Starts a curve there. An anchor can start one if either side is free. An anchor with a curve on both sides starts a branch. |
 | Right click the destination block (while selecting) | Builds the curve as the ghost shows it and moves the selection to the new end. |
 | Right click the end of another route (while selecting) | Joins the two routes. |
 | Scroll while sneaking (while selecting) | Turns the far end by hand. 2.5 degrees per notch, 15 while the sprint key is held, up to ±85. |
@@ -89,10 +90,11 @@ When a curve cannot be built, the ghost turns red and the message says why.
 | "The curve would double back on itself" | One end points against the direction of the line joining the two points. |
 | "The ends point too differently for one curve…" | One curve cannot join them, and there is no free block to put an anchor in between two arcs. |
 | "No room for an anchor there" | The block the anchor needs is occupied. In grade mode that is the block at the height the grade gives, not the one you look at. |
-| "Both sides of this anchor already have a curve" | An anchor with a curve on both sides cannot be a start or an end. |
+| "This side of the anchor already has a branch" | An anchor takes one branch on each side. |
+| "A branch cannot go straight into another branch…" | Two turnouts cannot be joined by one curve. Put an anchor between them. |
 | "This end of the sloped track already has a curve" | That end of sloped Create track, or the anchor joined to it there, already has a curve, so it cannot be a start or an end. |
 | "Both ends would be the same anchor" | The same anchor was picked twice. |
-| "Cannot start from a junction" | Create track that has more than one direction cannot be an end. |
+| "This kind of track cannot be an end of a curve" | Track with more than one direction, one of which is not level, cannot be an end. That is other mods' track: Create's own never says it. |
 | "Sloped track can only be joined straight on, along its own line" | The curve to or from sloped Create track leaves the track's line, or turns. |
 | "From sloped track a curve can only go up from the top and down from the foot" | A curve at the top of sloped Create track would come lower than the top somewhere, or one at the foot higher than the foot. |
 | "Part of the route that would have to be turned round is not loaded" | Move close enough that the whole route is loaded. |
@@ -146,7 +148,7 @@ The end is the block nearest that line, within 1.5 blocks of the distance, and t
 
 ### Joining, reversing and splitting routes
 
-An anchor holds only one curve on each side. A curve can leave by whichever side is free, so a route can also be extended backwards out of its first anchor.
+The route through an anchor has one curve on each side. A curve can leave by whichever side is free, so a route can also be extended backwards out of its first anchor. An anchor can hold branches as well (see "Branches" below).
 
 Two routes laid separately join when you right click their ends. If they run against each other, the wand turns the far route end for end before it joins them. Reversing moves no track and does not change which way the signals on it face. The message says "turns the far route round" before you build, so nothing comes as a surprise.
 
@@ -154,7 +156,7 @@ If a curve between ends that point very differently were built as one curve, tra
 
 Signals, stations and the like can be placed directly on the stretch of a curve. Hold one and look at the curve, and the segment under the crosshair is outlined. Right click to pick the curve, then right click where it should stand. A curve is picked only while an item of that kind is in hand, so the wand is not in the way. A curve with a signal or a station on it cannot have a point added, because they would be left without a curve. Where you want a block of track in the middle of a curve, sneak and right click near the place you want, and a point is added. The point is an anchor, which is a track block. A point cannot be added too near the end of a curve, or where there already is one.
 
-The ends of Create's own track can be a start or an end, both flat straight track and the 45 degree sloped kind. The wand puts an anchor in the neighbouring block and joins the Create track at the same point. The selection ends at an end joined to Create track, and the route cannot be extended past it. Track with a junction cannot be used.
+The ends of Create's own track can be a start or an end: flat straight track, crossings, and the 45 degree sloped kind. The wand puts an anchor in the neighbouring block and joins the Create track at the same point. At a crossing it joins the end of whichever of the two lines runs nearer the way the curve goes. The end of straight track that one of Create's own curves leaves, its kind of junction, can be joined too. The selection ends at an end joined to Create track, and the route cannot be extended past it. A branch is all that can be drawn from that end.
 
 Sloped track is joined straight on, along its own line. The curve leaves or meets it at 45 degrees and eases towards level as it goes: up and away from the top, down and away from the foot, never back over itself. Started from a slope, the curve ends at the block on that line nearest the one you aim at, and turning the far end by hand does nothing.
 
@@ -164,7 +166,21 @@ In grade mode a grade of 0 makes the curve level off. With `curves.maxGrade` set
 
 Two points at different heights can be joined. The curve climbs at one steady grade from end to end, and the anchors at its ends remember it, so a route carried on from them continues at that grade instead of starting level again. Where one end is already fixed, the other takes the grade that makes the gentlest bend, so a curve that leaves level track and has to climb eases into the climb. The steepest a curve may be anywhere along it is the limit `curves.maxGrade`, which is 45 degrees by default, a block of rise for each block of run, as steep as Create's own sloped track.
 
-Breaking an anchor takes apart the links on both sides of it, and so does right clicking it with the wand while sneaking. The wand will not do it while a signal or a station stands on one of those curves.
+Breaking an anchor takes apart every curve it has, branches included, and so does right clicking it with the wand while sneaking. The wand will not do it while a signal or a station stands on one of those curves.
+
+### Branches
+
+An anchor with a curve on both sides can have a branch drawn off it. It is done as any curve is: right click the anchor, then right click where the branch should go. The ghost's message adds "branches off the line".
+
+A branch leaves the anchor along the anchor's own heading, touching the line beside it. Which side of the anchor it leaves by depends on where you aim. A side takes one branch, so an anchor can have two. For a three-way split, put two turnouts one after the other.
+
+A turnout can be the end of a curve as well, to bring a line from elsewhere into the main line. Two turnouts cannot be joined by one curve, so put an anchor between them.
+
+A train that comes to a turnout from the side opposite the branch can go either way, onto the line or onto the branch. A train coming off the branch goes on to the opposite side. Which way a train goes is decided by its destination in Create, or by whoever is driving it.
+
+An end joined onto Create track can be a turnout too. Whether the branch leaves beside the Create track or beside the curve already there, the end stays joined to the Create track.
+
+A branch is a route of its own, which starts or ends at its turnout. Turning the main line round does not move it. With the line beyond a turnout taken away, the branch becomes the line, but only where the branch's route runs on away from the turnout. Points can be added to a branch, and signals placed directly on it, as on any other curve.
 
 ### Straight lines (Survey Marker)
 
@@ -275,7 +291,7 @@ All start with `/createtrainnext` and need permission level 2 (op).
 
 | Command | Description |
 |---|---|
-| `junction <pos> [radius]` | Lists what the track blocks near the position report (their axes), whether the graph holds a node there, and whether a train could pass at each angle. The radius is 0 to 8, 2 by default. Use it when trains stop or a signal cannot be placed. |
+| `junction <pos> [radius]` | Lists what the track blocks near the position report (their axes), whether the graph holds a node there, and whether a train could pass at each angle. It says whether an anchor has branches as well. The radius is 0 to 8, 2 by default. Use it when trains stop or a signal cannot be placed. |
 | `probe <pos>` | For one track block, prints the values Create looks at when it decides where a station or signal goes, and how they compare. It works on Create's own track as well as on anchors. |
 | `curves [radius]` | Lists curves whose shape differs when read the other way round. The wand no longer lays them, but curves laid by older versions can have them. The radius is 1 to 1024, 128 by default. |
 | `repair [radius]` | Rebuilds those curves as two arcs, up to 16 per run. The rails move a little: under half a block for an east-into-north curve across about 20 blocks. The output says how far each one moved. Trains near a repaired curve are derailed. |
@@ -328,6 +344,8 @@ A slope is held the same way. Create works out a bezier's handles from the horiz
 
 An anchor joined to sloped Create track has a single node, and shares the track's end node. At its centre, where a climbing end usually has its node, it would be half a block from the track; with the level span a flat end has, the joint would bend by 45 degrees, which no train crosses.
 
+A branch leaves the same node as the line on its side: the centre of the block for an anchor in the middle of a route, its boundary for an end joined onto Create track. Adding a branch does not move an anchor's node.
+
 A bezier curve is worked out again from the other end for trains running the opposite way. A circular arc, whose end angles are symmetric, gives the same shape both ways. Other curves can differ by several blocks between the two directions. The wand builds such a curve as two arcs, which keeps the difference within 0.1 block.
 
 The ghost and the curve the server builds come out of the same calculation (`CurvePlanner`), so that what you see and what is built cannot disagree.
@@ -339,11 +357,10 @@ These limitations apply.
 | Item | Details |
 |---|---|
 | Recipes | None. Take items from the creative tab or with `/give`. |
-| Create track that cannot be an end | Track with a junction cannot be a start or an end of the wand. |
 | Joining sloped track | Only straight on, along the track's line, and only while `curves.maxGrade` is 1000. |
 | Heights | A curve gains a whole number of blocks, so the grade it really has differs from the one set, much more for a short curve or a gentle grade. A grade under one block per curve length, about 31 permille for 32 blocks, stays level. |
 | Speed limits | A train is slowed in time for a limit by looking ahead along the route it is navigating or the way it is steered. One that is already too fast for a limit that appears close ahead reaches it faster. If the lamps of a signal change as the train comes up, the train slows by the aspect they show at the time. |
-| Junctions | An anchor holds only one curve on each side, so anchors alone cannot make a junction. |
+| Branches | An anchor takes one branch on each side. Two turnouts cannot be joined directly by one curve. |
 | Old worlds | They may hold coloured posts left where anchors were broken, and curves whose shape changes when read the other way. `prune`, `curves` and `repair` fix these. |
 | Multiplayer | It has not been tested enough. |
 
@@ -361,7 +378,7 @@ Whether to build these is still being considered.
 |---|---|
 | A "train passed" wait condition | A condition for Create's schedules that waits until a named train has passed. The intended use is a passing loop, where a local waits for an express to go through. A prototype exists, and whether to bring it in is undecided. |
 | Recipes for survival | Items can only be taken from the creative tab or with `/give` for now. |
-| Laying from Create track with a junction | It cannot be an end for now. |
+| Branching from part way along a curve | For now a point is added to the curve first, and the branch drawn from that point. This would draw the branch in one go. |
 | Cleaning up the English text | Some wording, such as the names of the signal aspects, shows in Japanese even in English. |
 
 ## Development
