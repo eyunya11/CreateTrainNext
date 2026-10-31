@@ -95,6 +95,8 @@ public class AngledTrackAnchorBlockEntity extends TrackBlockEntity {
 	private static final String TAG_AXIS_FLIPPED = "AxisFlipped";
 	private static final String TAG_SLOPE = "Slope";
 	private static final String TAG_SLOPE_DOCK = "SlopeDock";
+	private static final String TAG_BRANCH_AHEAD = "BranchAhead";
+	private static final String TAG_BRANCH_BEHIND = "BranchBehind";
 
 	private float yaw = 0.0F;
 
@@ -119,6 +121,28 @@ public class AngledTrackAnchorBlockEntity extends TrackBlockEntity {
 	private BlockPos prev = null;
 	@Nullable
 	private BlockPos next = null;
+
+	/**
+	 * A third line leaving this anchor, the way a turnout's diverging track leaves the through line: the
+	 * anchor at the other end of a curve that leaves this one along its heading, beside the curve to
+	 * {@link #next} ({@code branchAhead}), or against it, beside the one from {@link #prev}
+	 * ({@code branchBehind}). One a side; a three-way turnout is two of these one after the other.
+	 *
+	 * <p>The anchor at the other end holds this one as an ordinary {@code prev} or {@code next}, and
+	 * knows nothing else about it. Which of the two it is says which way its own route runs, and so
+	 * which end holds the curve: the one that has the link as its next, the same rule as everywhere
+	 * else (see {@link #owns}). A branch is therefore a route of its own, which begins or ends here; see
+	 * {@link #route}.
+	 *
+	 * <p>An anchor with a branch has its node at its block's centre, whatever else it has: see
+	 * {@link #isInterior}. A curve leaving the centre along the heading meets the through line there at
+	 * no angle at all, so a train arriving from behind may take either, and one arriving along the
+	 * branch can carry on only behind, which is what a turnout is.
+	 */
+	@Nullable
+	private BlockPos branchAhead = null;
+	@Nullable
+	private BlockPos branchBehind = null;
 
 	/**
 	 * Whether the axis this anchor reports is the opposite of the one it would report if nothing
@@ -163,8 +187,7 @@ public class AngledTrackAnchorBlockEntity extends TrackBlockEntity {
 	 */
 	private boolean slopeDock = false;
 
-	@Nullable
-	private BezierConnection cachedCurve = null;
+	private List<BezierConnection> cachedCurves = List.of();
 	private long cachedKey = Long.MIN_VALUE;
 
 	/** How often a docked end looks for its slope, in ticks: see {@link #undockIfSlopeGone}. */
@@ -174,15 +197,14 @@ public class AngledTrackAnchorBlockEntity extends TrackBlockEntity {
 	@Nullable
 	private VoxelShape climbingFloor = null;
 
-	@Nullable
-	private BezierConnection floorFromPrev = null;
+	private List<BezierConnection> floorSources = List.of();
 
-	@Nullable
-	private BezierConnection floorFromNext = null;
-
-	/** The curve this anchor last laid a floor along, so a floor that moves can be taken up. */
-	@Nullable
-	private BezierConnection occupied = null;
+	/**
+	 * The curves this anchor last laid a floor along, by the anchor at the other end, so a floor that
+	 * moves can be taken up. One for each curve it holds: the one to {@link #next}, and those to branches
+	 * it holds.
+	 */
+	private final Map<BlockPos, BezierConnection> occupied = new HashMap<>();
 
 	private int occupancyTimer;
 
@@ -249,7 +271,7 @@ public class AngledTrackAnchorBlockEntity extends TrackBlockEntity {
 	 * or on neither, whatever was set.
 	 */
 	public boolean isSlopeDocked() {
-		return slopeDock && (prev == null) != (next == null);
+		return slopeDock && (prev == null) != (next == null) && !hasBranch();
 	}
 
 	/**
@@ -311,7 +333,7 @@ public class AngledTrackAnchorBlockEntity extends TrackBlockEntity {
 
 	/** Drops {@link #slopeDock} from an anchor that is no longer an end, once its links have settled. */
 	private void dropDockUnlessEnd() {
-		if (!slopeDock || (prev == null) != (next == null))
+		if (!slopeDock || isSlopeDocked())
 			return;
 		slopeDock = false;
 		markChanged();
@@ -369,8 +391,41 @@ public class AngledTrackAnchorBlockEntity extends TrackBlockEntity {
 		return next;
 	}
 
+	/** See {@link #branchAhead}. */
+	@Nullable
+	public BlockPos getBranchAhead() {
+		return branchAhead;
+	}
+
+	/** See {@link #branchAhead}. */
+	@Nullable
+	public BlockPos getBranchBehind() {
+		return branchBehind;
+	}
+
+	public boolean hasBranch() {
+		return branchAhead != null || branchBehind != null;
+	}
+
+	/** Whether {@code pos} is the far end of one of this anchor's branches. */
+	public boolean isBranch(@Nullable BlockPos pos) {
+		return pos != null && (pos.equals(branchAhead) || pos.equals(branchBehind));
+	}
+
 	public boolean isLinked() {
-		return prev != null || next != null;
+		return prev != null || next != null || hasBranch();
+	}
+
+	/**
+	 * Every anchor this one has a curve to: the one behind, the one ahead and those at the ends of its
+	 * branches. Whatever a change here touches is among them, since each curve is built from both its ends.
+	 */
+	public List<BlockPos> neighbours() {
+		List<BlockPos> neighbours = new ArrayList<>(4);
+		for (BlockPos pos : new BlockPos[] { prev, next, branchAhead, branchBehind })
+			if (pos != null)
+				neighbours.add(pos);
+		return neighbours;
 	}
 
 	/**
@@ -459,9 +514,14 @@ public class AngledTrackAnchorBlockEntity extends TrackBlockEntity {
 		Set<TrackNodeLocation> stale = detachNeighbourhood();
 		stale.addAll(other.detachNeighbourhood());
 
-		// Whatever used to follow this anchor, or lead into the other, loses its half of the link.
-		clearNextOfThis();
-		other.clearPrevOfThis();
+		// Whatever used to follow this anchor, or lead into the other, loses its half of the link. Not
+		// the two of them, where they are linked already and only being aimed again: the other would
+		// forget this anchor, and a branch beside it would be moved up into the place to fill it.
+		if (!other.getBlockPos()
+			.equals(next))
+			clearNextOfThis();
+		if (!worldPosition.equals(other.prev))
+			other.clearPrevOfThis();
 
 		if (thisHeading != null) {
 			yaw = yawOf(thisHeading);
@@ -493,7 +553,70 @@ public class AngledTrackAnchorBlockEntity extends TrackBlockEntity {
 		other.attachNeighbourhood();
 	}
 
-	/** Drops both of this anchor's links, and the matching halves on its neighbours. */
+	/**
+	 * Makes {@code other} the far end of a branch of this anchor: see {@link #branchAhead}. The curve leaves
+	 * this anchor along its heading if {@code ahead}, and against it otherwise.
+	 *
+	 * <p>The same steps as {@link #linkTo}, for the same reasons: one teardown, one rebuild, and the axes
+	 * held. Whatever was a branch on that side before, and whatever {@code other} was linked to on the side
+	 * it is joined by, lose their half of the link. This anchor is not turned, since a branch leaves it the way
+	 * its route already runs; what it reports does not change either, as it has its node at its centre
+	 * before and after.
+	 *
+	 * @param otherAfter   whether the route through {@code other} runs on from this anchor, so that this is
+	 *                     its {@code prev}, or comes into it, so that this is its {@code next}.
+	 * @param otherHeading where {@code other} should point afterwards, or null to leave it, written as
+	 *                     {@link #linkTo} takes it.
+	 */
+	public void branchTo(AngledTrackAnchorBlockEntity other, boolean ahead, boolean otherAfter,
+		@Nullable Vec3 otherHeading) {
+		if (other == this)
+			return;
+		boolean otherWasLone = !other.isLinked();
+		BlockPos displacedBranch = ahead ? branchAhead : branchBehind;
+
+		Map<AngledTrackAnchorBlockEntity, Vec3> reported = reportedBy(this, other, anchorAt(displacedBranch),
+			other.anchorAt(otherAfter ? other.prev : other.next));
+		Set<TrackNodeLocation> stale = detachNeighbourhood();
+		stale.addAll(other.detachNeighbourhood());
+
+		if (displacedBranch != null && !displacedBranch.equals(other.getBlockPos()))
+			clearBranchOfThis(ahead);
+		if (otherAfter) {
+			if (!worldPosition.equals(other.prev))
+				other.clearPrevOfThis();
+		} else if (!worldPosition.equals(other.next))
+			other.clearNextOfThis();
+
+		if (otherHeading != null) {
+			other.yaw = yawOf(otherHeading);
+			other.slope = (float) slopeOf(otherHeading);
+			other.alignAxisToYaw();
+		}
+
+		if (ahead)
+			branchAhead = other.getBlockPos();
+		else
+			branchBehind = other.getBlockPos();
+		if (otherAfter)
+			other.prev = worldPosition;
+		else
+			other.next = worldPosition;
+
+		if (otherWasLone)
+			other.slopeDock = false;
+		dropDockUnlessEnd();
+		other.dropDockUnlessEnd();
+
+		invalidateNeighbourhood();
+		other.invalidateNeighbourhood();
+		keepAxisSigns(reported);
+		pruneGraph(stale);
+		attachNeighbourhood();
+		other.attachNeighbourhood();
+	}
+
+	/** Drops all of this anchor's links, branches too, and the matching halves on its neighbours. */
 	public void unlink() {
 		if (!isLinked())
 			return;
@@ -501,20 +624,25 @@ public class AngledTrackAnchorBlockEntity extends TrackBlockEntity {
 		// The neighbours become ends, and an end reports a different axis from an anchor in the
 		// middle of a route: see keepAxisSign. This one is left to report whatever it does, since with
 		// no curve left it has no edge for anything to stand on.
-		Map<AngledTrackAnchorBlockEntity, Vec3> reported = reportedBy(anchorAt(prev), anchorAt(next));
-		AngledTrackAnchorBlockEntity before = anchorAt(prev);
-		AngledTrackAnchorBlockEntity after = anchorAt(next);
+		List<AngledTrackAnchorBlockEntity> around = new ArrayList<>();
+		for (BlockPos pos : neighbours()) {
+			AngledTrackAnchorBlockEntity anchor = anchorAt(pos);
+			if (anchor != null)
+				around.add(anchor);
+		}
+		Map<AngledTrackAnchorBlockEntity, Vec3> reported =
+			reportedBy(around.toArray(new AngledTrackAnchorBlockEntity[0]));
 
 		Set<TrackNodeLocation> stale = detachNeighbourhood();
-		clearNextOfThis();
-		clearPrevOfThis();
+		clearNextOfThis(true);
+		clearPrevOfThis(true);
+		clearBranchOfThis(true, true);
+		clearBranchOfThis(false, true);
 		// Neither this anchor nor a neighbour whose only curve this was has a curve left, and an anchor
 		// docked onto a slope is an end of one.
 		slopeDock = false;
-		if (before != null)
-			before.dropDockUnlessEnd();
-		if (after != null)
-			after.dropDockUnlessEnd();
+		for (AngledTrackAnchorBlockEntity anchor : around)
+			anchor.dropDockUnlessEnd();
 		invalidateNeighbourhood();
 		keepAxisSigns(reported);
 		pruneGraph(stale);
@@ -522,26 +650,88 @@ public class AngledTrackAnchorBlockEntity extends TrackBlockEntity {
 	}
 
 	private void clearNextOfThis() {
-		AngledTrackAnchorBlockEntity following = anchorAt(next);
-		if (following != null) {
-			following.prev = null;
-			following.markChanged();
-			// It has just dropped out of this anchor's neighbourhood, so the rebuild queued at the
-			// end of the operation will not reach it. Without this it stays out of the graph.
-			following.attachNeighbourhood();
-		}
-		next = null;
-		markChanged();
+		clearNextOfThis(false);
 	}
 
 	private void clearPrevOfThis() {
-		AngledTrackAnchorBlockEntity leading = anchorAt(prev);
-		if (leading != null) {
-			leading.next = null;
-			leading.markChanged();
-			leading.attachNeighbourhood();
-		}
+		clearPrevOfThis(false);
+	}
+
+	/** @param promote see {@link #forget}. */
+	private void clearNextOfThis(boolean promote) {
+		BlockPos following = next;
+		next = null;
+		forgottenBy(following, promote);
+		markChanged();
+	}
+
+	private void clearPrevOfThis(boolean promote) {
+		BlockPos leading = prev;
 		prev = null;
+		forgottenBy(leading, promote);
+		markChanged();
+	}
+
+	private void clearBranchOfThis(boolean ahead) {
+		clearBranchOfThis(ahead, false);
+	}
+
+	private void clearBranchOfThis(boolean ahead, boolean promote) {
+		BlockPos far = ahead ? branchAhead : branchBehind;
+		if (ahead)
+			branchAhead = null;
+		else
+			branchBehind = null;
+		forgottenBy(far, promote);
+		markChanged();
+	}
+
+	/** Has the anchor at {@code pos}, which this one has just let go of, let go of this one too. */
+	private void forgottenBy(@Nullable BlockPos pos, boolean promote) {
+		AngledTrackAnchorBlockEntity anchor = anchorAt(pos);
+		if (anchor == null)
+			return;
+		anchor.forget(worldPosition, promote);
+		// It has just dropped out of this anchor's neighbourhood, so the rebuild queued at the end of
+		// the operation will not reach it. Without this it stays out of the graph.
+		anchor.attachNeighbourhood();
+	}
+
+	/**
+	 * Drops whichever link of this anchor's leads to {@code pos}, for a neighbour that has let go of it.
+	 *
+	 * <p>With {@code promote}, where that was the through line on a side that also has a branch, the branch
+	 * takes its place, if its route runs the right way for it: one that runs on from here ({@code prev} is
+	 * this anchor) can be the next, one that comes in here the prev. That is the turnout taken out and the
+	 * line through it left, which is what anyone breaking the through line beyond a turnout means. A branch
+	 * that runs the other way stays a branch, on a side with no through line, and a curve can be carried on
+	 * from that side again, as from any free side.
+	 *
+	 * <p>Only where the neighbour is going for good, which is {@link #unlink}. Linking moves a neighbour's
+	 * link to another anchor, and this one is given a new through line straight after: one moved up in the
+	 * meantime would be taken off it again, and that would cut the branch.
+	 */
+	private void forget(BlockPos pos, boolean promote) {
+		if (pos.equals(next)) {
+			next = null;
+			AngledTrackAnchorBlockEntity branch = anchorAt(branchAhead);
+			if (promote && branch != null && worldPosition.equals(branch.prev)) {
+				next = branchAhead;
+				branchAhead = null;
+			}
+		} else if (pos.equals(prev)) {
+			prev = null;
+			AngledTrackAnchorBlockEntity branch = anchorAt(branchBehind);
+			if (promote && branch != null && worldPosition.equals(branch.next)) {
+				prev = branchBehind;
+				branchBehind = null;
+			}
+		} else if (pos.equals(branchAhead))
+			branchAhead = null;
+		else if (pos.equals(branchBehind))
+			branchBehind = null;
+		else
+			return;
 		markChanged();
 	}
 
@@ -566,7 +756,12 @@ public class AngledTrackAnchorBlockEntity extends TrackBlockEntity {
 		AngledTrackAnchorBlockEntity first = this;
 		while (first.prev != null) {
 			AngledTrackAnchorBlockEntity behind = first.anchorAt(first.prev);
-			if (behind == null || !seen.add(behind.worldPosition) || seen.size() > MAX_ROUTE_ANCHORS)
+			if (behind == null)
+				return null;
+			// A branch begins at the turnout it leaves, which belongs to the line it leaves.
+			if (!first.worldPosition.equals(behind.next) && behind.isBranch(first.worldPosition))
+				break;
+			if (!seen.add(behind.worldPosition) || seen.size() > MAX_ROUTE_ANCHORS)
 				return null;
 			first = behind;
 		}
@@ -583,7 +778,12 @@ public class AngledTrackAnchorBlockEntity extends TrackBlockEntity {
 			// A link is held by both of its anchors, and the route is only the one it looks like if
 			// they agree about it.
 			AngledTrackAnchorBlockEntity ahead = cursor.anchorAt(cursor.next);
-			if (ahead == null || !cursor.worldPosition.equals(ahead.prev))
+			if (ahead == null)
+				return null;
+			// And one that runs into a turnout ends there.
+			if (!cursor.worldPosition.equals(ahead.prev) && ahead.isBranch(cursor.worldPosition))
+				break;
+			if (!cursor.worldPosition.equals(ahead.prev))
 				return null;
 			cursor = ahead;
 		}
@@ -636,6 +836,10 @@ public class AngledTrackAnchorBlockEntity extends TrackBlockEntity {
 		BlockPos behind = prev;
 		prev = next;
 		next = behind;
+		// A branch stays where it is, and the side it is on is now the other one.
+		BlockPos branchBehindBefore = branchBehind;
+		branchBehind = branchAhead;
+		branchAhead = branchBehindBefore;
 
 		yaw = Mth.wrapDegrees(yaw + 180.0F);
 		// Running the other way, what was a climb is a descent.
@@ -643,7 +847,7 @@ public class AngledTrackAnchorBlockEntity extends TrackBlockEntity {
 
 		// What was recorded is the curve this anchor used to own, which it no longer does, and
 		// clearing it would take up a floor that its new neighbour is about to renew.
-		occupied = null;
+		occupied.clear();
 		invalidateCurve();
 		markChanged();
 	}
@@ -661,7 +865,7 @@ public class AngledTrackAnchorBlockEntity extends TrackBlockEntity {
 
 		// A curve is built from both its ends, and is held by whichever of them has the lower
 		// position, so a change here can change what the anchor on either side is holding.
-		for (BlockPos neighbour : new BlockPos[] { prev, next }) {
+		for (BlockPos neighbour : neighbours()) {
 			AngledTrackAnchorBlockEntity anchor = anchorAt(neighbour);
 			if (anchor != null) {
 				anchor.connectionsStale = true;
@@ -796,9 +1000,8 @@ public class AngledTrackAnchorBlockEntity extends TrackBlockEntity {
 		Map<BlockPos, BezierConnection> held = super.getConnections();
 		Map<BlockPos, BezierConnection> wanted = new HashMap<>();
 
-		for (boolean ahead : new boolean[] { true, false }) {
-			BlockPos other = ahead ? next : prev;
-			if (other == null || !holdsCurveWith(other))
+		for (BlockPos other : neighbours()) {
+			if (!holdsCurveWith(other))
 				continue;
 
 			AngledTrackAnchorBlockEntity neighbour = anchorAt(other);
@@ -810,15 +1013,15 @@ public class AngledTrackAnchorBlockEntity extends TrackBlockEntity {
 
 			// A link is held by both of its anchors, and the curve is the one it looks like only if
 			// they agree about it.
-			if (!worldPosition.equals(ahead ? neighbour.prev : neighbour.next)) {
+			if (!agreesWith(neighbour)) {
 				if (held.containsKey(other))
 					wanted.put(other, held.get(other));
 				continue;
 			}
 
-			BezierConnection curve = ahead ? buildCurveToNext() : buildCurveFromPrev();
+			BezierConnection curve = curveWith(neighbour);
 			if (curve != null)
-				wanted.put(other, ahead ? curve : fromFarEnd(curve));
+				wanted.put(other, owns(neighbour) ? curve : fromFarEnd(curve));
 		}
 
 		boolean same = held.size() == wanted.size();
@@ -839,10 +1042,10 @@ public class AngledTrackAnchorBlockEntity extends TrackBlockEntity {
 	public boolean carriesPoints() {
 		if (level == null)
 			return false;
-		BezierConnection ahead = buildCurveToNext();
-		BezierConnection behind = buildCurveFromPrev();
-		return ahead != null && CurvePlanner.carriesPoints(level, ahead)
-			|| behind != null && CurvePlanner.carriesPoints(level, behind);
+		for (BezierConnection curve : curvesThrough())
+			if (CurvePlanner.carriesPoints(level, curve))
+				return true;
+		return false;
 	}
 
 	/**
@@ -891,7 +1094,7 @@ public class AngledTrackAnchorBlockEntity extends TrackBlockEntity {
 
 		reported.addAll(GraphPruner.reportedBy(level, worldPosition, getBlockState()));
 		TrackPropagator.onRailRemoved(level, worldPosition, getBlockState());
-		for (BlockPos neighbour : new BlockPos[] { prev, next }) {
+		for (BlockPos neighbour : neighbours()) {
 			AngledTrackAnchorBlockEntity anchor = anchorAt(neighbour);
 			if (anchor != null) {
 				reported.addAll(GraphPruner.reportedBy(level, neighbour, anchor.getBlockState()));
@@ -937,7 +1140,12 @@ public class AngledTrackAnchorBlockEntity extends TrackBlockEntity {
 	 * chunk of one end is the chunk next to the other's. A link of a hundred blocks is seven chunks long.
 	 */
 	public boolean hasUnloadedNeighbour() {
-		return level != null && ((prev != null && !level.isLoaded(prev)) || (next != null && !level.isLoaded(next)));
+		if (level == null)
+			return false;
+		for (BlockPos neighbour : neighbours())
+			if (!level.isLoaded(neighbour))
+				return true;
+		return false;
 	}
 
 	/** Asks for this anchor's neighbourhood to be built into the graph again, {@code delay} ticks from now. */
@@ -985,7 +1193,7 @@ public class AngledTrackAnchorBlockEntity extends TrackBlockEntity {
 		if (level == null || level.isClientSide)
 			return;
 		level.scheduleTick(worldPosition, getBlockState().getBlock(), 1);
-		for (BlockPos neighbour : new BlockPos[] { prev, next }) {
+		for (BlockPos neighbour : neighbours()) {
 			AngledTrackAnchorBlockEntity anchor = anchorAt(neighbour);
 			if (anchor != null)
 				level.scheduleTick(neighbour, anchor.getBlockState().getBlock(), 1);
@@ -995,7 +1203,7 @@ public class AngledTrackAnchorBlockEntity extends TrackBlockEntity {
 	private void invalidateNeighbourhood() {
 		invalidateCurve();
 		markChanged();
-		for (BlockPos neighbour : new BlockPos[] { prev, next }) {
+		for (BlockPos neighbour : neighbours()) {
 			AngledTrackAnchorBlockEntity anchor = anchorAt(neighbour);
 			if (anchor != null) {
 				anchor.invalidateCurve();
@@ -1005,7 +1213,7 @@ public class AngledTrackAnchorBlockEntity extends TrackBlockEntity {
 	}
 
 	private void invalidateCurve() {
-		cachedCurve = null;
+		cachedCurves = List.of();
 		cachedKey = Long.MIN_VALUE;
 	}
 
@@ -1340,9 +1548,12 @@ public class AngledTrackAnchorBlockEntity extends TrackBlockEntity {
 	 *
 	 * <p>An end is also where the route is handing over to Create's discrete axes anyway, so the
 	 * small amount of roughness that two boundary nodes reintroduce belongs there if anywhere.
+	 *
+	 * <p>An anchor with a branch counts, whatever its route does: the branch and the line beside it leave
+	 * from one node, and only the centre can be that node for both.
 	 */
 	private boolean isInterior() {
-		return prev != null && next != null;
+		return prev != null && next != null || hasBranch();
 	}
 
 	/**
@@ -1375,7 +1586,19 @@ public class AngledTrackAnchorBlockEntity extends TrackBlockEntity {
 	 */
 	@Nullable
 	public BezierConnection buildCurveToNext() {
-		AngledTrackAnchorBlockEntity ahead = anchorAt(next);
+		return buildCurveTo(anchorAt(next));
+	}
+
+	/**
+	 * The curve from this anchor to {@code ahead}, run from this end, or null if there is none to build:
+	 * the curve to {@link #next}, or to a branch this anchor holds.
+	 *
+	 * <p>The far end's node is its {@link #entryNode} whichever link this is, since the only way it can be
+	 * anything but its prev is as the turnout a branch comes into, and a turnout's node is its centre, as
+	 * both of its nodes are. The same for this end's {@link #exitNode}.
+	 */
+	@Nullable
+	public BezierConnection buildCurveTo(@Nullable AngledTrackAnchorBlockEntity ahead) {
 		if (ahead == null)
 			return null;
 
@@ -1385,15 +1608,86 @@ public class AngledTrackAnchorBlockEntity extends TrackBlockEntity {
 			.lengthSqr() < 1.0E-4)
 			return null;
 
-		return new BezierConnection(Couple.create(worldPosition, next), Couple.create(start, end),
+		return new BezierConnection(Couple.create(worldPosition, ahead.worldPosition), Couple.create(start, end),
 			// Both tangents point into the curve: ours forwards along the route, the far end's
 			// backwards along it. Create's determineHandles negates the second before measuring
 			// the turn, so a tangent pointing out of the curve there puts a cusp in the bezier.
 			// Each carries its anchor's climb, which Create reads only for where the handles point.
-			Couple.create(tangent(), ahead.tangent()
-				.scale(-1)),
+			Couple.create(outwardTo(ahead.worldPosition), ahead.outwardTo(worldPosition)),
 			// Straight up, except where an end is docked onto a slope, which the rails there lie on.
 			Couple.create(nodeNormal(), ahead.nodeNormal()), true, false, TrackMaterial.ANDESITE);
+	}
+
+	/**
+	 * Which way a curve to the anchor at {@code pos} leaves this one, climb and all: along the heading
+	 * towards the next and the branch ahead, against it towards the prev and the branch behind. Anything
+	 * else is taken to be behind, which is what a link this anchor does not agree about was always given.
+	 */
+	public Vec3 outwardTo(BlockPos pos) {
+		return pos.equals(next) || pos.equals(branchAhead) ? tangent()
+			: tangent().scale(-1);
+	}
+
+	/**
+	 * Whether the curve between this anchor and {@code other} is this anchor's to build and to hold: it is
+	 * the one that has the link as its next. For a branch that is the turnout when the branch's route runs
+	 * on from it, and the branch's first anchor when it runs in.
+	 */
+	public boolean owns(AngledTrackAnchorBlockEntity other) {
+		BlockPos pos = other.worldPosition;
+		return pos.equals(next) || isBranch(pos) && worldPosition.equals(other.prev);
+	}
+
+	/** Whether {@code other} holds the link this anchor has to it, the other half of it. */
+	public boolean agreesWith(AngledTrackAnchorBlockEntity other) {
+		BlockPos pos = other.worldPosition;
+		if (pos.equals(next))
+			return worldPosition.equals(other.prev) || other.isBranch(worldPosition);
+		if (pos.equals(prev))
+			return worldPosition.equals(other.next) || other.isBranch(worldPosition);
+		if (isBranch(pos))
+			return worldPosition.equals(other.prev) || worldPosition.equals(other.next);
+		return false;
+	}
+
+	/**
+	 * The curve between this anchor and {@code other}, as the one that holds it builds it, or null if
+	 * neither does or it cannot be built.
+	 */
+	@Nullable
+	public BezierConnection curveWith(@Nullable AngledTrackAnchorBlockEntity other) {
+		if (other == null)
+			return null;
+		if (owns(other))
+			return buildCurveTo(other);
+		return other.owns(this) ? other.buildCurveTo(this) : null;
+	}
+
+	/** Every curve this anchor holds, as it builds them: the one to its next, and those of its branches it holds. */
+	public List<BezierConnection> ownedCurves() {
+		List<BezierConnection> curves = new ArrayList<>(3);
+		for (BlockPos pos : neighbours()) {
+			if (pos.equals(prev))
+				continue;
+			AngledTrackAnchorBlockEntity other = anchorAt(pos);
+			BezierConnection curve = other != null && owns(other) ? buildCurveTo(other) : null;
+			if (curve != null)
+				curves.add(curve);
+		}
+		return curves;
+	}
+
+	/**
+	 * Every curve that meets this anchor, each as its holder builds it: the ones from its prev and to its
+	 * next as they always were, whether or not the anchor at the other end agrees, and its branches.
+	 */
+	public List<BezierConnection> curvesThrough() {
+		List<BezierConnection> curves = new ArrayList<>(4);
+		for (BezierConnection curve : new BezierConnection[] { buildCurveToNext(), buildCurveFromPrev(),
+			curveWith(anchorAt(branchAhead)), curveWith(anchorAt(branchBehind)) })
+			if (curve != null)
+				curves.add(curve);
+		return curves;
 	}
 
 	/**
@@ -1415,7 +1709,9 @@ public class AngledTrackAnchorBlockEntity extends TrackBlockEntity {
 	@Nullable
 	public BezierConnection buildCurveFromPrev() {
 		AngledTrackAnchorBlockEntity behind = anchorAt(prev);
-		return behind == null ? null : behind.buildCurveToNext();
+		// Not the one behind's curve to its next: where that is a turnout this anchor is a branch of, it
+		// is the curve to the through line beside this.
+		return behind == null ? null : behind.buildCurveTo(this);
 	}
 
 	/**
@@ -1457,38 +1753,46 @@ public class AngledTrackAnchorBlockEntity extends TrackBlockEntity {
 			Couple.create(along, along.scale(-1)), Couple.create(up, up), true, false, TrackMaterial.ANDESITE);
 	}
 
-	/** Client-side accessor for the curve ahead. Caches until something it depends on moves. */
-	@Nullable
-	public BezierConnection getCurveForRender() {
-		if (next == null) {
-			cachedCurve = null;
-			return null;
+	/**
+	 * Client-side accessor for the curves this anchor draws, which are those it holds ({@link #ownedCurves}).
+	 * Caches until something they depend on moves.
+	 */
+	public List<BezierConnection> getCurvesForRender() {
+		if (next == null && !hasBranch()) {
+			cachedCurves = List.of();
+			return cachedCurves;
 		}
 		long key = renderKey();
-		if (cachedCurve == null || key != cachedKey) {
-			cachedCurve = buildCurveToNext();
+		if (key != cachedKey) {
+			cachedCurves = ownedCurves();
 			cachedKey = key;
 		}
-		return cachedCurve;
+		return cachedCurves;
 	}
 
 	private long renderKey() {
-		AngledTrackAnchorBlockEntity ahead = anchorAt(next);
-		long key = next == null ? 0L : next.asLong();
+		long key = 1;
 		key = key * 31 + Float.floatToIntBits(yaw);
-		key = key * 31 + Float.floatToIntBits(ahead == null ? 0.0F : ahead.yaw);
 		key = key * 31 + Float.floatToIntBits(slope);
-		key = key * 31 + Float.floatToIntBits(ahead == null ? 0.0F : ahead.slope);
+		for (BlockPos pos : new BlockPos[] { next, branchAhead, branchBehind }) {
+			AngledTrackAnchorBlockEntity other = anchorAt(pos);
+			key = key * 31 + (pos == null ? 0L : pos.asLong());
+			key = key * 31 + Float.floatToIntBits(other == null ? 0.0F : other.yaw);
+			key = key * 31 + Float.floatToIntBits(other == null ? 0.0F : other.slope);
+			// Which way a branch's route runs decides which end draws it.
+			key = key * 31 + (other == null ? 0 : owns(other) ? 1 : 2);
+		}
 		return key;
 	}
 
 	public AABB computeRenderBoundingBox() {
 		// Always include the block itself: the span is drawn here even with no curve to show.
 		AABB bounds = new AABB(worldPosition);
-		BezierConnection curve = getCurveForRender();
-		// The curve's own bounds, sampled along the actual bezier and already padded by Create.
-		// More precise than boxing the two anchors, which would miss how far a curve bulges out.
-		return curve == null ? bounds : bounds.minmax(curve.getBounds());
+		// The curves' own bounds, sampled along the actual bezier and already padded by Create.
+		// More precise than boxing the anchors, which would miss how far a curve bulges out.
+		for (BezierConnection curve : getCurvesForRender())
+			bounds = bounds.minmax(curve.getBounds());
+		return bounds;
 	}
 
 	// --------------------------------------------------------------- index
@@ -1532,16 +1836,12 @@ public class AngledTrackAnchorBlockEntity extends TrackBlockEntity {
 		if (slope == 0 || !isLinked())
 			return AllShapes.TRACK_COLLISION;
 
-		AngledTrackAnchorBlockEntity before = anchorAt(prev);
-		BezierConnection in = before == null ? null : before.buildCurveToNext();
-		BezierConnection out = next == null ? null : buildCurveToNext();
-		if (climbingFloor != null && sameShape(in, floorFromPrev) && sameShape(out, floorFromNext))
+		List<BezierConnection> curves = curvesThrough();
+		if (climbingFloor != null && sameShapes(curves, floorSources))
 			return climbingFloor;
 
 		byte[] floor = null;
-		for (BezierConnection curve : new BezierConnection[] { in, out }) {
-			if (curve == null)
-				continue;
+		for (BezierConnection curve : curves) {
 			byte[] here = CurveOccupancy.rasterise(curve)
 				.get(worldPosition);
 			if (here == null)
@@ -1553,15 +1853,20 @@ public class AngledTrackAnchorBlockEntity extends TrackBlockEntity {
 					if (here[i] != CurveOccupancy.EMPTY && (floor[i] == CurveOccupancy.EMPTY || here[i] < floor[i]))
 						floor[i] = here[i];
 		}
-		boolean known = (prev == null || in != null) && (next == null || out != null);
+		boolean known = curves.size() == neighbours().size();
 		climbingFloor = floor != null ? CurveOccupancy.shapeOf(floor) : known ? Shapes.empty() : AllShapes.TRACK_COLLISION;
-		floorFromPrev = in;
-		floorFromNext = out;
+		floorSources = curves;
 		return climbingFloor;
 	}
 
-	private static boolean sameShape(@Nullable BezierConnection a, @Nullable BezierConnection b) {
-		return a == null ? b == null : b != null && a.equalsSansMaterial(b);
+	private static boolean sameShapes(List<BezierConnection> a, List<BezierConnection> b) {
+		if (a.size() != b.size())
+			return false;
+		for (int i = 0; i < a.size(); i++)
+			if (!a.get(i)
+				.equalsSansMaterial(b.get(i)))
+				return false;
+		return true;
 	}
 
 	/**
@@ -1596,23 +1901,50 @@ public class AngledTrackAnchorBlockEntity extends TrackBlockEntity {
 		if (level == null || level.isClientSide)
 			return;
 
-		// With the anchor ahead out of reach there is no curve to build, which is not the same as there
-		// being none: the link is still there and so is its floor. Clearing it here took the floor from
-		// under a long link every time its far end was out of the loaded chunks. The floor is kept alive
-		// as it was last laid, in the chunks that are here, since a floor nobody renews times out.
-		if (next != null && !level.isLoaded(next)) {
-			if (occupied != null)
-				CurveOccupancy.place(level, occupied);
-			return;
-		}
+		// One floor for each curve this anchor holds, by the anchor at its far end, and those it held and
+		// no longer does.
+		Set<BlockPos> ends = new LinkedHashSet<>(occupied.keySet());
+		for (BlockPos pos : new BlockPos[] { next, branchAhead, branchBehind })
+			if (pos != null)
+				ends.add(pos);
 
-		BezierConnection current = buildCurveToNext();
-		if (occupied != null && (current == null || !occupied.equalsSansMaterial(current)))
-			CurveOccupancy.clear(level, occupied);
+		for (BlockPos end : ends) {
+			BezierConnection laid = occupied.get(end);
 
-		occupied = current;
-		if (current != null)
+			// With the anchor at the far end out of reach there is no curve to build, which is not the same
+			// as there being none: the link is still there and so is its floor. Clearing it here took the
+			// floor from under a long link every time its far end was out of the loaded chunks. The floor is
+			// kept alive as it was last laid, in the chunks that are here, since a floor nobody renews times
+			// out.
+			if (!level.isLoaded(end)) {
+				if (laid != null)
+					CurveOccupancy.place(level, laid);
+				continue;
+			}
+
+			AngledTrackAnchorBlockEntity other = anchorAt(end);
+			BezierConnection current = other != null && isLinkedTo(end) && owns(other) ? buildCurveTo(other) : null;
+			// A branch whose route has been turned round is held by its other end now, which renews the floor;
+			// taking it up here would leave a gap until it does.
+			if (current == null && other != null && isLinkedTo(end) && other.owns(this)) {
+				occupied.remove(end);
+				continue;
+			}
+			if (laid != null && (current == null || !laid.equalsSansMaterial(current)))
+				CurveOccupancy.clear(level, laid);
+
+			if (current == null) {
+				occupied.remove(end);
+				continue;
+			}
+			occupied.put(end, current);
 			CurveOccupancy.place(level, current);
+		}
+	}
+
+	/** Whether this anchor has a link to the anchor at {@code pos}, of any kind. */
+	private boolean isLinkedTo(BlockPos pos) {
+		return pos.equals(prev) || pos.equals(next) || isBranch(pos);
 	}
 
 	/**
@@ -1625,10 +1957,10 @@ public class AngledTrackAnchorBlockEntity extends TrackBlockEntity {
 		if (level == null || level.isClientSide)
 			return;
 
-		BezierConnection current = occupied != null ? occupied : buildCurveToNext();
-		if (current != null)
-			CurveOccupancy.clear(level, current);
-		occupied = null;
+		List<BezierConnection> laid = occupied.isEmpty() ? ownedCurves() : List.copyOf(occupied.values());
+		for (BezierConnection curve : laid)
+			CurveOccupancy.clear(level, curve);
+		occupied.clear();
 	}
 
 	// ----------------------------------------------------------------- nbt
@@ -1656,6 +1988,10 @@ public class AngledTrackAnchorBlockEntity extends TrackBlockEntity {
 			tag.putLong(TAG_PREV, prev.asLong());
 		if (next != null)
 			tag.putLong(TAG_NEXT, next.asLong());
+		if (branchAhead != null)
+			tag.putLong(TAG_BRANCH_AHEAD, branchAhead.asLong());
+		if (branchBehind != null)
+			tag.putLong(TAG_BRANCH_BEHIND, branchBehind.asLong());
 	}
 
 	@Override
@@ -1665,6 +2001,8 @@ public class AngledTrackAnchorBlockEntity extends TrackBlockEntity {
 		slope = tag.getFloat(TAG_SLOPE);
 		prev = tag.contains(TAG_PREV) ? BlockPos.of(tag.getLong(TAG_PREV)) : null;
 		next = tag.contains(TAG_NEXT) ? BlockPos.of(tag.getLong(TAG_NEXT)) : null;
+		branchAhead = tag.contains(TAG_BRANCH_AHEAD) ? BlockPos.of(tag.getLong(TAG_BRANCH_AHEAD)) : null;
+		branchBehind = tag.contains(TAG_BRANCH_BEHIND) ? BlockPos.of(tag.getLong(TAG_BRANCH_BEHIND)) : null;
 		flipped = tag.getBoolean(TAG_AXIS_FLIPPED);
 		slopeDock = tag.getBoolean(TAG_SLOPE_DOCK);
 		invalidateCurve();

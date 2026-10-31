@@ -233,7 +233,7 @@ public class CurveFloorTests {
 	 * Checks that at every point along {@code curve} there is a floor within {@link #REACH} of the rails, and that
 	 * going from one point to the next the floor never rises more than {@link #WALKABLE_STEP}.
 	 */
-	private static void assertFloorFollowsRails(GameTestHelper helper, BezierConnection curve, String what) {
+	static void assertFloorFollowsRails(GameTestHelper helper, BezierConnection curve, String what) {
 		Level level = helper.getLevel();
 		int samples = Math.max(8, (int) (curve.getLength() * 4));
 		List<String> bad = new ArrayList<>();
