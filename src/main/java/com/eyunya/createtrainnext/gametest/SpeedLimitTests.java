@@ -177,7 +177,12 @@ public class SpeedLimitTests {
 		try {
 			saved = graph.write(registries, dimensions);
 		} catch (RuntimeException e) {
-			throw new GameTestAssertException("the graph should save, but writing it threw " + e);
+			// The test report carries only the message, and the trace is what says which point could not be
+			// written, so it goes to the log as well.
+			CreateTrainNext.LOGGER.error("Saving a track graph failed in a game test", e);
+			GameTestAssertException failure = new GameTestAssertException("the graph should save, but writing it threw " + e);
+			failure.initCause(e);
+			throw failure;
 		}
 		return TrackGraph.read(saved, registries, dimensions);
 	}
@@ -449,18 +454,20 @@ public class SpeedLimitTests {
 			facing.setType(CTNEdgePointTypes.SPEED_LIMIT);
 			facing.setLocation(Couple.create(b.getLocation(), c.getLocation()), 6.0);
 			facing.setLimit(40);
-			graph.addPoint(CTNEdgePointTypes.SPEED_LIMIT, facing);
 			SpeedLimitEdgePoint away = new SpeedLimitEdgePoint();
 			away.setId(UUID.randomUUID());
 			away.setType(CTNEdgePointTypes.SPEED_LIMIT);
 			away.setLocation(Couple.create(d.getLocation(), c.getLocation()), 3.0);
 			away.setLimit(20);
-			graph.addPoint(CTNEdgePointTypes.SPEED_LIMIT, away);
 
 			// Neither point has a sign behind it, so nothing would ever take them out of the graph again,
 			// and Create cannot save a point that has no block entity to name: the world would fail to save
-			// the track when the server stopped. They go whether or not the checks pass.
+			// the track when the server stopped. They go whether or not the checks pass, and even if adding
+			// the second one throws.
 			try {
+				graph.addPoint(CTNEdgePointTypes.SPEED_LIMIT, facing);
+				graph.addPoint(CTNEdgePointTypes.SPEED_LIMIT, away);
+
 				TravellingPoint start = new TravellingPoint(a, b, ab, 0, false);
 				var steer = start.steer(SteerDirection.NONE, new Vec3(0, 1, 0));
 				List<TrainSpeedLimits.Ahead> ahead = TrainSpeedLimits.scan(null, graph, start, true, 200, steer);
@@ -527,7 +534,9 @@ public class SpeedLimitTests {
 		sign.edgePoint.read(target, helper.getLevel()
 			.registryAccess(), false);
 
-		helper.runAfterDelay(GRAPH_TICKS + 2, () -> {
+		// The point appears once the graph has the route and the sign has ticked, which is not on a set tick,
+		// so this is asked again every tick until it holds or the test times out.
+		helper.succeedWhen(() -> {
 			SpeedLimitEdgePoint point = sign.getSpeedLimitPoint();
 			helper.assertTrue(point != null, "setup: the sign should have a point on the track by now");
 			TrackGraph graph = Create.RAILWAYS.sided(helper.getLevel()).trackNetworks.values()
@@ -543,7 +552,6 @@ public class SpeedLimitTests {
 				.equals(loaded.getBlockEntityPos()),
 				"it should come back at the sign, " + sign.getBlockPos() + ", not " + loaded.getBlockEntityPos());
 			helper.assertTrue(loaded.getLimit() == 60, "and still be the sign's 60, not " + loaded.getLimit());
-			helper.succeed();
 		});
 	}
 
