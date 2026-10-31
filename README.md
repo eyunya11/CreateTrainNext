@@ -90,7 +90,7 @@ When a curve cannot be built, the ghost turns red and the message says why.
 | "The curve would double back on itself" | One end points against the direction of the line joining the two points. |
 | "The ends point too differently for one curve…" | One curve cannot join them, and there is no free block to put an anchor in between two arcs. |
 | "No room for an anchor there" | The block the anchor needs is occupied. In grade mode that is the block at the height the grade gives, not the one you look at. |
-| "This side of the anchor already has a branch" | An anchor takes one branch on each side. |
+| "This side of the anchor already has two branches" | An anchor takes two branches on each side. |
 | "A branch cannot go straight into another branch…" | Two turnouts cannot be joined by one curve. Put an anchor between them. |
 | "This end of the sloped track already has a curve" | That end of sloped Create track, or the anchor joined to it there, already has a curve, so it cannot be a start or an end. |
 | "Both ends would be the same anchor" | The same anchor was picked twice. |
@@ -172,7 +172,7 @@ Breaking an anchor takes apart every curve it has, branches included, and so doe
 
 An anchor with a curve on both sides can have a branch drawn off it. It is done as any curve is: right click the anchor, then right click where the branch should go. The ghost's message adds "branches off the line".
 
-A branch leaves the anchor along the anchor's own heading, touching the line beside it. Which side of the anchor it leaves by depends on where you aim. A side takes one branch, so an anchor can have two. For a three-way split, put two turnouts one after the other.
+A branch leaves the anchor along the anchor's own heading, touching the line beside it. Which side of the anchor it leaves by depends on where you aim. A side takes two branches, so a branch either side of the line makes one anchor a three-way turnout.
 
 A turnout can be the end of a curve as well, to bring a line from elsewhere into the main line. Two turnouts cannot be joined by one curve, so put an anchor between them.
 
@@ -360,7 +360,7 @@ These limitations apply.
 | Joining sloped track | Only straight on, along the track's line, and only while `curves.maxGrade` is 1000. |
 | Heights | A curve gains a whole number of blocks, so the grade it really has differs from the one set, much more for a short curve or a gentle grade. A grade under one block per curve length, about 31 permille for 32 blocks, stays level. |
 | Speed limits | A train is slowed in time for a limit by looking ahead along the route it is navigating or the way it is steered. One that is already too fast for a limit that appears close ahead reaches it faster. If the lamps of a signal change as the train comes up, the train slows by the aspect they show at the time. |
-| Branches | An anchor takes one branch on each side. Two turnouts cannot be joined directly by one curve. |
+| Branches | An anchor takes two branches on each side. Two turnouts cannot be joined directly by one curve. |
 | Old worlds | They may hold coloured posts left where anchors were broken, and curves whose shape changes when read the other way. `prune`, `curves` and `repair` fix these. |
 | Multiplayer | It has not been tested enough. |
 

@@ -82,7 +82,7 @@
   "message.createtrainnext.wand.uneven": "両端の向きが違いすぎて1本の曲線ではつなげず、途中にアンカーを置く場所もありません。",
   "message.createtrainnext.wand.route_unavailable": "向きを反転するルートの一部が読み込まれていません。",
   "message.createtrainnext.wand.same_anchor": "始点と終点が同じアンカーになります。",
-  "message.createtrainnext.wand.branch_taken": "このアンカーのこちら側には、すでに分岐線があります。",
+  "message.createtrainnext.wand.branch_taken": "このアンカーのこちら側には、すでに分岐線が2本あります。",
   "message.createtrainnext.wand.branch_to_branch": "分岐線どうしは直接つなげません。間にアンカーを置いてください。",
   "message.createtrainnext.wand.dock_taken": "傾斜した線路のこちらの端には、すでに曲線がつながっています。",
   "message.createtrainnext.wand.junction_track": "この形の線路は、曲線の端にできません。",

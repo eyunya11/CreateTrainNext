@@ -7,8 +7,11 @@ import static com.eyunya.createtrainnext.gametest.CurveConsistencyTests.assertCh
 import static com.eyunya.createtrainnext.gametest.CurveConsistencyTests.assertConsistent;
 import static com.eyunya.createtrainnext.gametest.CurveConsistencyTests.route;
 
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+
+import org.jetbrains.annotations.Nullable;
 
 import com.eyunya.createtrainnext.CTNDataComponents;
 import com.eyunya.createtrainnext.CTNRegistry;
@@ -74,6 +77,9 @@ public class BranchTests {
 	private static final BlockPos BRANCH = new BlockPos(30, 2, 10);
 	private static final BlockPos BRANCH_ON = new BlockPos(40, 2, 4);
 
+	/** Where a second branch ahead goes, off to the south, which makes a three-way turnout. */
+	private static final BlockPos BRANCH_SOUTH = new BlockPos(30, 2, 22);
+
 	/** The through line and a branch ahead, its route running on from the turnout. */
 	private record Turnout(AngledTrackAnchorBlockEntity behind, AngledTrackAnchorBlockEntity turnout,
 		AngledTrackAnchorBlockEntity ahead, AngledTrackAnchorBlockEntity branch) {}
@@ -112,8 +118,7 @@ public class BranchTests {
 
 		helper.assertTrue(t.turnout()
 			.isBranch(t.branch()
-				.getBlockPos()) && t.turnout()
-					.getBranchAhead()
+				.getBlockPos()) && onlyBranch(t.turnout(), true)
 					.equals(t.branch()
 						.getBlockPos()), "setup: the branch should be ahead of the turnout");
 		helper.assertTrue(t.branch()
@@ -208,11 +213,9 @@ public class BranchTests {
 
 		helper.assertTrue(t.turnout()
 			.reverseRoute() == 3, "the line through the turnout should be turned, and only that line");
-		helper.assertTrue(t.turnout()
-			.getBranchBehind()
+		helper.assertTrue(onlyBranch(t.turnout(), false)
 			.equals(t.branch()
-				.getBlockPos()) && t.turnout()
-					.getBranchAhead() == null, "the branch should be behind the turnout now");
+				.getBlockPos()) && onlyBranch(t.turnout(), true) == null, "the branch should be behind the turnout now");
 		helper.assertTrue(t.branch()
 			.getPrev()
 			.equals(t.turnout()
@@ -331,8 +334,7 @@ public class BranchTests {
 		helper.runAfterDelay(GRAPH_TICKS, () -> {
 			helper.setBlock(AHEAD, Blocks.AIR);
 			helper.assertTrue(t.turnout()
-				.getNext() == null && Objects.equals(t.turnout()
-					.getBranchAhead(), t.branch()
+				.getNext() == null && Objects.equals(onlyBranch(t.turnout(), true), t.branch()
 						.getBlockPos()), "the branch should still be a branch");
 			Vec3 east = Vec3.atBottomCenterOf(t.turnout()
 				.getBlockPos())
@@ -446,7 +448,7 @@ public class BranchTests {
 
 		CompoundTag plain = t.ahead()
 			.saveWithFullMetadata(level.registryAccess());
-		helper.assertTrue(!plain.contains("BranchAhead") && !plain.contains("BranchBehind"),
+		helper.assertTrue(!plain.contains("BranchesAhead") && !plain.contains("BranchesBehind"),
 			"an anchor with no branch should not write one");
 
 		AngledTrackAnchorBlockEntity original = t.turnout();
@@ -455,9 +457,20 @@ public class BranchTests {
 			level.registryAccess());
 		helper.assertTrue(loaded instanceof AngledTrackAnchorBlockEntity, "the saved turnout should load again");
 		AngledTrackAnchorBlockEntity copy = (AngledTrackAnchorBlockEntity) loaded;
-		helper.assertTrue(Objects.equals(copy.getBranchAhead(), original.getBranchAhead())
-			&& copy.getBranchBehind() == null && Objects.equals(copy.getPrev(), original.getPrev())
+		helper.assertTrue(Objects.equals(onlyBranch(copy, true), onlyBranch(original, true))
+			&& onlyBranch(copy, false) == null && Objects.equals(copy.getPrev(), original.getPrev())
 			&& Objects.equals(copy.getNext(), original.getNext()), "the loaded turnout should keep its links");
+		// A save made while an anchor took one branch a side holds it under a key of its own.
+		CompoundTag old = saved.copy();
+		old.remove("BranchesAhead");
+		old.putLong("BranchAhead", t.branch()
+			.getBlockPos()
+			.asLong());
+		BlockEntity fromOld = BlockEntity.loadStatic(original.getBlockPos(), original.getBlockState(), old,
+			level.registryAccess());
+		helper.assertTrue(fromOld instanceof AngledTrackAnchorBlockEntity oldCopy && Objects.equals(onlyBranch(oldCopy,
+			true), t.branch()
+				.getBlockPos()), "a save with the single branch key should load its branch");
 		helper.succeed();
 	}
 
@@ -486,7 +499,7 @@ public class BranchTests {
 		helper.assertTrue(built.consumesAction(), "the second click should have built the branch, but gave " + built);
 
 		AngledTrackAnchorBlockEntity branch = anchorAt(helper, BRANCH, false);
-		helper.assertTrue(Objects.equals(line[1].getBranchAhead(), branch.getBlockPos()) && Objects.equals(branch
+		helper.assertTrue(Objects.equals(onlyBranch(line[1], true), branch.getBlockPos()) && Objects.equals(branch
 			.getPrev(), line[1].getBlockPos()), "the new anchor should be a branch ahead of the turnout, running on from it");
 		assertChain(helper, line[1], BEHIND, TURNOUT, AHEAD);
 		helper.assertTrue(CurvePlanner.deviation(plan.curve(), line[1].curveWith(branch)) < 1.0E-6,
@@ -515,8 +528,7 @@ public class BranchTests {
 			.branch() == CurvePlanner.Branch.BEHIND, "a branch aimed behind should leave behind, but was " + plan.error()
 				+ " / " + plan.start());
 		helper.assertTrue(CurvePlanner.apply(helper.getLevel(), plan) == null, "the branch should have been built");
-		helper.assertTrue(Objects.equals(line[1].getBranchBehind(), helper.absolutePos(back)) && line[1]
-			.getBranchAhead() == null, "the branch should be behind the turnout");
+		helper.assertTrue(Objects.equals(onlyBranch(line[1], false), helper.absolutePos(back)) && onlyBranch(line[1], true) == null, "the branch should be behind the turnout");
 
 		helper.runAfterDelay(GRAPH_TICKS, () -> {
 			for (BezierConnection curve : line[1].curvesThrough())
@@ -525,28 +537,125 @@ public class BranchTests {
 		});
 	}
 
-	/** A side has room for one branch; the other side still has room for its own. */
+	/**
+	 * A side has room for two branches, which makes one anchor a three-way turnout, and no more. The other side
+	 * has room for two of its own.
+	 */
 	@GameTest(template = EMPTY)
-	public static void aSideTakesOneBranch(GameTestHelper helper) {
+	public static void aSideTakesTwoBranches(GameTestHelper helper) {
 		Turnout t = turnout(helper);
 		Level level = helper.getLevel();
 
-		CurvePlanner.Plan again = CurvePlanner.plan(level, helper.absolutePos(TURNOUT), helper.absolutePos(
-			new BlockPos(30, 2, 24)), Direction.UP, 0);
-		helper.assertTrue("branch_taken".equals(again.error()), "a second branch ahead should be refused, but was "
-			+ again.error());
-		helper.assertTrue(CurvePlanner.canStartFrom(level, helper.absolutePos(TURNOUT)),
-			"the side behind is still free for a branch, so the turnout can be started from");
-
-		CurvePlanner.Plan behind = CurvePlanner.plan(level, helper.absolutePos(TURNOUT), helper.absolutePos(
-			new BlockPos(2, 2, 24)), Direction.UP, 0);
-		helper.assertTrue(behind.valid() && behind.start()
-			.branch() == CurvePlanner.Branch.BEHIND, "a branch behind should still be possible, but was " + behind
+		CurvePlanner.Plan second = CurvePlanner.plan(level, helper.absolutePos(TURNOUT), helper.absolutePos(
+			BRANCH_SOUTH), Direction.UP, 0);
+		helper.assertTrue(second.valid() && second.start()
+			.branch() == CurvePlanner.Branch.AHEAD, "a second branch ahead should be possible, but was " + second
 				.error());
-		helper.assertTrue(CurvePlanner.apply(level, behind) == null, "setup: the second branch should be built");
+		helper.assertTrue(CurvePlanner.apply(level, second) == null, "setup: the second branch should be built");
+		helper.assertTrue(t.turnout()
+			.getBranches(true)
+			.size() == 2, "the turnout should have two branches ahead");
+
+		CurvePlanner.Plan third = CurvePlanner.plan(level, helper.absolutePos(TURNOUT), helper.absolutePos(
+			new BlockPos(30, 2, 28)), Direction.UP, 0);
+		helper.assertTrue("branch_taken".equals(third.error()), "a third branch ahead should be refused, but was "
+			+ third.error());
+		helper.assertTrue(CurvePlanner.canStartFrom(level, helper.absolutePos(TURNOUT)),
+			"the side behind is still free for branches, so the turnout can be started from");
+
+		for (BlockPos back : new BlockPos[] { new BlockPos(2, 2, 24), new BlockPos(2, 2, 8) }) {
+			CurvePlanner.Plan behind = CurvePlanner.plan(level, helper.absolutePos(TURNOUT), helper.absolutePos(back),
+				Direction.UP, 0);
+			helper.assertTrue(behind.valid() && behind.start()
+				.branch() == CurvePlanner.Branch.BEHIND, "a branch behind should still be possible, but was " + behind
+					.error());
+			helper.assertTrue(CurvePlanner.apply(level, behind) == null, "setup: a branch behind should be built");
+		}
 		helper.assertTrue(!CurvePlanner.canStartFrom(level, helper.absolutePos(TURNOUT)),
-			"with a branch on both sides, nothing more can leave the turnout");
+			"with two branches on both sides, nothing more can leave the turnout");
 		helper.succeed();
+	}
+
+	/**
+	 * A three-way turnout: the line and a branch either side of it, from one node. A train from behind may take
+	 * any of the three, and one off a branch may go on only behind, not across onto the other branch.
+	 */
+	@GameTest(template = EMPTY, timeoutTicks = 60)
+	public static void aThreeWayTurnoutIsOneNodeWithFourWays(GameTestHelper helper) {
+		Turnout t = turnout(helper);
+		Level level = helper.getLevel();
+		AngledTrackAnchorBlockEntity south = anchor(helper, BRANCH_SOUTH);
+		t.turnout()
+			.branchTo(south, true, true, arcEnd(helper, TURNOUT, t.turnout()
+				.heading(), BRANCH_SOUTH));
+
+		helper.runAfterDelay(GRAPH_TICKS, () -> {
+			// Two at each end of the line, one at the turnout, one at the end of each branch.
+			GraphCleanlinessTests.assertClean(helper, "with a three-way turnout", 7);
+
+			Vec3 centre = Vec3.atBottomCenterOf(t.turnout()
+				.getBlockPos());
+			TrackNodeLocation at = new TrackNodeLocation(centre).in(level);
+			TrackGraph graph = Create.RAILWAYS.sided(level)
+				.getGraph(level, at);
+			helper.assertTrue(graph != null && graph.locateNode(at) != null, "the turnout should be in the graph");
+			TrackNode node = graph.locateNode(at);
+			Map<TrackNode, TrackEdge> out = graph.getConnectionsFrom(node);
+			helper.assertTrue(out.size() == 4, "four ways should leave the turnout, but " + out.size() + " do");
+
+			TrackNode behind = farEnd(helper, graph, t.turnout()
+				.buildCurveFromPrev(), centre);
+			TrackNode ahead = farEnd(helper, graph, t.turnout()
+				.buildCurveToNext(), centre);
+			TrackNode north = farEnd(helper, graph, t.turnout()
+				.curveWith(t.branch()), centre);
+			TrackNode southNode = farEnd(helper, graph, t.turnout()
+				.curveWith(south), centre);
+
+			TrackEdge fromBehind = graph.getConnectionsFrom(behind)
+				.get(node);
+			TrackEdge fromNorth = graph.getConnectionsFrom(north)
+				.get(node);
+			helper.assertTrue(fromBehind.canTravelTo(out.get(ahead)) && fromBehind.canTravelTo(out.get(north))
+				&& fromBehind.canTravelTo(out.get(southNode)), "a train from behind should be let onto any of the three");
+			helper.assertTrue(fromNorth.canTravelTo(out.get(behind)), "a train off a branch should be let on behind");
+			helper.assertTrue(!fromNorth.canTravelTo(out.get(southNode)) && !fromNorth.canTravelTo(out.get(ahead)),
+				"a train off a branch should not be let across onto the other branch or the line ahead");
+
+			for (BezierConnection curve : t.turnout()
+				.curvesThrough())
+				assertEdges(helper, curve);
+			helper.succeed();
+		});
+	}
+
+	/**
+	 * With the line beyond a three-way turnout gone, the first branch that runs on from it becomes the line, and
+	 * the other stays a branch beside it.
+	 */
+	@GameTest(template = EMPTY, timeoutTicks = 80)
+	public static void breakingTheLineBeyondAThreeWayTurnoutKeepsTheOtherBranch(GameTestHelper helper) {
+		Turnout t = turnout(helper);
+		AngledTrackAnchorBlockEntity south = anchor(helper, BRANCH_SOUTH);
+		t.turnout()
+			.branchTo(south, true, true, arcEnd(helper, TURNOUT, t.turnout()
+				.heading(), BRANCH_SOUTH));
+
+		helper.runAfterDelay(GRAPH_TICKS, () -> {
+			helper.setBlock(AHEAD, Blocks.AIR);
+			helper.assertTrue(Objects.equals(t.turnout()
+				.getNext(), t.branch()
+					.getBlockPos()) && Objects.equals(onlyBranch(t.turnout(), true), south.getBlockPos()),
+				"the first branch should be the line now, and the other still a branch");
+
+			helper.runAfterDelay(SETTLE_TICKS, () -> {
+				GraphCleanlinessTests.assertClean(helper, "after breaking the line beyond a three-way turnout", 5);
+				for (BezierConnection curve : t.turnout()
+					.curvesThrough())
+					assertEdges(helper, curve);
+				helper.succeed();
+			});
+		});
 	}
 
 	/**
@@ -566,7 +675,7 @@ public class BranchTests {
 		helper.assertTrue(built.consumesAction(), "the second click should have built a branch into the turnout, but"
 			+ " gave " + built);
 
-		helper.assertTrue(Objects.equals(line[1].getBranchAhead(), lone.getBlockPos()) && Objects.equals(lone.getNext(),
+		helper.assertTrue(Objects.equals(onlyBranch(line[1], true), lone.getBlockPos()) && Objects.equals(lone.getNext(),
 			line[1].getBlockPos()), "the lone anchor should be a branch ahead of the turnout, running into it");
 		helper.assertTrue(wand.get(CTNDataComponents.CURVE_SELECTION) == null,
 			"the turnout has nothing left to carry on from that way, so the selection should be gone");
@@ -605,8 +714,7 @@ public class BranchTests {
 		helper.runAfterDelay(1, () -> {
 			AngledTrackAnchorBlockEntity point = putPointOn(helper, t.turnout()
 				.curveWith(t.branch()), t.branch());
-			helper.assertTrue(Objects.equals(t.turnout()
-				.getBranchAhead(), point.getBlockPos()) && Objects.equals(point.getPrev(), t.turnout()
+			helper.assertTrue(Objects.equals(onlyBranch(t.turnout(), true), point.getBlockPos()) && Objects.equals(point.getPrev(), t.turnout()
 					.getBlockPos()), "the point should be the turnout's branch now");
 			assertChain(helper, point, relativeOf(helper, point), BRANCH);
 			assertChain(helper, t.turnout(), BEHIND, TURNOUT, AHEAD);
@@ -616,6 +724,39 @@ public class BranchTests {
 					.curveWith(point));
 				assertConsistent(helper, point);
 				GraphCleanlinessTests.assertClean(helper, "with a point on a branch", 7);
+				helper.succeed();
+			});
+		});
+	}
+
+	/**
+	 * On a three-way turnout the side is full, so the point has to take the old branch's place rather than be
+	 * added beside it.
+	 */
+	@GameTest(template = EMPTY, timeoutTicks = 60)
+	public static void aPointCanBePutOnABranchOfAThreeWayTurnout(GameTestHelper helper) {
+		Turnout t = turnout(helper);
+		AngledTrackAnchorBlockEntity south = anchor(helper, BRANCH_SOUTH);
+		t.turnout()
+			.branchTo(south, true, true, arcEnd(helper, TURNOUT, t.turnout()
+				.heading(), BRANCH_SOUTH));
+
+		// New anchors are indexed a tick after they are placed, and finding a curve asks the index.
+		helper.runAfterDelay(1, () -> {
+			AngledTrackAnchorBlockEntity point = putPointOn(helper, t.turnout()
+				.curveWith(t.branch()), t.branch());
+			helper.assertTrue(t.turnout()
+				.getBranches(true)
+				.equals(List.of(point.getBlockPos(), south.getBlockPos())), "the point should have taken the old"
+					+ " branch's place, beside the other, but the branches are " + t.turnout()
+						.getBranches(true));
+			assertChain(helper, point, relativeOf(helper, point), BRANCH);
+
+			helper.runAfterDelay(GRAPH_TICKS, () -> {
+				for (BezierConnection curve : t.turnout()
+					.curvesThrough())
+					assertEdges(helper, curve);
+				assertConsistent(helper, point);
 				helper.succeed();
 			});
 		});
@@ -632,8 +773,7 @@ public class BranchTests {
 		helper.runAfterDelay(1, () -> {
 			AngledTrackAnchorBlockEntity point = putPointOn(helper, t.branch()
 				.curveWith(t.turnout()), t.turnout());
-			helper.assertTrue(Objects.equals(t.turnout()
-				.getBranchAhead(), point.getBlockPos()) && Objects.equals(point.getNext(), t.turnout()
+			helper.assertTrue(Objects.equals(onlyBranch(t.turnout(), true), point.getBlockPos()) && Objects.equals(point.getNext(), t.turnout()
 					.getBlockPos()), "the point should be the turnout's branch now, running into it");
 			assertChain(helper, t.branch(), BRANCH, relativeOf(helper, point));
 
@@ -671,7 +811,7 @@ public class BranchTests {
 			CurveRepair.Outcome outcome = CurveRepair.repair(helper.getLevel(), link);
 			helper.assertTrue(outcome.repaired(), "the branch should have been mended, but was " + outcome.error());
 			AngledTrackAnchorBlockEntity middle = anchorAt(helper, relativeOf(helper, outcome.junction()), false);
-			helper.assertTrue(Objects.equals(line[1].getBranchAhead(), middle.getBlockPos()) && Objects.equals(far.getPrev(),
+			helper.assertTrue(Objects.equals(onlyBranch(line[1], true), middle.getBlockPos()) && Objects.equals(far.getPrev(),
 				middle.getBlockPos()), "the turnout's branch should run through the new anchor to the far end");
 
 			helper.runAfterDelay(GRAPH_TICKS, () -> {
@@ -756,7 +896,7 @@ public class BranchTests {
 			new BlockPos(2, 2, 10)), Direction.UP, 0);
 		helper.assertTrue(plan.valid(), "setup: the branch should be possible, but was " + plan.error());
 		helper.assertTrue(CurvePlanner.apply(level, plan) == null, "the branch should have been built");
-		helper.assertTrue(Objects.equals(line[0].getBranchBehind(), helper.absolutePos(new BlockPos(2, 2, 10))),
+		helper.assertTrue(Objects.equals(onlyBranch(line[0], false), helper.absolutePos(new BlockPos(2, 2, 10))),
 			"the branch should be behind the end");
 		helper.assertTrue(line[0].entryNode()
 			.equals(shared) && line[0].isDockedOnTrack(), "the end should keep the node it shares with the track");
@@ -936,6 +1076,13 @@ public class BranchTests {
 	}
 
 	// --------------------------------------------------------------- helpers
+
+	/** The one branch on a side of {@code anchor}, or null if that side has none or more than one. */
+	@Nullable
+	private static BlockPos onlyBranch(AngledTrackAnchorBlockEntity anchor, boolean ahead) {
+		List<BlockPos> branches = anchor.getBranches(ahead);
+		return branches.size() == 1 ? branches.get(0) : null;
+	}
 
 	/** Puts a point half way along {@code curve} the way the wand does, and returns the anchor it placed. */
 	private static AngledTrackAnchorBlockEntity putPointOn(GameTestHelper helper, BezierConnection curve,

@@ -88,7 +88,7 @@ public final class CurvePlanner {
 	/**
 	 * Whether an end of a curve is a branch leaving an anchor that a route already runs through, and on which
 	 * side: alongside the curve to its next ({@code AHEAD}), or the one from its prev ({@code BEHIND}). See
-	 * {@link AngledTrackAnchorBlockEntity#getBranchAhead}.
+	 * {@link AngledTrackAnchorBlockEntity#getBranches}.
 	 */
 	public enum Branch {
 		NONE,
@@ -804,9 +804,9 @@ public final class CurvePlanner {
 		AngledTrackAnchorBlockEntity to, @Nullable Endpoint toEnd, @Nullable Vec3 fromAim, @Nullable Vec3 toAim,
 		boolean fromDocks, boolean toDocks) {
 		if (fromEnd != null && fromEnd.branches())
-			from.branchTo(to, fromEnd.branch() == Branch.AHEAD, true, toAim, toDocks);
+			from.branchTo(to, fromEnd.branch() == Branch.AHEAD, true, toAim, toDocks, null);
 		else if (toEnd != null && toEnd.branches())
-			to.branchTo(from, toEnd.branch() == Branch.AHEAD, false, fromAim, fromDocks);
+			to.branchTo(from, toEnd.branch() == Branch.AHEAD, false, fromAim, fromDocks, null);
 		else
 			from.linkTo(to, fromAim, toAim, fromDocks, toDocks);
 	}
@@ -2014,9 +2014,8 @@ public final class CurvePlanner {
 		if (ownersBranch && !(owner.isBranch(farPos) && owner.getBlockPos()
 			.equals(ahead.getPrev())))
 			return false;
-		boolean branchAhead = ownersBranch ? farPos.equals(owner.getBranchAhead())
-			: owner.getBlockPos()
-				.equals(ahead.getBranchAhead());
+		boolean branchAhead = Boolean.TRUE.equals(ownersBranch ? owner.branchSide(farPos)
+			: ahead.branchSide(owner.getBlockPos()));
 
 		BlockPos pos = target.anchorPos();
 		clearFor(level, pos);
@@ -2034,7 +2033,7 @@ public final class CurvePlanner {
 		Vec3 aim = AngledTrackAnchorBlockEntity.tangentOf(target.tangent(), target.slope());
 		// A branch stays a branch of its turnout, at whichever end of the two curves the turnout is.
 		if (ownersBranch)
-			owner.branchTo(inserted, branchAhead, true, aim);
+			owner.branchTo(inserted, branchAhead, true, aim, false, farPos);
 		else
 			owner.linkTo(inserted, null, aim);
 		if (intoBranch)

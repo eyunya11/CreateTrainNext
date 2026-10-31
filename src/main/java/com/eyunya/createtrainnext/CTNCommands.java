@@ -350,8 +350,9 @@ public class CTNCommands {
 
 		if (level.getBlockEntity(pos) instanceof AngledTrackAnchorBlockEntity anchor)
 			say(source, "yaw = " + anchor.getYaw() + "  prev=" + (anchor.getPrev() != null) + " next="
-				+ (anchor.getNext() != null) + "  branchAhead=" + (anchor.getBranchAhead() != null) + " branchBehind="
-				+ (anchor.getBranchBehind() != null) + "  flipped=" + anchor.isFlipped());
+				+ (anchor.getNext() != null) + "  branchesAhead=" + anchor.getBranches(true)
+					.size() + " branchesBehind=" + anchor.getBranches(false)
+						.size() + "  flipped=" + anchor.isFlipped());
 
 		// Case 1: is the block's centre a node, and does any edge leaving it match?
 		Vec3 centre = Vec3.atBottomCenterOf(pos)

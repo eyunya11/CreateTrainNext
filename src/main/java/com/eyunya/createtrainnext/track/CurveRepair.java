@@ -174,8 +174,8 @@ public final class CurveRepair {
 		BlockPos fromPos = from.getBlockPos();
 		boolean fromBranch = !toPos.equals(from.getNext());
 		boolean toBranch = !fromPos.equals(to.getPrev());
-		boolean leavesAhead = toPos.equals(from.getNext()) || toPos.equals(from.getBranchAhead());
-		boolean arrivesBehind = fromPos.equals(to.getPrev()) || fromPos.equals(to.getBranchBehind());
+		boolean leavesAhead = toPos.equals(from.getNext()) || Boolean.TRUE.equals(from.branchSide(toPos));
+		boolean arrivesBehind = fromPos.equals(to.getPrev()) || Boolean.FALSE.equals(to.branchSide(fromPos));
 
 		BezierConnection single = from.buildCurveTo(to);
 		if (single == null)
@@ -254,11 +254,11 @@ public final class CurveRepair {
 		// Whether the far anchor is docked onto a slope goes with it too: between the two links it has
 		// no curve, and is not.
 		boolean toDocked = to.isSlopeDocked();
-		boolean branchAhead = fromBranch ? toPos.equals(from.getBranchAhead()) : fromPos.equals(to.getBranchAhead());
+		boolean branchAhead = Boolean.TRUE.equals(fromBranch ? from.branchSide(toPos) : to.branchSide(fromPos));
 		Vec3 middleAim = AngledTrackAnchorBlockEntity.tangentOf(junction.heading(), junctionSlope);
 		// A branch stays a branch of its turnout, which is one end or the other.
 		if (fromBranch)
-			from.branchTo(middle, branchAhead, true, middleAim);
+			from.branchTo(middle, branchAhead, true, middleAim, false, toPos);
 		else
 			from.linkTo(middle, null, middleAim);
 		if (toBranch)
