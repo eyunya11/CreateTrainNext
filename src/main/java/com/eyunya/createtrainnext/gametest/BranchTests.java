@@ -7,8 +7,10 @@ import static com.eyunya.createtrainnext.gametest.CurveConsistencyTests.assertCh
 import static com.eyunya.createtrainnext.gametest.CurveConsistencyTests.assertConsistent;
 import static com.eyunya.createtrainnext.gametest.CurveConsistencyTests.route;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Map.Entry;
 import java.util.Objects;
 
 import org.jetbrains.annotations.Nullable;
@@ -22,6 +24,8 @@ import com.eyunya.createtrainnext.track.CurveRepair;
 import com.eyunya.createtrainnext.track.CurveWandSelection;
 import com.simibubi.create.AllBlocks;
 import com.simibubi.create.Create;
+import com.simibubi.create.content.trains.entity.TravellingPoint;
+import com.simibubi.create.content.trains.entity.TravellingPoint.SteerDirection;
 import com.simibubi.create.content.trains.graph.TrackEdge;
 import com.simibubi.create.content.trains.graph.TrackGraph;
 import com.simibubi.create.content.trains.graph.TrackNode;
@@ -34,6 +38,7 @@ import com.simibubi.create.content.trains.track.TrackPropagator;
 import com.simibubi.create.content.trains.track.TrackShape;
 
 import net.createmod.catnip.data.Couple;
+import net.createmod.catnip.data.Pair;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.gametest.framework.GameTest;
@@ -627,6 +632,90 @@ public class BranchTests {
 				assertEdges(helper, curve);
 			helper.succeed();
 		});
+	}
+
+	/**
+	 * A driven train at a turnout with branches every way: straight on is the line, left and right the branches
+	 * on either side of it, whichever way it comes in. Coming off a curved branch, Create's own steering measured
+	 * the curve's bend into the choice, so straight on took the branch on the far side and nothing took the line.
+	 */
+	@GameTest(template = EMPTY, timeoutTicks = 60)
+	public static void aDrivenTrainCanTakeEveryWayThroughATurnout(GameTestHelper helper) {
+		Turnout t = turnout(helper);
+		Level level = helper.getLevel();
+		AngledTrackAnchorBlockEntity south = anchor(helper, BRANCH_SOUTH);
+		t.turnout()
+			.branchTo(south, true, true, arcEnd(helper, TURNOUT, t.turnout()
+				.heading(), BRANCH_SOUTH));
+		BlockPos backNorth = new BlockPos(2, 2, 8);
+		BlockPos backSouth = new BlockPos(2, 2, 24);
+		Vec3 back = t.turnout()
+			.heading()
+			.scale(-1);
+		for (BlockPos pos : new BlockPos[] { backNorth, backSouth }) {
+			AngledTrackAnchorBlockEntity end = anchor(helper, pos);
+			// Its route runs into the turnout, so it is aimed the way a train leaving along it goes, reversed.
+			t.turnout()
+				.branchTo(end, false, false, arcEnd(helper, TURNOUT, back, pos).scale(-1));
+		}
+
+		helper.runAfterDelay(GRAPH_TICKS, () -> {
+			Vec3 centre = Vec3.atBottomCenterOf(t.turnout()
+				.getBlockPos());
+			TrackNodeLocation at = new TrackNodeLocation(centre).in(level);
+			TrackGraph graph = Create.RAILWAYS.sided(level)
+				.getGraph(level, at);
+			helper.assertTrue(graph != null && graph.locateNode(at) != null, "the turnout should be in the graph");
+			TrackNode node = graph.locateNode(at);
+			helper.assertTrue(graph.getConnectionsFrom(node)
+				.size() == 6, "six ways should leave the turnout");
+
+			TrackNode behind = farEnd(helper, graph, t.turnout()
+				.buildCurveFromPrev(), centre);
+			TrackNode ahead = farEnd(helper, graph, t.turnout()
+				.buildCurveToNext(), centre);
+			TrackNode north = farEnd(helper, graph, t.turnout()
+				.curveWith(t.branch()), centre);
+			TrackNode southEnd = farEnd(helper, graph, t.turnout()
+				.curveWith(south), centre);
+			TrackNode behindNorth = farEnd(helper, graph, t.turnout()
+				.curveWith(anchorAt(helper, backNorth, false)), centre);
+			TrackNode behindSouth = farEnd(helper, graph, t.turnout()
+				.curveWith(anchorAt(helper, backSouth, false)), centre);
+
+			// Coming off the branch to the north, going west: left is south.
+			assertSteers(helper, graph, north, node, SteerDirection.NONE, behind, "off a branch, straight on");
+			assertSteers(helper, graph, north, node, SteerDirection.LEFT, behindSouth, "off a branch, left");
+			assertSteers(helper, graph, north, node, SteerDirection.RIGHT, behindNorth, "off a branch, right");
+			// Coming along the line from behind, going east: left is north.
+			assertSteers(helper, graph, behind, node, SteerDirection.NONE, ahead, "along the line, straight on");
+			assertSteers(helper, graph, behind, node, SteerDirection.LEFT, north, "along the line, left");
+			assertSteers(helper, graph, behind, node, SteerDirection.RIGHT, southEnd, "along the line, right");
+			helper.succeed();
+		});
+	}
+
+	/**
+	 * Checks which way a train driven {@code direction} goes on arriving at {@code at} from {@code from}: the
+	 * ways out are those Create would offer, any that the train can cross onto.
+	 */
+	private static void assertSteers(GameTestHelper helper, TrackGraph graph, TrackNode from, TrackNode at,
+		SteerDirection direction, TrackNode expected, String what) {
+		TrackEdge arriving = graph.getConnectionsFrom(from)
+			.get(at);
+		helper.assertTrue(arriving != null, what + ": the train should have an edge to arrive on");
+		List<Entry<TrackNode, TrackEdge>> targets = new ArrayList<>();
+		for (Entry<TrackNode, TrackEdge> target : graph.getConnectionsFrom(at)
+			.entrySet())
+			if (target.getKey() != from && arriving.canTravelTo(target.getValue()))
+				targets.add(target);
+		TravellingPoint point = new TravellingPoint(from, at, arriving, arriving.getLength(), false);
+		Entry<TrackNode, TrackEdge> chosen = point.steer(direction, new Vec3(0, 1, 0))
+			.apply(graph, Pair.of(true, targets));
+		helper.assertTrue(chosen.getKey() == expected, what + " should go to " + expected.getLocation()
+			.getLocation() + ", but goes to " + chosen.getKey()
+				.getLocation()
+				.getLocation() + " (of " + targets.size() + " ways)");
 	}
 
 	/**

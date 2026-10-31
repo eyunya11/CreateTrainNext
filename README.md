@@ -176,7 +176,7 @@ A branch leaves the anchor along the anchor's own heading, touching the line bes
 
 A turnout can be the end of a curve as well, to bring a line from elsewhere into the main line. Two turnouts cannot be joined by one curve, so put an anchor between them.
 
-A train that comes to a turnout from the side opposite the branch can go either way, onto the line or onto the branch. A train coming off the branch goes on to the opposite side. Which way a train goes is decided by its destination in Create, or by whoever is driving it.
+A train that comes to a turnout from the side opposite the branch can go either way, onto the line or onto the branch. A train coming off the branch goes on to the opposite side. Which way a train goes is decided by its destination in Create, or by whoever is driving it. Driven by hand, straight on takes the line, and left or right the branch on that side.
 
 An end joined onto Create track can be a turnout too. Whether the branch leaves beside the Create track or beside the curve already there, the end stays joined to the Create track.
 
