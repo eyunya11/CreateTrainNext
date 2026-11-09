@@ -12,6 +12,7 @@ import com.simibubi.create.foundation.block.IBE;
 
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
+import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.item.context.BlockPlaceContext;
 import net.minecraft.world.level.BlockGetter;
 import net.minecraft.world.level.Level;
@@ -306,5 +307,9 @@ public class MultiAspectSignalBlock extends Block
 		// Not super.onRemove: the block entity has to be told it is going, or the signal boundary it
 		// put in the track graph outlives it and trains keep obeying a signal that is not there.
 		IBE.onRemove(state, level, pos, newState);
+		// Only when the head itself goes, not when a property of it changes. A head of another type put in
+		// its place writes itself in afterwards, as its block entity loads.
+		if (level instanceof ServerLevel serverLevel && !state.is(newState.getBlock()))
+			SignalHeads.forget(serverLevel, pos);
 	}
 }

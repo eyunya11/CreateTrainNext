@@ -30,6 +30,7 @@ import net.minecraft.core.Direction.Axis;
 import net.minecraft.core.HolderLookup;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.network.chat.Component;
+import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.level.LevelAccessor;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.entity.BlockEntity;
@@ -117,6 +118,17 @@ public class MultiAspectSignalBlockEntity extends SmartBlockEntity implements Tr
 	/** Which head this is. It is the block it stands in, so it never changes and is never saved. */
 	public SignalType signalType() {
 		return ((MultiAspectSignalBlock) getBlockState().getBlock()).signalType();
+	}
+
+	/**
+	 * Called when the head is placed and every time its chunk loads, so the server knows which head stands
+	 * here once the chunk is unloaded again. See {@link SignalHeads}.
+	 */
+	@Override
+	public void onLoad() {
+		super.onLoad();
+		if (level instanceof ServerLevel serverLevel)
+			SignalHeads.record(serverLevel, worldPosition, signalType());
 	}
 
 	@Override
