@@ -67,25 +67,25 @@ public class CurveTargetingTests {
 	 */
 	private static final String BATCH = "curveTargeting";
 
-	private static final float EAST = 270.0F;
+	static final float EAST = 270.0F;
 	private static final float WEST = 90.0F;
 
 	/** How long Create takes to build a graph out of anchors that have just been linked. */
-	private static final int BUILD_TICKS = 8;
+	static final int BUILD_TICKS = 8;
 
 	/** How long a signal takes to find its edge once it has been told where to stand. */
-	private static final int SIGNAL_TICKS = 6;
+	static final int SIGNAL_TICKS = 6;
 
 	/** Long enough for a head to have worked out its aspect, which it does every ten ticks. */
-	private static final int OPEN_LINE_TICKS = 30;
+	static final int OPEN_LINE_TICKS = 30;
 
 	private static final double SAME = 1.0E-3;
 
-	private static BlockPos at(int x) {
+	static BlockPos at(int x) {
 		return new BlockPos(x, 2, 16);
 	}
 
-	private static BlockPos[] along(int... xs) {
+	static BlockPos[] along(int... xs) {
 		BlockPos[] positions = new BlockPos[xs.length];
 		for (int i = 0; i < xs.length; i++)
 			positions[i] = at(xs[i]);
@@ -93,7 +93,7 @@ public class CurveTargetingTests {
 	}
 
 	/** A route through the given positions in order, every anchor pointed along {@code yaw}. */
-	private static AngledTrackAnchorBlockEntity[] route(GameTestHelper helper, float yaw, BlockPos... positions) {
+	static AngledTrackAnchorBlockEntity[] route(GameTestHelper helper, float yaw, BlockPos... positions) {
 		AngledTrackAnchorBlockEntity[] anchors = new AngledTrackAnchorBlockEntity[positions.length];
 		for (int i = 0; i < positions.length; i++) {
 			helper.setBlock(positions[i], CTNRegistry.ANGLED_TRACK_ANCHOR.get()
@@ -542,7 +542,7 @@ public class CurveTargetingTests {
 		return signalOnCurve(helper, relative, holder, farEnd, segment, front, CTNRegistry.MULTI_ASPECT_SIGNAL.get());
 	}
 
-	private static MultiAspectSignalBlockEntity signalOnCurve(GameTestHelper helper, BlockPos relative,
+	static MultiAspectSignalBlockEntity signalOnCurve(GameTestHelper helper, BlockPos relative,
 		AngledTrackAnchorBlockEntity holder, BlockPos farEnd, int segment, boolean front, Block block) {
 		helper.setBlock(relative, block.defaultBlockState());
 		helper.assertTrue(helper.getBlockEntity(relative) instanceof MultiAspectSignalBlockEntity,

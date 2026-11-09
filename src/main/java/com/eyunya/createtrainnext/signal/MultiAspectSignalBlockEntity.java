@@ -7,7 +7,6 @@ import org.jetbrains.annotations.Nullable;
 import com.eyunya.createtrainnext.CTNRegistry;
 import com.eyunya.createtrainnext.signal.MultiAspectSignalBlock.HorizontalOffset;
 import com.mojang.blaze3d.vertex.PoseStack;
-import com.simibubi.create.Create;
 import com.simibubi.create.api.contraption.transformable.TransformableBlockEntity;
 import com.simibubi.create.content.contraptions.StructureTransform;
 import com.simibubi.create.content.trains.graph.EdgePointType;
@@ -30,6 +29,7 @@ import net.minecraft.core.Direction.Axis;
 import net.minecraft.core.HolderLookup;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.network.chat.Component;
+import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.level.LevelAccessor;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.entity.BlockEntity;
@@ -119,6 +119,17 @@ public class MultiAspectSignalBlockEntity extends SmartBlockEntity implements Tr
 		return ((MultiAspectSignalBlock) getBlockState().getBlock()).signalType();
 	}
 
+	/**
+	 * Called when the head is placed and every time its chunk loads, so the server knows which head stands
+	 * here once the chunk is unloaded again. See {@link SignalHeads}.
+	 */
+	@Override
+	public void onLoad() {
+		super.onLoad();
+		if (level instanceof ServerLevel serverLevel)
+			SignalHeads.record(serverLevel, worldPosition, signalType());
+	}
+
 	@Override
 	public void lazyTick() {
 		super.lazyTick();
@@ -142,10 +153,12 @@ public class MultiAspectSignalBlockEntity extends SmartBlockEntity implements Tr
 	 * train is held to are one thing, without waiting for the next lazy tick to have caught up with a
 	 * train that has just reserved the block ahead.
 	 *
+	 * @param graph the graph the signal is in, or null to have the head find it.
 	 * @param side which side of the signal this head is on, which is the one the train meets it from.
 	 */
-	public SignalAspect aspectSeenFrom(TrackGraph graph, SignalBoundary signal, boolean side) {
-		SignalAspect resolved = AspectResolver.resolve(graph, signal, side, signalType().ladder());
+	public SignalAspect aspectSeenFrom(@Nullable TrackGraph graph, SignalBoundary signal, boolean side) {
+		SignalAspect resolved = SignalHeads.resolve(graph != null ? graph : findGraph(signal), signal, side,
+			signalType());
 		if (resolved != aspect) {
 			aspect = resolved;
 			notifyUpdate();
@@ -162,11 +175,7 @@ public class MultiAspectSignalBlockEntity extends SmartBlockEntity implements Tr
 		if (side == null)
 			return SignalAspect.STOP;
 
-		TrackGraph graph = findGraph(signal);
-		if (graph == null)
-			return SignalAspect.STOP;
-
-		return AspectResolver.resolve(graph, signal, side, signalType().ladder());
+		return SignalHeads.resolve(findGraph(signal), signal, side, signalType());
 	}
 
 	/**
@@ -189,12 +198,7 @@ public class MultiAspectSignalBlockEntity extends SmartBlockEntity implements Tr
 		if (cachedGraph != null && cachedGraph.getPoint(EdgePointType.SIGNAL, signal.getId()) == signal)
 			return cachedGraph;
 
-		cachedGraph = null;
-		for (TrackGraph graph : Create.RAILWAYS.trackNetworks.values())
-			if (graph.getPoint(EdgePointType.SIGNAL, signal.getId()) == signal) {
-				cachedGraph = graph;
-				break;
-			}
+		cachedGraph = SignalHeads.graphOf(signal);
 		return cachedGraph;
 	}
 

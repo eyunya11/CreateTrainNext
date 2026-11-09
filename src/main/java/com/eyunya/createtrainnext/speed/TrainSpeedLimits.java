@@ -232,7 +232,7 @@ public final class TrainSpeedLimits {
 				.getSecond()))
 				found.add(new Ahead(distance, true, point.isRelease() ? Ahead.LIFTS : point.getLimit()));
 			else if (server != null && passed.getFirst()instanceof SignalBoundary boundary) {
-				int shown = SignalSpeeds.shownTo(server, boundary, passed.getSecond()
+				int shown = SignalSpeeds.shownTo(server, graph, boundary, passed.getSecond()
 					.getSecond());
 				if (shown != SignalSpeeds.UNKNOWN)
 					found.add(new Ahead(distance, false, shown));
