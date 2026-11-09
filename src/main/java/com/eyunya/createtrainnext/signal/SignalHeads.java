@@ -42,7 +42,8 @@ import net.minecraft.world.level.saveddata.SavedData;
  * <p>The table is saved with the overworld, as Create's railway data is, keyed by dimension and position.
  * Everything here is to be called on the server thread.
  *
- * <p>{@link #typeAt} is public for other mods, which may call it by reflection.
+ * <p>{@link #typeAt} and {@link #aspectOf} are for other mods too, which may call them by reflection; keep
+ * their names and parameters as they are.
  */
 public final class SignalHeads {
 
@@ -62,6 +63,41 @@ public final class SignalHeads {
 			return level.getBlockState(pos)
 				.getBlock() instanceof MultiAspectSignalBlock head ? head.signalType() : null;
 		return recordedType(server, dimension, pos);
+	}
+
+	/**
+	 * What the heads on one side of a signal show now, loaded or not: the strictest of them if there are
+	 * several, or null if the side has no head whose type is known (a signal of Create's own, or a head the
+	 * server has never seen loaded).
+	 *
+	 * <p>Worked out afresh from the graph, as a head does every half second, and nothing is changed: a
+	 * loaded head's lamps are left to catch up on their own. The answer is an enum constant of
+	 * {@link SignalAspect}, from {@code "STOP"}, the strictest, to {@code "HIGH_SPEED_PROCEED"}; its
+	 * {@code name()} serves a caller without this mod on its class path.
+	 *
+	 * @param side the side whose heads to read, as Create's {@code SignalBoundary#isPrimary(TrackNode)}
+	 *        gives it for the node a train is heading for.
+	 */
+	@Nullable
+	public static SignalAspect aspectOf(MinecraftServer server, SignalBoundary signal, boolean side) {
+		ResourceKey<Level> dimension = signal.edgeLocation.getFirst().dimension;
+		TrackGraph graph = null;
+		boolean graphLooked = false;
+		SignalAspect strictest = null;
+		for (BlockPos pos : signal.blockEntities.get(side)
+			.keySet()) {
+			SignalType type = typeAt(server, dimension, pos);
+			if (type == null)
+				continue;
+			if (!graphLooked) {
+				graph = graphOf(signal);
+				graphLooked = true;
+			}
+			SignalAspect aspect = resolve(graph, signal, side, type);
+			if (strictest == null || aspect.ordinal() < strictest.ordinal())
+				strictest = aspect;
+		}
+		return strictest;
 	}
 
 	/** What the table says is at a position, without looking at the block even if it is loaded. */
