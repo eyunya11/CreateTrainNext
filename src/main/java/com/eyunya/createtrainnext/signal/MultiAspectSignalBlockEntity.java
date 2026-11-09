@@ -153,10 +153,12 @@ public class MultiAspectSignalBlockEntity extends SmartBlockEntity implements Tr
 	 * train is held to are one thing, without waiting for the next lazy tick to have caught up with a
 	 * train that has just reserved the block ahead.
 	 *
+	 * @param graph the graph the signal is in, or null to have the head find it.
 	 * @param side which side of the signal this head is on, which is the one the train meets it from.
 	 */
-	public SignalAspect aspectSeenFrom(TrackGraph graph, SignalBoundary signal, boolean side) {
-		SignalAspect resolved = AspectResolver.resolve(graph, signal, side, signalType().ladder());
+	public SignalAspect aspectSeenFrom(@Nullable TrackGraph graph, SignalBoundary signal, boolean side) {
+		SignalAspect resolved = SignalHeads.resolve(graph != null ? graph : findGraph(signal), signal, side,
+			signalType());
 		if (resolved != aspect) {
 			aspect = resolved;
 			notifyUpdate();

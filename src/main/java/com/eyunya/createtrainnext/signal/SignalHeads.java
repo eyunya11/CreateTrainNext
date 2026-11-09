@@ -1,7 +1,9 @@
 package com.eyunya.createtrainnext.signal;
 
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Map;
+import java.util.Set;
 
 import org.jetbrains.annotations.Nullable;
 
@@ -36,8 +38,14 @@ import net.minecraft.world.level.saveddata.SavedData;
  * placed or loaded, and is taken out when its block is broken or replaced by another. A chunk being unloaded
  * leaves it in; that is the whole point of the table.
  *
- * <p>A head placed in a world from before the table, in a chunk that has not been loaded since, is not in it,
- * and is still not known until it is loaded once.
+ * <p>A signal of Create's own on the same boundary says nothing, and lifts a limit, loaded or not; to tell it
+ * from a head that is simply not known, it is written in too, as "not a head", the first time it ticks
+ * ({@code SignalBlockEntityMixin}). Nothing takes that out: a Create signal that is broken leaves its
+ * boundary's records, which are the only positions the table is asked about, and a head put in its place
+ * writes itself over it.
+ *
+ * <p>A signal placed in a world from before the table, in a chunk that has not been loaded since, is not in
+ * it, and is still not known until it is loaded once.
  *
  * <p>The table is saved with the overworld, as Create's railway data is, keyed by dimension and position.
  * Everything here is to be called on the server thread.
@@ -130,6 +138,21 @@ public final class SignalHeads {
 		return null;
 	}
 
+	/**
+	 * Whether the table says a signal that is not a head of this mod's — one of Create's own — stands at a
+	 * position. Such a signal says nothing to a passing train.
+	 */
+	public static boolean recordedOther(MinecraftServer server, ResourceKey<Level> dimension, BlockPos pos) {
+		return Data.get(server)
+			.isOther(GlobalPos.of(dimension, pos));
+	}
+
+	/** Writes a signal that is not a head of this mod's into the table: done by Create's signals as they tick. */
+	public static void recordOther(ServerLevel level, BlockPos pos) {
+		Data.get(level.getServer())
+			.putOther(GlobalPos.of(level.dimension(), pos.immutable()));
+	}
+
 	/** Writes a head into the table: done by the head as it is placed or loaded. */
 	public static void record(ServerLevel level, BlockPos pos, SignalType type) {
 		Data.get(level.getServer())
@@ -150,8 +173,10 @@ public final class SignalHeads {
 		private static final String TAG_DIMENSION = "Dimension";
 		private static final String TAG_POS = "Pos";
 		private static final String TAG_TYPE = "Type";
+		private static final String TAG_OTHERS = "Others";
 
 		private final Map<GlobalPos, SignalType> heads = new HashMap<>();
+		private final Set<GlobalPos> others = new HashSet<>();
 
 		static Data get(MinecraftServer server) {
 			return server.overworld()
@@ -164,15 +189,27 @@ public final class SignalHeads {
 			return heads.get(pos);
 		}
 
+		boolean isOther(GlobalPos pos) {
+			return others.contains(pos);
+		}
+
 		void put(GlobalPos pos, SignalType type) {
 			// A head is written in every time its chunk loads, which is almost always to say what is
 			// there already, and that is not worth saving the file for.
-			if (heads.put(pos, type) != type)
+			boolean changed = heads.put(pos, type) != type;
+			if (others.remove(pos) || changed)
+				setDirty();
+		}
+
+		void putOther(GlobalPos pos) {
+			boolean changed = others.add(pos);
+			if (heads.remove(pos) != null || changed)
 				setDirty();
 		}
 
 		void remove(GlobalPos pos) {
-			if (heads.remove(pos) != null)
+			boolean changed = heads.remove(pos) != null;
+			if (others.remove(pos) || changed)
 				setDirty();
 		}
 
@@ -180,33 +217,52 @@ public final class SignalHeads {
 		public CompoundTag save(CompoundTag tag, HolderLookup.Provider registries) {
 			ListTag list = new ListTag();
 			heads.forEach((pos, type) -> {
-				CompoundTag entry = new CompoundTag();
-				entry.putString(TAG_DIMENSION, pos.dimension()
-					.location()
-					.toString());
-				entry.putLong(TAG_POS, pos.pos()
-					.asLong());
+				CompoundTag entry = writePos(pos);
 				entry.putString(TAG_TYPE, type.name());
 				list.add(entry);
 			});
 			tag.put(TAG_HEADS, list);
+			ListTag otherList = new ListTag();
+			others.forEach(pos -> otherList.add(writePos(pos)));
+			tag.put(TAG_OTHERS, otherList);
 			return tag;
+		}
+
+		private static CompoundTag writePos(GlobalPos pos) {
+			CompoundTag entry = new CompoundTag();
+			entry.putString(TAG_DIMENSION, pos.dimension()
+				.location()
+				.toString());
+			entry.putLong(TAG_POS, pos.pos()
+				.asLong());
+			return entry;
 		}
 
 		public static Data load(CompoundTag tag, HolderLookup.Provider registries) {
 			Data data = new Data();
+			// An entry that cannot be read is dropped rather than failing the whole table: the signal writes
+			// itself in again the next time it loads.
 			for (Tag each : tag.getList(TAG_HEADS, Tag.TAG_COMPOUND)) {
 				CompoundTag entry = (CompoundTag) each;
-				ResourceLocation dimension = ResourceLocation.tryParse(entry.getString(TAG_DIMENSION));
+				GlobalPos pos = readPos(entry);
 				SignalType type = typeNamed(entry.getString(TAG_TYPE));
-				// An entry that cannot be read is dropped rather than failing the whole table: the head
-				// writes itself in again the next time it loads.
-				if (dimension == null || type == null)
-					continue;
-				data.heads.put(GlobalPos.of(ResourceKey.create(Registries.DIMENSION, dimension),
-					BlockPos.of(entry.getLong(TAG_POS))), type);
+				if (pos != null && type != null)
+					data.heads.put(pos, type);
+			}
+			for (Tag each : tag.getList(TAG_OTHERS, Tag.TAG_COMPOUND)) {
+				GlobalPos pos = readPos((CompoundTag) each);
+				if (pos != null)
+					data.others.add(pos);
 			}
 			return data;
+		}
+
+		@Nullable
+		private static GlobalPos readPos(CompoundTag entry) {
+			ResourceLocation dimension = ResourceLocation.tryParse(entry.getString(TAG_DIMENSION));
+			if (dimension == null)
+				return null;
+			return GlobalPos.of(ResourceKey.create(Registries.DIMENSION, dimension), BlockPos.of(entry.getLong(TAG_POS)));
 		}
 
 		@Nullable

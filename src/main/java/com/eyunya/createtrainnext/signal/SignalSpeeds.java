@@ -58,12 +58,13 @@ public final class SignalSpeeds {
 	 * there are several. Signals without a head of this mod's — Create's own — say nothing, so they
 	 * lift a limit like a green one does.
 	 *
-	 * <p>A head in a chunk that is not loaded is asked all the same: what it shows comes from the graph,
-	 * and which head it is from {@link SignalHeads}, so a train is held the same whether or not anyone is
-	 * near. Only a head the server has never seen loaded cannot be asked, and if such heads are all there
-	 * is, the answer is that it is not known and the train's limit stays as it was.
+	 * <p>A signal in a chunk that is not loaded is asked all the same: what a head shows comes from the
+	 * graph, and which head it is, or that it is one of Create's, from {@link SignalHeads}, so a train is
+	 * held the same whether or not anyone is near. Only a signal the server has never seen loaded cannot be
+	 * asked, and if such signals are all there is, the answer is that it is not known and the train's limit
+	 * stays as it was.
 	 *
-	 * @param graph the graph the train is on, which the signal is in.
+	 * @param graph the graph the train is on, which the signal is in, or null to have it looked for.
 	 * @return a speed in km/h, {@link #NONE} or {@link #UNKNOWN}.
 	 */
 	public static int seenFrom(MinecraftServer server, @Nullable TrackGraph graph, SignalBoundary signal,
@@ -73,7 +74,8 @@ public final class SignalSpeeds {
 
 	/**
 	 * What a train still some way off will meet at this signal: what the lamps show now, as they were
-	 * last worked out, or for a head in a chunk that is not loaded, as they would be worked out now. A
+	 * last worked out, or for a head whose lamps are not being kept up (its chunk is not loaded, or is
+	 * loaded without ticking), as they would be worked out now. A
 	 * signal at stop says nothing here, since it is the train being stopped by it, and not a speed, that
 	 * is going to happen.
 	 *
@@ -106,18 +108,28 @@ public final class SignalSpeeds {
 		for (BlockPos pos : signal.blockEntities.get(side)
 			.keySet()) {
 			SignalType type;
-			SignalAspect aspect;
+			SignalAspect aspect = null;
 			if (level.isLoaded(pos)) {
 				if (!(level.getBlockEntity(pos) instanceof MultiAspectSignalBlockEntity head))
 					continue;
 				type = head.signalType();
-				aspect = fresh ? head.aspectSeenFrom(graph, signal, side) : head.getAspect();
+				if (fresh)
+					aspect = head.aspectSeenFrom(graph, signal, side);
+				else if (level.shouldTickBlocksAt(pos))
+					aspect = head.getAspect();
+				// A head in a chunk that is loaded but not ticking, at the edge of what a player keeps
+				// loaded, does not work its lamps out, and what they show may be from long ago; it is
+				// worked out here instead, as one that is not loaded is.
 			} else {
 				type = SignalHeads.recordedType(server, dimension, pos);
 				if (type == null) {
-					unknown = true;
+					// One of Create's own says nothing, as it does when loaded.
+					if (!SignalHeads.recordedOther(server, dimension, pos))
+						unknown = true;
 					continue;
 				}
+			}
+			if (aspect == null) {
 				if (graph == null)
 					graph = SignalHeads.graphOf(signal);
 				aspect = SignalHeads.resolve(graph, signal, side, type);
