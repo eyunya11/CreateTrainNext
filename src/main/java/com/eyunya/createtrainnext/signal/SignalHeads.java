@@ -6,6 +6,10 @@ import java.util.Map;
 import org.jetbrains.annotations.Nullable;
 
 import com.eyunya.createtrainnext.CreateTrainNext;
+import com.simibubi.create.Create;
+import com.simibubi.create.content.trains.graph.EdgePointType;
+import com.simibubi.create.content.trains.graph.TrackGraph;
+import com.simibubi.create.content.trains.signal.SignalBoundary;
 
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.GlobalPos;
@@ -65,6 +69,29 @@ public final class SignalHeads {
 	public static SignalType recordedType(MinecraftServer server, ResourceKey<Level> dimension, BlockPos pos) {
 		return Data.get(server)
 			.type(GlobalPos.of(dimension, pos));
+	}
+
+	/**
+	 * What a head of {@code type} on {@code side} of {@code signal} shows, worked out now from the graph, as
+	 * the head itself would: 停止 where there is no graph to count blocks in.
+	 */
+	public static SignalAspect resolve(@Nullable TrackGraph graph, SignalBoundary signal, boolean side,
+		SignalType type) {
+		if (graph == null)
+			return SignalAspect.STOP;
+		return AspectResolver.resolve(graph, signal, side, type.ladder());
+	}
+
+	/**
+	 * The graph a signal is in, or null if none holds it. Every network is looked through, so a caller that
+	 * asks often should keep the answer and check it with {@code getPoint} first.
+	 */
+	@Nullable
+	public static TrackGraph graphOf(SignalBoundary signal) {
+		for (TrackGraph graph : Create.RAILWAYS.trackNetworks.values())
+			if (graph.getPoint(EdgePointType.SIGNAL, signal.getId()) == signal)
+				return graph;
+		return null;
 	}
 
 	/** Writes a head into the table: done by the head as it is placed or loaded. */
